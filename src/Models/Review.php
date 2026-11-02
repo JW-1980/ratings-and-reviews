@@ -2,6 +2,7 @@
 
 namespace RatingsAndReviews\Models;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use RatingsAndReviews\Concerns\HasComments;
+use RatingsAndReviews\Contracts\Commentable;
 use RatingsAndReviews\Contracts\Moderatable;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Contracts\Votable;
@@ -55,8 +58,10 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property Carbon|null $deleted_at
  * @property Carbon|null $erasure_withheld_at set while the author's erasure request is pending (hidden everywhere)
  */
-class Review extends Model implements Moderatable, Votable
+class Review extends Model implements Commentable, Moderatable, Votable
 {
+    use HasComments;
+
     /** @use HasFactory<ReviewFactory> */
     use HasFactory;
 
@@ -221,6 +226,49 @@ class Review extends Model implements Moderatable, Votable
     public function supportsDimension(VoteDimension $dimension): bool
     {
         return array_key_exists($dimension->value, $this->voteCounterColumns());
+    }
+
+    /** Whether replies to reviews are switched on (`reviews.replies.enabled`). */
+    public static function repliesEnabled(): bool
+    {
+        return (bool) config('ratings-and-reviews.reviews.replies.enabled', false);
+    }
+
+    public function commentSectionKey(): string
+    {
+        return (string) config('ratings-and-reviews.reviews.replies.section', 'review_replies');
+    }
+
+    /** Replies are taken on a public review whose subject still takes reviews. */
+    public function acceptsComments(): bool
+    {
+        $subject = $this->reviewable;
+
+        return self::repliesEnabled() && $this->isPubliclyVisible() && $subject instanceof Reviewable && $subject->acceptsReviews();
+    }
+
+    /** The replies are visible with the review: a public review of a subject the viewer may see. */
+    public function commentsVisibleTo(?Authenticatable $viewer): bool
+    {
+        $subject = $this->reviewable;
+
+        return self::repliesEnabled() && $this->isPubliclyVisible() && $subject instanceof Reviewable && $subject->reviewsVisibleTo($viewer);
+    }
+
+    public function discussionTitle(): string
+    {
+        $subject = $this->reviewable;
+        $title = trim((string) $this->title);
+
+        return $title !== '' ? $title : ($subject instanceof Reviewable ? $subject->reviewSubjectTitle() : '');
+    }
+
+    public function discussionUrl(): ?string
+    {
+        $subject = $this->reviewable;
+        $url = $subject instanceof Reviewable ? $subject->reviewSubjectUrl() : null;
+
+        return $url === null ? null : $url.'#rr-review-'.$this->id;
     }
 
     public function moderationAuthorId(): ?int

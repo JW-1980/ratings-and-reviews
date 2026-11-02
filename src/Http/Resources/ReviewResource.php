@@ -64,9 +64,11 @@ class ReviewResource extends JsonResource
             'quality_score' => $review->quality_score,
             'photos' => $this->photos($own),
             'helpful_count' => $review->helpful_count,
+            // Replies to the review (reviews.replies): null when switched off.
+            'replies_count' => Review::repliesEnabled() ? (int) ($review->getAttribute('replies_count') ?? 0) : null,
             'viewer_votes' => (object) $this->viewerVotes,
             'is_own' => $own,
-            'can' => ['edit' => $own, 'delete' => $own],
+            'can' => ['edit' => $own, 'delete' => $own, 'reply' => Review::repliesEnabled() && $review->acceptsComments()],
             'created_at' => $review->created_at?->toIso8601String(),
             'edited_at' => $review->edited_at?->toIso8601String(),
         ];

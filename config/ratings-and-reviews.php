@@ -132,6 +132,9 @@ return [
 
     'sections' => [
         // 'product' => ['max_depth' => 3, 'vote_dimensions' => ['agreement', 'helpfulness', 'needs_source']],
+
+        // Replies to reviews (reviews.replies): short threads, one reply level.
+        'review_replies' => ['max_depth' => 1, 'vote_dimensions' => ['helpfulness'], 'digest_threshold' => 0, 'highlight_top_comment' => false],
     ],
 
     /** Seconds the merged settings of a section stay cached. */
@@ -206,6 +209,17 @@ return [
         'max_title_length' => 150,
         'max_body_length' => 10000,
         'priors_cache_seconds' => 21600,
+
+        /*
+        | Replies to reviews: a review is a Commentable subject (morph alias rr_review)
+        | whose discussion uses the comment endpoints (subjects/rr_review/{id}/comments)
+        | and the settings of `section`. Off by default; the review resource then has
+        | `replies_count` null. Replies are possible on public reviews of open subjects.
+        */
+        'replies' => [
+            'enabled' => false,
+            'section' => 'review_replies',
+        ],
 
         /** Photos a review can carry (uploads of the author, POST uploads); 0 switches photos off. */
         'max_photos' => 4,

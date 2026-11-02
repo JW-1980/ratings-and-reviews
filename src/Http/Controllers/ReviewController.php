@@ -67,6 +67,7 @@ class ReviewController extends Controller
         $ratingFilter = filter_var($request->query('rating'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => $scale]]);
 
         $query = Review::query()->forSubject($subject)->approved()->with(['topicRatings', 'compared', 'photos']);
+        $this->withReplyCount($query);
 
         if ($ratingFilter !== false && $ratingFilter !== null) {
             // The rating on the section's scale, as the histogram buckets it.
@@ -86,7 +87,8 @@ class ReviewController extends Controller
         $items = collect($page->items());
 
         $viewerId = $this->userId($viewer);
-        $own = $viewerId === null ? null : Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(['topicRatings', 'compared', 'photos'])->first();
+        $own = $viewerId === null ? null : $this->withReplyCount(Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(['topicRatings', 'compared', 'photos']))->first();
+        $items->concat(array_filter([$own]))->each(fn (Review $review) => $review->setRelation('reviewable', $subject));
         $profiles = $this->authors->resolve($items->pluck('user_id')->push($own?->user_id)->filter()->map(fn ($id): int => (int) $id)->unique()->values()->all());
         $choices = $this->votes->viewerChoices($items->concat(array_filter([$own]))->unique(fn (Review $review): int => $review->id)->values(), new VoterKeys($this->identity, $request, $viewer));
 
@@ -122,7 +124,9 @@ class ReviewController extends Controller
                     'want_to_try' => app(WantToTryList::class)->isEnabled(),
                     'product_cards' => app(CardResolver::class)->isEnabled(),
                     'tone_check' => $this->tone->isEnabled(),
+                    'review_replies' => Review::repliesEnabled(),
                 ],
+                'review_replies_section' => Review::repliesEnabled() ? (new Review)->commentSectionKey() : null,
                 'accepts_reviews' => $settings->enabled && $subject->acceptsReviews(),
             ],
         ]);
@@ -190,6 +194,11 @@ class ReviewController extends Controller
     private function saved(Request $request, Review $review, int $status): JsonResponse
     {
         $review->load(['topicRatings', 'compared', 'photos']);
+
+        if (Review::repliesEnabled()) {
+            $review->loadCount(['rrComments as replies_count' => fn (Builder $replies) => $replies->published()->withContent()]);
+        }
+
         $viewerId = $review->user_id;
         $profile = $this->authors->resolve([$viewerId])[$viewerId] ?? null;
         $subject = $review->reviewable;
@@ -250,6 +259,17 @@ class ReviewController extends Controller
         }
 
         return $review;
+    }
+
+    /**
+     * Adds `replies_count` (the public replies) when replies to reviews are on.
+     *
+     * @param  Builder<Review>  $query
+     * @return Builder<Review>
+     */
+    private function withReplyCount(Builder $query): Builder
+    {
+        return $query->when(Review::repliesEnabled(), fn (Builder $query) => $query->withCount(['rrComments as replies_count' => fn (Builder $replies) => $replies->published()->withContent()]));
     }
 
     /**
