@@ -104,6 +104,7 @@ return [
 
     'upload_quota' => 'Je hebt de limiet van :count afbeeldingen per dag bereikt. Probeer het later opnieuw.',
     'upload_unreadable' => 'Dit bestand kon niet als afbeelding worden gelezen.',
+    'upload_taken' => 'Dit bestand staat op naam van een ander lid.',
     'upload_failed' => 'De afbeelding kon niet worden opgeslagen. Probeer het opnieuw.',
     'upload_too_large_to_process' => 'Deze afbeelding is te groot om te verwerken. Kies een kleinere afbeelding.',
     'photos_too_many' => '{1} Je kunt 1 foto toevoegen.|[0,*] Je kunt maximaal :max foto\'s toevoegen.',

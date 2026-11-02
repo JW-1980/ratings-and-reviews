@@ -104,6 +104,7 @@ return [
 
     'upload_quota' => 'You have reached the limit of :count images per day. Please try again later.',
     'upload_unreadable' => 'This file could not be read as an image.',
+    'upload_taken' => 'This file is registered for another member.',
     'upload_failed' => 'The image could not be saved. Please try again.',
     'upload_too_large_to_process' => 'This image is too large to process. Please choose a smaller image.',
     'photos_too_many' => '{1} You can add 1 photo.|[0,*] You can add up to :max photos.',

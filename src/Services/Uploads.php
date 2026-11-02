@@ -86,6 +86,108 @@ class Uploads
         }
     }
 
+    /**
+     * Registers an image that is already stored (a host importer bringing over legacy
+     * content) as an upload of the user, optionally attached to the imported review or
+     * comment, and returns it; put `$upload->url()` in the imported HTML so the image keeps
+     * showing and is served, released and erased like any other upload.
+     *
+     * - The file must exist on `$disk` and be an image of `uploads.mime_types` (no SVG). It
+     *   is not re-encoded (no EXIF stripping: it was public before).
+     * - `$copy` false: the row points at the file where it is, so with `uploads.visibility`
+     *   `public` it must be reachable under `uploads.url_prefix` + path (the package's
+     *   public disk). `$copy` true: the bytes are copied into `uploads.disk`/`directory`
+     *   under a new name and the original is left alone.
+     * - Idempotent per path: registering a path again returns the same row (re-attached
+     *   when `$attachTo` is given); a path registered for another user is refused.
+     * - `$role` is Upload::ROLE_INLINE (an image in the text) or Upload::ROLE_PHOTO (a
+     *   review photo, ordered by `$position`).
+     *
+     * @throws ValidationException
+     */
+    public function registerExisting(int $userId, string $disk, string $path, ?Model $attachTo = null, string $role = Upload::ROLE_INLINE, ?string $alt = null, int $position = 0, bool $copy = false): Upload
+    {
+        $path = ltrim($path, '/');
+        $storage = Storage::disk($disk);
+
+        if ($path === '' || str_contains($path, '..') || ! $storage->exists($path)) {
+            throw ValidationException::withMessages(['path' => __('ratings-and-reviews::messages.upload_unreadable')]);
+        }
+
+        if (! in_array($role, [Upload::ROLE_INLINE, Upload::ROLE_PHOTO], true)) {
+            throw ValidationException::withMessages(['role' => __('ratings-and-reviews::messages.upload_failed')]);
+        }
+
+        if (! $copy && ($existing = Upload::query()->where('path', $path)->first()) !== null) {
+            return $this->reuseRegistered($existing, $userId, $attachTo, $role, $position);
+        }
+
+        $bytes = (string) $storage->get($path);
+        $info = @getimagesizefromstring($bytes);
+        $mime = is_array($info) ? (string) $info['mime'] : '';
+        $allowed = array_values(array_diff((array) config('ratings-and-reviews.uploads.mime_types', ['image/jpeg', 'image/png', 'image/webp', 'image/gif']), ['image/svg+xml']));
+
+        if ($info === false || ! in_array($mime, $allowed, true)) {
+            throw ValidationException::withMessages(['path' => __('ratings-and-reviews::messages.upload_unreadable')]);
+        }
+
+        $targetDisk = $disk;
+        $targetPath = $path;
+
+        if ($copy) {
+            // A name derived from the source, so importing the same file twice finds the first copy.
+            $targetDisk = $this->diskName();
+            $directory = trim((string) config('ratings-and-reviews.uploads.directory', 'rr-uploads'), '/');
+            $targetPath = ($directory === '' ? '' : $directory.'/').'imported/'.hash('sha256', $disk.'|'.$path).'.'.$this->extension($mime);
+
+            if (($existing = Upload::query()->where('path', $targetPath)->first()) !== null) {
+                return $this->reuseRegistered($existing, $userId, $attachTo, $role, $position);
+            }
+
+            if (! Storage::disk($targetDisk)->put($targetPath, $bytes, ['visibility' => Upload::servedPrivately() ? 'private' : 'public'])) {
+                throw ValidationException::withMessages(['path' => __('ratings-and-reviews::messages.upload_failed')]);
+            }
+        }
+
+        $upload = Upload::query()->create([
+            'user_id' => $userId,
+            'disk' => $targetDisk,
+            'path' => $targetPath,
+            'mime_type' => $mime,
+            'size' => strlen($bytes),
+            'width' => min((int) $info[0], 65535),
+            'height' => min((int) $info[1], 65535),
+            'alt_text' => $alt === null || trim($alt) === '' ? null : trim(strip_tags($alt)),
+        ]);
+
+        return $attachTo === null ? $upload : $this->attachRegistered($upload, $attachTo, $role, $position);
+    }
+
+    /**
+     * @throws ValidationException when the path was registered for another user
+     */
+    private function reuseRegistered(Upload $existing, int $userId, ?Model $attachTo, string $role, int $position): Upload
+    {
+        if ($existing->user_id !== $userId) {
+            throw ValidationException::withMessages(['path' => __('ratings-and-reviews::messages.upload_taken')]);
+        }
+
+        return $attachTo === null ? $existing : $this->attachRegistered($existing, $attachTo, $role, $position);
+    }
+
+    private function attachRegistered(Upload $upload, Model $content, string $role, int $position): Upload
+    {
+        $upload->forceFill([
+            'attached_type' => $content->getMorphClass(),
+            'attached_id' => $content->getKey(),
+            'attached_at' => $upload->attached_at ?? now(),
+            'role' => $role,
+            'position' => $role === Upload::ROLE_PHOTO ? max(0, $position) : 0,
+        ])->save();
+
+        return $upload;
+    }
+
     public function dailyQuota(): int
     {
         return max(0, (int) config('ratings-and-reviews.uploads.daily_quota', 50));
