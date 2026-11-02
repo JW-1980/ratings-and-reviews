@@ -123,10 +123,26 @@ export interface Upload {
     height: number | null;
 }
 
-export interface BrandReply {
-    author: Author | null;
+/** ReviewResource `official_reply` (the host's OfficialReplyResolver). */
+export interface OfficialReply {
+    author: { name: string; url: string | null; avatarUrl: string | null };
+    /** e.g. "Brand" (host text). */
+    label: string | null;
+    /** Plain text. */
+    body: string;
+    /** The body escaped by the server, with <p> and <br>. */
     bodyHtml: string;
-    createdAt: string | null;
+    repliedAt: string | null;
+}
+
+/** GET|PUT subjects/{type}/{id}/topic-ratings (scores without a review). */
+export interface TopicRatingState {
+    /** The section's `standalone_topic_ratings`. */
+    enabled: boolean;
+    acceptsRatings: boolean;
+    topics: Array<{ id: number; name: string; scaleMax: number; count: number; average: number | null }>;
+    /** topic id => the viewer's score; null for a guest. */
+    own: Record<string, number> | null;
 }
 
 export interface Review {
@@ -148,12 +164,14 @@ export interface Review {
     qualityScore: number | null;
     /** Up to `reviews.max_photos`; on a review that is not approved only its author gets them. */
     photos: Photo[];
-    /** Not sent by the API (yet); hosts can fill the `brand-reply` slot instead. */
-    brandReply: BrandReply | null;
+    /** Null without one, or when the host has no OfficialReplyResolver (the `brand-reply` slot overrides it). */
+    officialReply: OfficialReply | null;
     helpfulCount: number;
+    /** Public replies (`reviews.replies`); null when replies to reviews are off. */
+    repliesCount: number | null;
     viewerVotes: Record<string, number>;
     isOwn: boolean;
-    can: { edit: boolean; delete: boolean };
+    can: { edit: boolean; delete: boolean; reply: boolean };
     createdAt: string | null;
     editedAt: string | null;
     isEdited: boolean;
@@ -175,7 +193,7 @@ export interface ReviewPage {
         sorts: Option[];
         scaleMax: number;
         ownReview: Review | null;
-        filters: { rating: number | null; facets: Record<string, string> };
+        filters: { rating: number | null; facets: Record<string, string>; withPhotos: boolean };
         facets: FacetGroup[];
         comparisons: Option[];
         editor: Trust;
@@ -186,7 +204,9 @@ export interface ReviewPage {
         /** `review_min_length`: minimum characters of the review text. */
         minLength: number;
         form: ReviewFormLimits;
-        features: { priceAtReview: boolean; wantToTry: boolean; productCards: boolean; toneCheck: boolean };
+        features: { priceAtReview: boolean; wantToTry: boolean; productCards: boolean; toneCheck: boolean; reviewReplies: boolean; officialReplies: boolean };
+        /** Section of the replies to reviews; null when they are off. */
+        reviewRepliesSection: string | null;
         acceptsReviews: boolean;
     };
 }

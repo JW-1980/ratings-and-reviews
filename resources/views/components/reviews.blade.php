@@ -2,9 +2,12 @@
     <x-rr::reviews :subject="$product" />
     Review list with sort, score and facet filters (GET, works without JavaScript), pagination,
     the viewer's own (pending) review on top, helpful votes, report, "want to try" and an
-    optional brand reply: :brand-reply="fn (array $review) => view('…', ['review' => $review])".
+    optional brand reply: :brand-reply="fn (array $review) => view('…', ['review' => $review])"
+    (without one, the official reply of the host's OfficialReplyResolver is shown). Filter
+    "with photos" (?rr_photos=1). With reviews.replies on, every review links to its replies
+    (?rr_rthread=ID), shown below the list as a discussion of the review (:login-url passes on).
 --}}
-@props(['subject', 'prefix' => 'rr_', 'brandReply' => null])
+@props(['subject', 'prefix' => 'rr_', 'brandReply' => null, 'loginUrl' => null])
 @php
     $rr = require view()->getFinder()->find('rr::support.helpers');
     $type = $subject->getMorphClass();
@@ -14,8 +17,10 @@
         'sort' => request()->query($prefix.'sort'),
         'rating' => request()->query($prefix.'rating'),
         'facet' => $facetQuery,
+        'with_photos' => request()->query($prefix.'photos') === '1' ? 1 : null,
         'page' => request()->query($prefix.'page'),
     ]);
+    $threadReviewId = filter_var(request()->query($prefix.'rthread'), FILTER_VALIDATE_INT) ?: null;
     $summary = $rr['api']('rating-summary.show', ['type' => $type, 'id' => $key])['data'] ?? [];
     $rootId = 'rr-reviews-'.\Illuminate\Support\Str::slug($type.'-'.$key);
 @endphp
@@ -27,7 +32,11 @@
         $list = array_values(array_filter($items, fn (array $review): bool => $own === null || $review['id'] !== $own['id']));
         $topicNames = collect($summary['topics'] ?? [])->pluck('name', 'id')->all();
         $features = $meta['features'] ?? [];
-        $filtered = ($meta['filters']['rating'] ?? null) !== null || ! empty((array) ($meta['filters']['facets'] ?? []));
+        $filtered = ($meta['filters']['rating'] ?? null) !== null || ! empty((array) ($meta['filters']['facets'] ?? [])) || ! empty($meta['filters']['with_photos']);
+        // The review whose replies are open: one of this subject's public reviews.
+        $threadReview = $threadReviewId !== null && ! empty($features['review_replies'])
+            ? \RatingsAndReviews\Models\Review::query()->forSubject($subject)->approved()->find($threadReviewId)
+            : null;
         $scale = (int) $meta['scale_max'];
     @endphp
     @include('rr::partials.client')
@@ -38,7 +47,7 @@
                 <span class="rr-section-header__count">{{ trans_choice('ratings-and-reviews::ui.reviews.count', $meta['total'], ['count' => $meta['total']]) }}</span>
             </h2>
             <form method="get" action="{{ request()->url() }}#{{ $rootId }}" class="rr-toolbar" data-rr-nav data-rr-autosubmit>
-                @foreach (request()->except([$prefix.'sort', $prefix.'rating', $prefix.'facet', $prefix.'page']) as $name => $value)
+                @foreach (request()->except([$prefix.'sort', $prefix.'rating', $prefix.'facet', $prefix.'photos', $prefix.'page', $prefix.'rthread']) as $name => $value)
                     @if (is_string($value))<input type="hidden" name="{{ $name }}" value="{{ $value }}">@endif
                 @endforeach
                 <label class="rr-inline-field">
@@ -69,6 +78,15 @@
                         </select>
                     </label>
                 @endforeach
+                @if (($meta['review_form']['max_photos'] ?? 0) > 0 || ! empty($meta['filters']['with_photos']))
+                    <label class="rr-inline-field">
+                        <span class="rr-label">{{ __('ratings-and-reviews::ui.reviews.filter_photos') }}</span>
+                        <select name="{{ $prefix }}photos" class="rr-select">
+                            <option value="">{{ __('ratings-and-reviews::ui.reviews.filter_photos_any') }}</option>
+                            <option value="1" @selected(! empty($meta['filters']['with_photos']))>{{ __('ratings-and-reviews::ui.reviews.filter_photos_only') }}</option>
+                        </select>
+                    </label>
+                @endif
                 <button type="submit" class="rr-button rr-button--small rr-nojs-only">{{ __('ratings-and-reviews::ui.reviews.apply') }}</button>
             </form>
         </header>
@@ -114,4 +132,13 @@
 
         @include('rr::partials.report-dialog', ['id' => $rootId.'-report'])
     </section>
+    @if ($threadReview !== null)
+        {{-- Outside the list's section, so the discussion is enhanced on its own. --}}
+        <div class="rr rr-review-thread" id="rr-review-replies-{{ $threadReview->id }}">
+            <p class="rr-review-thread__back">
+                <a href="{{ $rr['query']($prefix, ['rthread' => null]) }}#rr-review-{{ $threadReview->id }}">{{ __('ratings-and-reviews::ui.reviews.hide_replies') }}</a>
+            </p>
+            <x-rr::discussion :subject="$threadReview" prefix="rr_r" :login-url="$loginUrl" :searchable="false" />
+        </div>
+    @endif
 @endif

@@ -24,6 +24,7 @@ const { message: live, announce } = useAnnouncer();
 const items = ref<Review[]>([]);
 const meta = ref<ReviewPage['meta'] | null>(null);
 const sort = ref(props.initialSort);
+const withPhotos = ref(false);
 const loading = ref(false);
 const loadingMore = ref(false);
 const error = ref('');
@@ -37,7 +38,7 @@ const topicNames = computed(() => Object.fromEntries(props.topics.map((topic) =>
 const own = computed(() => meta.value?.ownReview ?? null);
 const list = computed(() => items.value.filter((review) => review.id !== own.value?.id));
 const hasMore = computed(() => meta.value !== null && meta.value.page < meta.value.lastPage);
-const filtered = computed(() => props.rating !== null || Object.keys(props.facets).length > 0);
+const filtered = computed(() => props.rating !== null || Object.keys(props.facets).length > 0 || withPhotos.value);
 const ratingOptions = computed(() => Array.from({ length: meta.value?.scaleMax ?? 5 }, (_, index) => (meta.value?.scaleMax ?? 5) - index));
 
 async function load(page = 1) {
@@ -47,7 +48,7 @@ async function load(page = 1) {
     error.value = '';
 
     try {
-        const result = (await rr.api.reviews(props.subject, { sort: sort.value || undefined, rating: props.rating, facets: props.facets, page }, controller.signal)) as ReviewPage;
+        const result = (await rr.api.reviews(props.subject, { sort: sort.value || undefined, rating: props.rating, facets: props.facets, withPhotos: withPhotos.value, page }, controller.signal)) as ReviewPage;
         items.value = page === 1 ? result.items : [...items.value, ...result.items.filter((item) => !items.value.some((existing) => existing.id === item.id))];
         meta.value = result.meta;
         sort.value = result.meta.sort;
@@ -64,7 +65,7 @@ async function load(page = 1) {
 }
 
 onMounted(() => load());
-watch(() => [props.rating, JSON.stringify(props.facets), props.subject.type, props.subject.id], () => load());
+watch(() => [props.rating, JSON.stringify(props.facets), withPhotos.value, props.subject.type, props.subject.id], () => load());
 
 function changeSort(value: string) {
     sort.value = value;
@@ -139,6 +140,10 @@ defineExpose({ reload: () => load() });
                         <option value="">{{ rr.t('reviews.filter_any_facet') }}</option>
                         <option v-for="option in group.values" :key="option.value" :value="option.value">{{ option.label }}</option>
                     </select>
+                </label>
+                <label v-if="(meta?.form.maxPhotos ?? 0) > 0 || withPhotos" class="rr-inline-field rr-inline-field--check">
+                    <input v-model="withPhotos" type="checkbox" class="rr-checkbox">
+                    <span class="rr-label">{{ rr.t('reviews.filter_photos') }}</span>
                 </label>
             </div>
         </header>

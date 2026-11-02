@@ -24,6 +24,7 @@ export { default as RrSearch } from './components/RrSearch.vue';
 export { default as RrSparkline } from './components/RrSparkline.vue';
 export { default as RrScaleInput } from './components/RrScaleInput.vue';
 export { default as RrRichText } from './components/RrRichText.vue';
+export { default as RrTopicRatings } from './components/RrTopicRatings.vue';
 
 export {
     ApiError,

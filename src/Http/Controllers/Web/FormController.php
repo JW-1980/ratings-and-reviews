@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RatingsAndReviews\Exceptions\ToneNudgeRequired;
 use RatingsAndReviews\Http\Controllers\CommentController;
@@ -16,6 +17,7 @@ use RatingsAndReviews\Http\Controllers\PollController;
 use RatingsAndReviews\Http\Controllers\ReportController;
 use RatingsAndReviews\Http\Controllers\ReviewController;
 use RatingsAndReviews\Http\Controllers\ReviewVoteController;
+use RatingsAndReviews\Http\Controllers\TopicRatingController;
 use RatingsAndReviews\Http\Requests\StoreUploadRequest;
 use RatingsAndReviews\Services\Uploads;
 use Symfony\Component\HttpFoundation\Response;
@@ -30,7 +32,7 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
  * API's message) and the redirect jumps to the item (`#rr-review-…`, `#rr-comment-…`).
  * `rr_form` is flashed either way, so only the component the form belongs to shows it.
  * Validation errors are flashed in a named error bag per form (`rr_review`, `rr_comment`,
- * `rr_report`, `rr_vote`) with the old input, and `rr_form` names the form they belong to, so several
+ * `rr_report`, `rr_vote`, `rr_topic_ratings`) with the old input, and `rr_form` names the form they belong to, so several
  * components on one page do not show each other's errors. The rephrase nudge flashes
  * `rr_tone` (the form then offers "post anyway"). A 401, 403, 404 or 429 (upload quota) flashes `rr_error`; the throttle middleware itself still answers 429.
  *
@@ -67,6 +69,12 @@ class FormController extends Controller
     {
         return $this->respond($request, 'rr_vote', 'vote:review', fn (): Response => app()->call([app(ReviewVoteController::class), 'store'], ['review' => $review]),
             fn (): string => 'rr-review-'.$review, (string) __('ratings-and-reviews::messages.vote_saved'));
+    }
+
+    public function saveTopicRatings(Request $request, string $type, string $id): RedirectResponse
+    {
+        return $this->respond($request, 'rr_topic_ratings', 'topic-ratings', fn (): Response => app()->call([app(TopicRatingController::class), 'update'], ['type' => $type, 'id' => $id]),
+            fn (): string => 'rr-topic-ratings-'.Str::slug($type.'-'.$id));
     }
 
     public function storeComment(Request $request, string $type, string $id): RedirectResponse

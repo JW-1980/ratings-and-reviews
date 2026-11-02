@@ -24,6 +24,7 @@ import type {
     Sticker,
     SubjectRef,
     ToneResult,
+    TopicRatingState,
     TrendPoint,
     Upload,
     VoteResult,
@@ -72,7 +73,10 @@ export interface ApiOptions {
 export interface ApiClient {
     request(method: string, path: string, init?: { query?: Record<string, unknown>; body?: unknown; form?: FormData; signal?: AbortSignal }): Promise<unknown>;
     ratingSummary(subject: SubjectRef, signal?: AbortSignal): Promise<RatingSummary>;
-    reviews(subject: SubjectRef, query?: { sort?: string; rating?: number | null; facets?: Record<string, string>; page?: number }, signal?: AbortSignal): Promise<ReviewPage>;
+    reviews(subject: SubjectRef, query?: { sort?: string; rating?: number | null; facets?: Record<string, string>; withPhotos?: boolean; page?: number }, signal?: AbortSignal): Promise<ReviewPage>;
+    topicRatings(subject: SubjectRef, signal?: AbortSignal): Promise<TopicRatingState>;
+    saveTopicRatings(subject: SubjectRef, changes: Record<string, number | null>): Promise<{ state: TopicRatingState; message: string | null }>;
+    reviewRepliesSubject(reviewId: number): SubjectRef;
     createReview(subject: SubjectRef, payload: ReviewDraftPayload): Promise<Saved<Review>>;
     updateReview(id: number, payload: ReviewDraftPayload): Promise<Saved<Review>>;
     deleteReview(id: number): Promise<void>;

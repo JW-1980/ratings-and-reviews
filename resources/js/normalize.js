@@ -162,15 +162,65 @@ export function review(raw) {
         qualityScore: num(data.quality_score),
         // ReviewResource `photos`: [{ id, url, alt, width, height }] (others see them only on approved reviews).
         photos: list(data.photos).map(photo),
-        // Not sent by the API (yet): a brand reply; the UI hides it when empty (hosts use the `brand-reply` slot).
-        brandReply: data.brand_reply ? { author: author(data.brand_reply.author), bodyHtml: str(data.brand_reply.body_html, ''), createdAt: str(data.brand_reply.created_at) } : null,
+        // ReviewResource `official_reply` (OfficialReplyResolver): null without one; absent when the host has none.
+        officialReply: officialReply(data.official_reply),
         helpfulCount: num(data.helpful_count, 0),
+        // Public replies to the review (reviews.replies); null when replies are switched off.
+        repliesCount: data.replies_count === null || data.replies_count === undefined ? null : num(data.replies_count, 0),
         viewerVotes: { ...(data.viewer_votes ?? {}) },
         isOwn: Boolean(data.is_own),
-        can: { edit: Boolean(data.can?.edit), delete: Boolean(data.can?.delete) },
+        can: { edit: Boolean(data.can?.edit), delete: Boolean(data.can?.delete), reply: Boolean(data.can?.reply) },
         createdAt: str(data.created_at),
         editedAt: str(data.edited_at),
         isEdited: data.edited_at !== null && data.edited_at !== undefined,
+    };
+}
+
+/** OfficialReply::toArray(): { author: { name, url, avatar_url }, label, body, body_html (escaped by the server), replied_at }. */
+export function officialReply(raw) {
+    if (!raw) {
+        return null;
+    }
+
+    return {
+        author: { name: str(raw.author?.name, ''), url: str(raw.author?.url), avatarUrl: str(raw.author?.avatar_url) },
+        label: str(raw.label),
+        body: str(raw.body, ''),
+        bodyHtml: str(raw.body_html, ''),
+        repliedAt: str(raw.replied_at),
+    };
+}
+
+/**
+ * GET|PUT subjects/{type}/{id}/topic-ratings: the topics with their averages and the
+ * viewer's own scores (null for a guest).
+ */
+export function topicRatingState(raw) {
+    const data = raw ?? {};
+    const own = data.own === null || data.own === undefined ? null : Object.fromEntries(Object.entries(data.own).map(([topicId, value]) => [String(topicId), num(value, 0)]));
+
+    return {
+        enabled: Boolean(data.enabled),
+        acceptsRatings: Boolean(data.accepts_ratings),
+        topics: list(data.topics).map((topic) => ({
+            id: topic.id,
+            name: str(topic.name, ''),
+            scaleMax: num(topic.scale_max, 5),
+            count: num(topic.count, 0),
+            average: num(topic.average),
+        })),
+        own,
+    };
+}
+
+/**
+ * PUT topic-ratings body: { ratings: { [topicId]: value | null } } (null removes a score).
+ *
+ * @param {Record<string|number, number|null>} changes
+ */
+export function topicRatingsPayload(changes) {
+    return {
+        ratings: Object.fromEntries(Object.entries(changes ?? {}).map(([topicId, value]) => [String(topicId), value === null || value === undefined || value === '' ? null : Number(value)])),
     };
 }
 
@@ -256,7 +306,7 @@ export function reviewPage(raw) {
             sorts: list(meta.sorts).map((sort) => ({ value: String(sort.value), label: str(sort.label, String(sort.value)) })),
             scaleMax: num(meta.scale_max, 5),
             ownReview: meta.own_review ? review(meta.own_review) : null,
-            filters: { rating: num(meta.filters?.rating), facets: { ...(meta.filters?.facets ?? {}) } },
+            filters: { rating: num(meta.filters?.rating), facets: { ...(meta.filters?.facets ?? {}) }, withPhotos: Boolean(meta.filters?.with_photos) },
             facets: facetOptions(meta.facets),
             comparisons: list(meta.comparisons).map((option) => ({ value: String(option.value), label: str(option.label, String(option.value)) })),
             editor: trust(meta.editor),
@@ -278,7 +328,11 @@ export function reviewPage(raw) {
                 wantToTry: Boolean(meta.features?.want_to_try),
                 productCards: Boolean(meta.features?.product_cards),
                 toneCheck: Boolean(meta.features?.tone_check),
+                reviewReplies: Boolean(meta.features?.review_replies),
+                officialReplies: Boolean(meta.features?.official_replies),
             },
+            // The section of replies to reviews (`subjects/rr_review/{id}/comments`), null when off.
+            reviewRepliesSection: str(meta.review_replies_section),
             acceptsReviews: meta.accepts_reviews === undefined ? true : Boolean(meta.accepts_reviews),
         },
     };

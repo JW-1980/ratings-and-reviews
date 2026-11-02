@@ -213,11 +213,15 @@ export function createApiClient(options = {}) {
 
         /**
          * @param {{type: string, id: string|number}} subject
-         * @param {{ sort?: string, rating?: number|null, facets?: Record<string, string>, page?: number }} [query]
+         * @param {{ sort?: string, rating?: number|null, facets?: Record<string, string>, withPhotos?: boolean, page?: number }} [query]
          */
         async reviews(subject, query = {}, signal) {
-            const { facets, ...rest } = query;
+            const { facets, withPhotos, ...rest } = query;
             const flat = { ...rest };
+
+            if (withPhotos) {
+                flat.with_photos = 1;
+            }
 
             Object.entries(facets ?? {}).forEach(([group, value]) => {
                 if (value) {
@@ -226,6 +230,23 @@ export function createApiClient(options = {}) {
             });
 
             return normalize.reviewPage(await get(`${subjectPath(subject)}/reviews`, flat, signal));
+        },
+
+        /** Topic scores without a review: the topics, their averages and the viewer's own scores. */
+        async topicRatings(subject, signal) {
+            return normalize.topicRatingState((await get(`${subjectPath(subject)}/topic-ratings`, {}, signal))?.data);
+        },
+
+        /** @param {Record<string|number, number|null>} changes topic id => value (null removes the score) */
+        async saveTopicRatings(subject, changes) {
+            const payload = await request('PUT', `${subjectPath(subject)}/topic-ratings`, { body: normalize.topicRatingsPayload(changes) });
+
+            return { state: normalize.topicRatingState(payload?.data), message: payload?.message ?? null };
+        },
+
+        /** The subject of the replies to a review: pass it to comments(), createComment(), RrDiscussion, … */
+        reviewRepliesSubject(reviewId) {
+            return { type: 'rr_review', id: reviewId };
         },
 
         async createReview(subject, payload) {

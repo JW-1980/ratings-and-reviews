@@ -22,6 +22,8 @@ Route::patch('reviews/{review}', [FormController::class, 'updateReview'])->middl
 Route::delete('reviews/{review}', [FormController::class, 'destroyReview'])->middleware($write)->name('reviews.destroy');
 Route::post('reviews/{review}/votes', [FormController::class, 'voteReview'])->middleware($vote)->name('reviews.votes.store');
 
+Route::put('subjects/{type}/{id}/topic-ratings', [FormController::class, 'saveTopicRatings'])->middleware($write)->where($subject)->name('topic-ratings.update');
+
 Route::post('subjects/{type}/{id}/comments', [FormController::class, 'storeComment'])->middleware($write)->where($subject)->name('comments.store');
 Route::patch('comments/{comment}', [FormController::class, 'updateComment'])->middleware($write)->name('comments.update');
 Route::delete('comments/{comment}', [FormController::class, 'destroyComment'])->middleware($write)->name('comments.destroy');

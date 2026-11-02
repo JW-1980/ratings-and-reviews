@@ -4,6 +4,7 @@ import { useRr } from '../context';
 import { errorMessage } from '../composables/errors';
 import { formatDate, formatMoney, formatRelative } from '../shared';
 import RrAuthorName from './RrAuthorName.vue';
+import RrDiscussion from './RrDiscussion.vue';
 import RrRichText from './RrRichText.vue';
 import RrScoreBadge from './RrScoreBadge.vue';
 import RrVoteButtons from './RrVoteButtons.vue';
@@ -20,6 +21,8 @@ const emit = defineEmits<{ report: [review: Review]; edit: [review: Review]; del
 const rr = useRr();
 
 const added = ref(false);
+const showReplies = ref(false);
+const repliesId = computed(() => `rr-review-${props.review.id}-replies`);
 const adding = ref(false);
 const headingId = computed(() => `rr-review-${props.review.id}-title`);
 const comparisonVerdict = computed(() => props.review.comparison?.verdictLabel ?? (props.review.comparison?.verdict ? rr.t(`comparison.${props.review.comparison.verdict}`) : ''));
@@ -102,9 +105,14 @@ async function addToList() {
         </p>
 
         <slot name="brand-reply" :review="review">
-            <aside v-if="review.brandReply" class="rr-brand-reply" :aria-label="rr.t('reviews.brand_reply', { name: review.brandReply.author?.name ?? '' })">
-                <p class="rr-brand-reply__title">{{ rr.t('reviews.brand_reply', { name: review.brandReply.author?.name ?? '' }) }}</p>
-                <RrRichText :html="review.brandReply.bodyHtml" />
+            <aside v-if="review.officialReply" class="rr-brand-reply rr-official-reply" :aria-label="rr.t('reviews.official_reply', { name: review.officialReply.author.name })">
+                <p class="rr-brand-reply__title">
+                    <a v-if="review.officialReply.author.url" :href="review.officialReply.author.url">{{ rr.t('reviews.official_reply', { name: review.officialReply.author.name }) }}</a>
+                    <template v-else>{{ rr.t('reviews.official_reply', { name: review.officialReply.author.name }) }}</template>
+                    <span v-if="review.officialReply.label" class="rr-tag">{{ review.officialReply.label }}</span>
+                    <time v-if="review.officialReply.repliedAt" :datetime="review.officialReply.repliedAt" class="rr-review__meta">{{ formatRelative(review.officialReply.repliedAt, rr.locale) }}</time>
+                </p>
+                <RrRichText :html="review.officialReply.bodyHtml" />
             </aside>
         </slot>
 
@@ -127,7 +135,21 @@ async function addToList() {
                 <button v-if="review.can.edit" type="button" class="rr-button rr-button--small rr-button--ghost" @click="emit('edit', review)">{{ rr.t('common.edit') }}</button>
                 <button v-if="review.can.delete" type="button" class="rr-button rr-button--small rr-button--ghost" @click="emit('delete', review)">{{ rr.t('common.delete') }}</button>
                 <button v-if="!review.isOwn && rr.isAuthenticated && review.status === 'approved'" type="button" class="rr-button rr-button--small rr-button--ghost" @click="emit('report', review)">{{ rr.t('reviews.report') }}</button>
+                <button
+                    v-if="review.repliesCount !== null && review.status === 'approved' && (review.repliesCount > 0 || review.can.reply)"
+                    type="button"
+                    class="rr-button rr-button--small rr-button--ghost"
+                    :aria-expanded="showReplies ? 'true' : 'false'"
+                    :aria-controls="repliesId"
+                    @click="showReplies = !showReplies"
+                >
+                    {{ showReplies ? rr.t('reviews.hide_replies') : (review.repliesCount > 0 ? rr.t('reviews.show_replies', { count: review.repliesCount }) : rr.tc('reviews.replies', 0)) }}
+                </button>
             </div>
         </footer>
+
+        <div v-if="showReplies" :id="repliesId" class="rr-review__replies" role="region" :aria-label="rr.t('reviews.replies_title')">
+            <RrDiscussion :subject="rr.api.reviewRepliesSubject(review.id)" :searchable="false" />
+        </div>
     </article>
 </template>

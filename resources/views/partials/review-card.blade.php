@@ -89,6 +89,17 @@
     @if (isset($brandReply) && is_callable($brandReply))
         {{-- Host slot: a closure fn (array $review) returning a View/Htmlable (escaped when it is a plain string). --}}
         {{ $brandReply($review) }}
+    @elseif (! empty($review['official_reply']))
+        @php $official = $review['official_reply']; $officialTitle = __('ratings-and-reviews::ui.reviews.official_reply', ['name' => $official['author']['name']]); @endphp
+        <aside class="rr-brand-reply rr-official-reply" aria-label="{{ $officialTitle }}">
+            <p class="rr-brand-reply__title">
+                @if ($official['author']['url'])<a href="{{ $official['author']['url'] }}">{{ $officialTitle }}</a>@else{{ $officialTitle }}@endif
+                @if ($official['label'])<span class="rr-tag">{{ $official['label'] }}</span>@endif
+                @if ($official['replied_at'])<time class="rr-review__meta" datetime="{{ $official['replied_at'] }}">{{ $rr['date']($official['replied_at'], 'relative') }}</time>@endif
+            </p>
+            {{-- body_html is the server's escaped plain text (OfficialReply::toArray()). --}}
+            <div class="rr-richtext">{!! $official['body_html'] !!}</div>
+        </aside>
     @endif
 
     <footer class="rr-review__footer">
@@ -110,6 +121,12 @@
                 <button type="button" class="rr-button rr-button--small rr-button--ghost" data-rr-report="rr_review" data-id="{{ $review['id'] }}">{{ __('ratings-and-reviews::ui.reviews.report') }}</button>
             @endif
         </div>
+        @if ($approved && ($review['replies_count'] ?? null) !== null && ($review['replies_count'] > 0 || ($review['can']['reply'] ?? false)))
+            {{-- A plain link (no data-rr-nav): the replies open below the list, also without JavaScript. --}}
+            <a class="rr-button rr-button--small rr-button--ghost" href="{{ $rr['query']($prefix ?? 'rr_', ['rthread' => $review['id']]) }}#rr-review-replies-{{ $review['id'] }}">
+                {{ $review['replies_count'] > 0 ? __('ratings-and-reviews::ui.reviews.show_replies', ['count' => $review['replies_count']]) : trans_choice('ratings-and-reviews::ui.reviews.replies', 0) }}
+            </a>
+        @endif
         {{-- Without JavaScript, through the package form routes (web_routes.enabled). --}}
         <div class="rr-review__actions rr-nojs-only">
             @if ($review['can']['delete'] ?? false)

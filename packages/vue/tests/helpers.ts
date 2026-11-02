@@ -24,13 +24,15 @@ export function fakeApi(overrides: Partial<Record<keyof ApiClient, unknown>> = {
         'request', 'ratingSummary', 'reviews', 'createReview', 'updateReview', 'deleteReview', 'voteReview', 'comments', 'createComment',
         'updateComment', 'deleteComment', 'undoComment', 'revisions', 'voteComment', 'votePoll', 'poll', 'digest', 'search', 'report',
         'authorCard', 'card', 'wantToTry', 'toneCheck', 'qualityRules', 'replies', 'uploadImage', 'stickers', 'adminStickers',
-        'createSticker', 'updateSticker', 'deleteSticker',
+        'createSticker', 'updateSticker', 'deleteSticker', 'topicRatings', 'saveTopicRatings',
     ];
     const api: Record<string, unknown> = {};
 
     for (const name of names) {
         api[name] = vi.fn(overrides[name] as never ?? (() => Promise.reject(new Error(`unexpected call: ${String(name)}`))));
     }
+
+    api.reviewRepliesSubject = vi.fn(overrides.reviewRepliesSubject as never ?? ((id: number) => ({ type: 'rr_review', id })));
 
     return api as never;
 }

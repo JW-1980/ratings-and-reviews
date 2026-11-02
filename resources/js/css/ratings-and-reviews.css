@@ -288,6 +288,15 @@
 .rr-input--file { padding-block: var(--rr-space-2); }
 .rr-brand-reply { padding: var(--rr-space-3) var(--rr-space-4); border-inline-start: 3px solid var(--rr-color-primary); background: var(--rr-color-surface-alt); border-radius: var(--rr-radius-small); }
 .rr-brand-reply__title { font-weight: var(--rr-font-weight-strong); font-size: var(--rr-font-size-small); }
+.rr-official-reply .rr-brand-reply__title { display: flex; flex-wrap: wrap; gap: var(--rr-space-2); align-items: baseline; }
+.rr-review__replies { margin-block-start: var(--rr-space-3); padding-inline-start: var(--rr-space-4); border-inline-start: 2px solid var(--rr-color-border); }
+.rr-review__replies .rr-discussion { margin: 0; }
+
+/* Topic scores without a review (RrTopicRatings, <x-rr::topic-ratings>) */
+.rr-topic-ratings__list { display: grid; gap: var(--rr-space-3); margin: 0; padding: 0; list-style: none; }
+.rr-topic-ratings__item { display: grid; gap: var(--rr-space-1); }
+.rr-topic-ratings__average { color: var(--rr-color-muted); font-size: var(--rr-font-size-small); }
+.rr-topic-ratings__actions { display: flex; flex-wrap: wrap; gap: var(--rr-space-2); align-items: center; margin-block-start: var(--rr-space-3); }
 
 .rr-prose { overflow-wrap: anywhere; }
 .rr-prose > * + * { margin-block-start: var(--rr-space-2); }
