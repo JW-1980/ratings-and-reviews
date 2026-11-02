@@ -110,6 +110,7 @@ return [
         'photo' => 'foto',
         'photo_files' => 'foto\'s',
         'path' => 'bestandspad',
+        'after' => 'laatst getoonde antwoord',
         'cursor' => 'positie',
         'delete_file' => 'bestand verwijderen',
     ],

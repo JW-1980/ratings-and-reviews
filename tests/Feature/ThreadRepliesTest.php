@@ -64,6 +64,12 @@ class ThreadRepliesTest extends TestCase
         $this->assertNotContains($ids['under_hidden'], $all);
         $this->assertCount(4, $all);
 
+        // `after` continues behind a reply the client already shows; a reply of another thread is refused.
+        $this->assertSame([$ids['a2'], $ids['a1x']], array_column($this->getJson("/rr/comments/{$root->id}/replies?after={$ids['a1']}")->json('data'), 'id'));
+        $this->assertSame([], $this->getJson("/rr/comments/{$root->id}/replies?after={$ids['a1x']}")->json('data'));
+        $foreign = $this->commentOn($root->commentable);
+        $this->getJson("/rr/comments/{$root->id}/replies?after={$foreign->id}")->assertUnprocessable()->assertJsonValidationErrors('after');
+
         // A reply's id leads to the same thread.
         $this->assertSame($all, array_column($this->getJson("/rr/comments/{$ids['a1']}/replies")->json('data'), 'id'));
     }

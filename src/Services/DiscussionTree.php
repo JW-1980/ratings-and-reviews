@@ -100,14 +100,27 @@ class DiscussionTree
      * ("show more replies"). Only replies the viewer can see under visible parents count: a
      * reply beneath a hidden or deleted comment is left out with its subtree, as in load().
      * The cursor is opaque (returned as `next_cursor`); null starts at the first reply.
+     * `$afterId` (a reply of this thread) starts right after that reply instead: a client
+     * passes the last reply it already shows (deepest, then newest), because the replies the
+     * tree loaded are always the first ones of the thread in this order.
      *
-     * @throws ValidationException for a malformed cursor
+     * @throws ValidationException for a malformed cursor or a reply from another thread
      */
-    public function replies(Comment $root, ?string $voterKey, ?int $viewerId, ?string $cursor, int $limit, ?Carbon $newSince = null): ReplyPage
+    public function replies(Comment $root, ?string $voterKey, ?int $viewerId, ?string $cursor, int $limit, ?Carbon $newSince = null, ?int $afterId = null): ReplyPage
     {
         $subject = $root->commentable;
         $settings = $this->settings->for($root->section);
         $after = $cursor === null || $cursor === '' ? null : $this->decodeCursor($cursor);
+
+        if ($after === null && $afterId !== null) {
+            $reference = Comment::query()->withTrashed()->whereKey($afterId)->where('root_id', $root->id)->first(['id', 'depth', 'created_at']);
+
+            if ($reference === null) {
+                throw ValidationException::withMessages(['after' => __('ratings-and-reviews::messages.cursor_invalid')]);
+            }
+
+            $after = [(int) $reference->depth, (string) $reference->created_at?->format('Y-m-d H:i:s'), (int) $reference->id];
+        }
 
         // Ids only: which replies hang under a visible chain up to the root.
         $rows = Comment::query()->forSubject($subject)->visibleTo($viewerId)

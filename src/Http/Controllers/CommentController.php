@@ -201,8 +201,9 @@ class CommentController extends Controller
     /**
      * The replies of a thread that the tree cut at `discussions.max_replies_per_page`
      * (`meta.truncated_threads`): flat, in tree order (shallowest first, then oldest), with
-     * `parent_id` to place them, `cursor` / `next_cursor` to page. `{comment}` is the root of the
-     * thread or any reply in it. Does not move the viewer's read marker.
+     * `parent_id` to place them, `cursor` / `next_cursor` to page, or `after` (the id of the last
+     * reply already shown) for the first request. `{comment}` is the root of the thread or any
+     * reply in it. Does not move the viewer's read marker.
      */
     public function replies(Request $request, string $comment): JsonResponse
     {
@@ -229,7 +230,8 @@ class CommentController extends Controller
             (int) ($request->query('limit') ?: config('ratings-and-reviews.discussions.replies_per_request', 100)),
         ));
         $lastVisit = $viewerId === null ? null : $this->markers->lastReadAt($viewerId, $subject);
-        $page = $this->tree->replies($root, $this->identity->voterKey($request, $viewer), $viewerId, is_string($cursor) ? $cursor : null, $limit, $lastVisit);
+        $afterId = filter_var($request->query('after'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $page = $this->tree->replies($root, $this->identity->voterKey($request, $viewer), $viewerId, is_string($cursor) ? $cursor : null, $limit, $lastVisit, $afterId === false ? null : $afterId);
 
         return new JsonResponse([
             'data' => $page->replies->map(fn (Comment $reply): array => (new CommentResource($reply))

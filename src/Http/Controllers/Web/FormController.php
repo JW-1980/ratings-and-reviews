@@ -28,6 +28,7 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
  * Each action runs the JSON API controller in-process, so permissions, validation, spam
  * checks and events are exactly those of the API. On success `rr_status` is flashed (the
  * API's message) and the redirect jumps to the item (`#rr-review-…`, `#rr-comment-…`).
+ * `rr_form` is flashed either way, so only the component the form belongs to shows it.
  * Validation errors are flashed in a named error bag per form (`rr_review`, `rr_comment`,
  * `rr_report`, `rr_vote`) with the old input, and `rr_form` names the form they belong to, so several
  * components on one page do not show each other's errors. The rephrase nudge flashes
@@ -58,13 +59,13 @@ class FormController extends Controller
 
     public function destroyReview(Request $request, string $review): RedirectResponse
     {
-        return $this->respond($request, 'rr_review', 'review', fn (): Response => app()->call([app(ReviewController::class), 'destroy'], ['review' => $review]),
+        return $this->respond($request, 'rr_review', 'review:delete', fn (): Response => app()->call([app(ReviewController::class), 'destroy'], ['review' => $review]),
             null, (string) __('ratings-and-reviews::messages.review_deleted'));
     }
 
     public function voteReview(Request $request, string $review): RedirectResponse
     {
-        return $this->respond($request, 'rr_vote', 'vote', fn (): Response => app()->call([app(ReviewVoteController::class), 'store'], ['review' => $review]),
+        return $this->respond($request, 'rr_vote', 'vote:review', fn (): Response => app()->call([app(ReviewVoteController::class), 'store'], ['review' => $review]),
             fn (): string => 'rr-review-'.$review, (string) __('ratings-and-reviews::messages.vote_saved'));
     }
 
@@ -96,7 +97,7 @@ class FormController extends Controller
 
     public function voteComment(Request $request, string $comment): RedirectResponse
     {
-        return $this->respond($request, 'rr_vote', 'vote', fn (): Response => app()->call([app(CommentVoteController::class), 'store'], ['comment' => $comment]),
+        return $this->respond($request, 'rr_vote', 'vote:comment', fn (): Response => app()->call([app(CommentVoteController::class), 'store'], ['comment' => $comment]),
             fn (): string => 'rr-comment-'.$comment, (string) __('ratings-and-reviews::messages.vote_saved'));
     }
 
@@ -149,6 +150,7 @@ class FormController extends Controller
         $fragment = $anchor === null ? '' : $anchor($data);
         $url = $fragment === '' ? $back : preg_replace('/#.*$/', '', $back).'#'.$fragment;
 
+        $request->session()->flash('rr_form', $form);
         $redirect = redirect()->to($url);
 
         return $status === null ? $redirect : $redirect->with('rr_status', $status);

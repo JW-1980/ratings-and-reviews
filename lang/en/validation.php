@@ -110,6 +110,7 @@ return [
         'photo' => 'photo',
         'photo_files' => 'photos',
         'path' => 'file path',
+        'after' => 'last reply shown',
         'cursor' => 'position',
         'delete_file' => 'delete file',
     ],
