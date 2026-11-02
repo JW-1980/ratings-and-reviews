@@ -15,6 +15,7 @@
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -107,7 +108,7 @@ $date = static function (?string $iso, string $format = 'medium') use ($locale):
         return '';
     }
 
-    $time = \Illuminate\Support\Carbon::parse($iso)->locale($locale());
+    $time = Carbon::parse($iso)->locale($locale());
 
     return match ($format) {
         'relative' => $time->diffForHumans(),

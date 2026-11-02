@@ -259,6 +259,18 @@ provide(RR_DISCUSSION, {
     showRevisions: (comment: Comment) => (revisionsTarget.value = comment),
     confirmDelete: (comment: Comment) => (deleteTarget.value = comment),
     replace: (comment: Comment) => (items.value = replaceInTree(items.value, comment)),
+    undo: async (comment: Comment) => {
+        try {
+            await rr.api.undoComment(comment.id);
+            items.value = removeFromTree(items.value, comment.id, '');
+            restore.value = { parentId: comment.parentId, html: comment.bodyHtml };
+            replyTo.value = comment.parentId;
+            announce(rr.t('undo.undone'));
+        } catch {
+            announce(rr.t('undo.failed'));
+            load();
+        }
+    },
     posted,
     announce,
     setWait: (seconds: number) => (waitSeconds.value = seconds),

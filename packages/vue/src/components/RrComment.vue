@@ -119,6 +119,7 @@ async function saveEdit() {
                         <div class="rr-comment__actions">
                             <button v-if="comment.can.reply && discussion.acceptsComments.value && rr.isAuthenticated" type="button" class="rr-button rr-button--small rr-button--ghost" :aria-expanded="discussion.replyTo.value === comment.id ? 'true' : 'false'" @click="discussion.openReply(comment)">{{ rr.t('discussion.reply') }}</button>
                             <button v-if="comment.can.edit && !editing" type="button" class="rr-button rr-button--small rr-button--ghost" @click="startEdit">{{ rr.t('common.edit') }}</button>
+                            <button v-if="comment.can.undo && comment.publishAt" type="button" class="rr-button rr-button--small" @click="discussion.undo(comment)">{{ rr.t('undo.action') }}</button>
                             <button v-if="comment.can.delete" type="button" class="rr-button rr-button--small rr-button--ghost" @click="discussion.confirmDelete(comment)">{{ rr.t('common.delete') }}</button>
                             <button v-if="!comment.isOwn && rr.isAuthenticated && comment.status === 'approved'" type="button" class="rr-button rr-button--small rr-button--ghost" @click="discussion.report(comment)">{{ rr.t('reviews.report') }}</button>
                             <button v-if="comment.isCollapsed" type="button" class="rr-button rr-button--small rr-button--link" @click="expanded = false">{{ rr.t('discussion.hide_collapsed') }}</button>

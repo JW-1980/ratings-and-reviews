@@ -15,6 +15,8 @@ export interface DiscussionContext {
     showRevisions: (comment: Comment) => void;
     confirmDelete: (comment: Comment) => void;
     replace: (comment: Comment) => void;
+    /** Withdraws an own comment that is still inside its undo window. */
+    undo: (comment: Comment) => Promise<void>;
     posted: (payload: { item: Comment; message: string | null; bodyHtml: string }, parentId: number | null) => void;
     announce: (text: string) => void;
     setWait: (seconds: number) => void;

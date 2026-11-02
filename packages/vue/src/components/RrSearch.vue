@@ -5,7 +5,7 @@ import { errorMessage } from '../composables/errors';
 import RrRichText from './RrRichText.vue';
 import type { SearchResults, SubjectRef } from '../types';
 
-const props = withDefaults(defineProps<{ subject: SubjectRef; minLength?: number }>(), { minLength: 2 });
+const props = withDefaults(defineProps<{ subject: SubjectRef; minLength?: number }>(), { minLength: 3 });
 const emit = defineEmits<{ open: [hit: { type: string; id: number }] }>();
 const rr = useRr();
 const uid = `rr-search-${Math.random().toString(36).slice(2)}`;
