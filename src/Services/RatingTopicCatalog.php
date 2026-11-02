@@ -169,7 +169,7 @@ class RatingTopicCatalog
      *
      * @throws ValidationException
      */
-    public function validatedRatings(Model&Reviewable $subject, ?array $input): array
+    public function validatedRatings(Model&Reviewable $subject, ?array $input, string $field = 'topic_ratings'): array
     {
         if ($input === null || $input === []) {
             return [];
@@ -188,13 +188,13 @@ class RatingTopicCatalog
             $topic = $id !== null ? $topics->get($id) : null;
 
             if (! $topic instanceof RatingTopic) {
-                $errors['topic_ratings.'.$key] = [__('ratings-and-reviews::messages.topic_unknown')];
+                $errors[$field.'.'.$key] = [__('ratings-and-reviews::messages.topic_unknown')];
 
                 continue;
             }
 
             if (filter_var($value, FILTER_VALIDATE_INT) === false || (int) $value < 1 || (int) $value > $topic->scale_max) {
-                $errors['topic_ratings.'.$key] = [__('ratings-and-reviews::messages.topic_value', ['max' => $topic->scale_max])];
+                $errors[$field.'.'.$key] = [__('ratings-and-reviews::messages.topic_value', ['max' => $topic->scale_max])];
 
                 continue;
             }

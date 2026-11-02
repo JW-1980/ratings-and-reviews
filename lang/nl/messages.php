@@ -42,6 +42,9 @@ return [
     'topic_missing' => 'Dit beoordelingsonderwerp bestaat niet meer.',
     'topic_unknown' => 'Dit beoordelingsonderwerp hoort niet bij dit item.',
     'topic_value' => 'Kies een score van 1 tot en met :max.',
+    'topic_ratings_closed' => 'Voor deze onderwerpen kun je hier geen scores geven.',
+    'topic_ratings_empty' => 'Geef minstens één score.',
+    'topic_ratings_saved' => 'Je scores zijn opgeslagen.',
     'topic_limit' => 'Er kunnen maximaal :max beoordelingsonderwerpen tegelijk actief zijn. Zet er eerst een uit.',
     'topic_parent_invalid' => 'Een onderwerp kan alleen een onderwerp uit dezelfde scope en een bredere categorie vervangen.',
 

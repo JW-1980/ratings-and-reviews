@@ -23,6 +23,7 @@ use RatingsAndReviews\Http\Controllers\ReviewVoteController;
 use RatingsAndReviews\Http\Controllers\SearchController;
 use RatingsAndReviews\Http\Controllers\StickerController;
 use RatingsAndReviews\Http\Controllers\ToneCheckController;
+use RatingsAndReviews\Http\Controllers\TopicRatingController;
 use RatingsAndReviews\Http\Controllers\UploadController;
 use RatingsAndReviews\Http\Controllers\WantToTryController;
 
@@ -45,6 +46,8 @@ Route::post('subjects/{type}/{id}/reviews', [ReviewController::class, 'store'])-
 Route::patch('reviews/{review}', [ReviewController::class, 'update'])->middleware($write)->name('reviews.update');
 Route::delete('reviews/{review}', [ReviewController::class, 'destroy'])->middleware($write)->name('reviews.destroy');
 Route::post('reviews/{review}/votes', [ReviewVoteController::class, 'store'])->middleware($vote)->name('reviews.votes.store');
+Route::get('subjects/{type}/{id}/topic-ratings', [TopicRatingController::class, 'show'])->where($subject)->name('topic-ratings.show');
+Route::put('subjects/{type}/{id}/topic-ratings', [TopicRatingController::class, 'update'])->middleware($write)->where($subject)->name('topic-ratings.update');
 Route::get('subjects/{type}/{id}/rating-summary', [RatingSummaryController::class, 'show'])->where($subject)->name('rating-summary.show');
 
 Route::get('subjects/{type}/{id}/comments', [CommentController::class, 'index'])->where($subject)->name('comments.index');

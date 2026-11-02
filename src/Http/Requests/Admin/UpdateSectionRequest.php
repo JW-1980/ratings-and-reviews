@@ -54,6 +54,7 @@ class UpdateSectionRequest extends PackageRequest
             'review_extended_fields' => ['sometimes', 'boolean'],
             'review_min_length' => ['sometimes', 'integer', 'min:0', 'max:10000'],
             'review_requires_approval' => ['sometimes', 'boolean'],
+            'standalone_topic_ratings' => ['sometimes', 'boolean'],
         ];
     }
 }

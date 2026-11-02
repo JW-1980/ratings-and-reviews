@@ -42,6 +42,9 @@ return [
     'topic_missing' => 'This rating topic no longer exists.',
     'topic_unknown' => 'This rating topic is not available for this item.',
     'topic_value' => 'Choose a score from 1 to :max.',
+    'topic_ratings_closed' => 'Scores for these topics cannot be given here.',
+    'topic_ratings_empty' => 'Give at least one score.',
+    'topic_ratings_saved' => 'Your scores have been saved.',
     'topic_limit' => 'At most :max rating topics can be active at the same time. Switch one off first.',
     'topic_parent_invalid' => 'A topic can only replace a topic of the same scope from a broader category.',
 

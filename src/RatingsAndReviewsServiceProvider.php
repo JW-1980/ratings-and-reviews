@@ -45,6 +45,7 @@ use RatingsAndReviews\Models\ReviewInvitation;
 use RatingsAndReviews\Models\ReviewTopicRating;
 use RatingsAndReviews\Models\SectionSetting;
 use RatingsAndReviews\Models\Sticker;
+use RatingsAndReviews\Models\TopicRating;
 use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Models\Vote;
 use RatingsAndReviews\Services\RatingAggregator;
@@ -67,6 +68,7 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         'rr_rating_topic' => RatingTopic::class,
         'rr_review' => Review::class,
         'rr_review_topic_rating' => ReviewTopicRating::class,
+        'rr_topic_rating' => TopicRating::class,
         'rr_rating_aggregate' => RatingAggregate::class,
         'rr_comment' => Comment::class,
         'rr_comment_revision' => CommentRevision::class,

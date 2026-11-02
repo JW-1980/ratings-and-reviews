@@ -84,6 +84,8 @@ return [
         'review_extended_fields' => 'uitgebreide reviewvelden',
         'review_min_length' => 'minimale reviewlengte',
         'review_requires_approval' => 'reviews vereisen goedkeuring',
+        'standalone_topic_ratings' => 'onderwerpscores zonder review',
+        'ratings' => 'scores',
         'quoted_comment_id' => 'geciteerde reactie',
         'quote_text' => 'citaat',
         'poll' => 'peiling',

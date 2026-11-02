@@ -125,6 +125,9 @@ return [
         'review_extended_fields' => true,
         'review_min_length' => 0,
         'review_requires_approval' => false,
+        // Members may rate the subject's rating topics without writing a review
+        // (PUT subjects/{type}/{id}/topic-ratings); counted in the topic averages.
+        'standalone_topic_ratings' => false,
     ],
 
     'sections' => [

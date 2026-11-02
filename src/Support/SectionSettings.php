@@ -36,6 +36,7 @@ final readonly class SectionSettings
         public bool $reviewExtendedFields,
         public int $reviewMinLength,
         public bool $reviewRequiresApproval,
+        public bool $standaloneTopicRatings = false,
     ) {}
 
     /**
@@ -78,6 +79,7 @@ final readonly class SectionSettings
             reviewExtendedFields: (bool) ($values['review_extended_fields'] ?? true),
             reviewMinLength: max(0, (int) ($values['review_min_length'] ?? 0)),
             reviewRequiresApproval: (bool) ($values['review_requires_approval'] ?? false),
+            standaloneTopicRatings: (bool) ($values['standalone_topic_ratings'] ?? false),
         );
     }
 
@@ -159,6 +161,7 @@ final readonly class SectionSettings
             'review_extended_fields' => $this->reviewExtendedFields,
             'review_min_length' => $this->reviewMinLength,
             'review_requires_approval' => $this->reviewRequiresApproval,
+            'standalone_topic_ratings' => $this->standaloneTopicRatings,
         ];
     }
 

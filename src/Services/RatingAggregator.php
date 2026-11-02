@@ -13,6 +13,7 @@ use RatingsAndReviews\Events\RatingAggregatesRefreshed;
 use RatingsAndReviews\Models\RatingAggregate;
 use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Models\ReviewTopicRating;
+use RatingsAndReviews\Models\TopicRating;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\SqlDialect;
 
@@ -79,7 +80,7 @@ class RatingAggregator
             ->groupBy('topic_id', 'scale_max', 'value')
             ->get();
 
-        foreach ($topicRows as $row) {
+        foreach ([...$topicRows, ...$this->standaloneTopicRows($subject, $reviews)] as $row) {
             $key = (string) $row->topic_id;
             $total = (int) $row->total;
             $normalized = Review::normalize((int) $row->value, (int) $row->scale_max);
@@ -282,6 +283,35 @@ class RatingAggregator
         usort($list, fn (array $a, array $b): int => [$b['total'], $b['worse'], $a['type'], $a['id']] <=> [$a['total'], $a['worse'], $b['type'], $b['id']]);
 
         return array_slice($list, 0, 50);
+    }
+
+    /**
+     * Counted topic ratings given without a review, per topic, scale and value; a member's
+     * score is left out when they rated the same topic in one of the counted reviews.
+     *
+     * @param  Builder<Review>  $reviews
+     * @return list<object{topic_id: int, scale_max: int, value: int, total: int}>
+     */
+    private function standaloneTopicRows(Model $subject, Builder $reviews): array
+    {
+        $ratings = (new TopicRating)->getTable();
+        $reviewRatings = (new ReviewTopicRating)->getTable();
+        $reviewTable = (new Review)->getTable();
+
+        return TopicRating::query()
+            ->forSubject($subject)
+            ->where('counted', true)
+            ->whereNotExists(fn ($exists) => $exists->selectRaw('1')
+                ->from($reviewRatings)
+                ->join($reviewTable, $reviewTable.'.id', '=', $reviewRatings.'.review_id')
+                ->whereIn($reviewTable.'.id', (clone $reviews)->select('id'))
+                ->whereColumn($reviewTable.'.user_id', $ratings.'.user_id')
+                ->whereColumn($reviewRatings.'.topic_id', $ratings.'.topic_id'))
+            ->toBase()
+            ->selectRaw('topic_id, scale_max, value, COUNT(*) as total')
+            ->groupBy('topic_id', 'scale_max', 'value')
+            ->get()
+            ->all();
     }
 
     /**

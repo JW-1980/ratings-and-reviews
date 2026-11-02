@@ -84,6 +84,8 @@ return [
         'review_extended_fields' => 'extended review fields',
         'review_min_length' => 'minimum review length',
         'review_requires_approval' => 'reviews require approval',
+        'standalone_topic_ratings' => 'topic ratings without a review',
+        'ratings' => 'ratings',
         'quoted_comment_id' => 'quoted comment',
         'quote_text' => 'quote',
         'poll' => 'poll',
