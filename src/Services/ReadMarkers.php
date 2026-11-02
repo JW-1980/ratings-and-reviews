@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\ReadMarker;
+use RatingsAndReviews\Support\SqlDialect;
 
 /**
  * "New since your last visit": when a member last read a discussion. touch() only moves
@@ -31,6 +32,20 @@ class ReadMarkers
         $at = Carbon::instance($at ?? now())->format('Y-m-d H:i:s');
         $table = (new ReadMarker)->getTable();
 
+        if (! SqlDialect::isMysql()) {
+            // SQLite and PostgreSQL: the same "only forward" upsert through ON CONFLICT … excluded.
+            DB::table($table)->upsert(
+                [['user_id' => $userId, 'commentable_type' => $subject->getMorphClass(), 'commentable_id' => $subject->getKey(), 'last_read_at' => $at, 'created_at' => $at, 'updated_at' => $at]],
+                ['user_id', 'commentable_type', 'commentable_id'],
+                [
+                    'last_read_at' => DB::raw(SqlDialect::greatest($table.'.last_read_at', 'excluded.last_read_at')),
+                    'updated_at' => DB::raw('excluded.updated_at'),
+                ],
+            );
+
+            return;
+        }
+
         DB::statement(
             "INSERT INTO `{$table}` (`user_id`, `commentable_type`, `commentable_id`, `last_read_at`, `created_at`, `updated_at`) "
             .'VALUES (?, ?, ?, ?, ?, ?) AS `incoming` '
@@ -52,7 +67,7 @@ class ReadMarkers
 
         $query = Comment::query()->forSubject($subject)->published()
             ->where('published_at', '>', $since)
-            ->whereNull('author_removed_at')
+            ->withContent()
             ->when($viewerId !== null, fn ($query) => $query->where('user_id', '!=', $viewerId));
 
         $count = (clone $query)->count();

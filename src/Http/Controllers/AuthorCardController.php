@@ -27,7 +27,7 @@ class AuthorCardController extends Controller
 
         $userId = (int) $id;
         $reviews = Review::query()->approved()->where('user_id', $userId)->count();
-        $comments = Comment::query()->published()->where('user_id', $userId)->whereNull('author_removed_at')->count();
+        $comments = Comment::query()->published()->where('user_id', $userId)->withContent()->count();
         $profile = $this->authors->resolve([$userId])[$userId] ?? null;
 
         if ($profile === null || $reviews + $comments === 0) {

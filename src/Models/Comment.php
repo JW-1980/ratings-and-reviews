@@ -18,6 +18,7 @@ use RatingsAndReviews\Contracts\Votable;
 use RatingsAndReviews\Database\Factories\CommentFactory;
 use RatingsAndReviews\Services\DiscussionService;
 use RatingsAndReviews\Support\ContentStatus;
+use RatingsAndReviews\Support\SqlDialect;
 use RatingsAndReviews\Support\VoteDimension;
 
 /**
@@ -218,6 +219,17 @@ class Comment extends Model implements Moderatable, Votable
     }
 
     /**
+     * Comments whose text is there to read: not a placeholder left by the author's removal.
+     * Digest, search, "new since" and contribution counts use it.
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopeWithContent(Builder $query): void
+    {
+        $query->whereNull('author_removed_at');
+    }
+
+    /**
      * @param  Builder<Comment>  $query
      */
     public function scopeForSubject(Builder $query, Model $subject): void
@@ -309,7 +321,31 @@ class Comment extends Model implements Moderatable, Votable
 
     public function derivedVoteColumns(array $counters): array
     {
-        return ['controversy_score' => self::controversy($counters['agree_count'] ?? 0, $counters['disagree_count'] ?? 0)];
+        $derived = ['controversy_score' => self::controversy($counters['agree_count'] ?? 0, $counters['disagree_count'] ?? 0)];
+
+        if (! $this->helpfulScoreIsGenerated()) {
+            $derived['helpful_score'] = self::wilsonLowerBound($counters['helpful_count'] ?? 0, $counters['unhelpful_count'] ?? 0);
+        }
+
+        return $derived;
+    }
+
+    /**
+     * Whether the database computes helpful_score (the generated column on MySQL/MariaDB).
+     * Elsewhere (a host's SQLite test suite) it is a plain column the model fills on save.
+     */
+    public function helpfulScoreIsGenerated(): bool
+    {
+        return SqlDialect::isMysql($this->getConnection());
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Comment $comment): void {
+            if (! $comment->helpfulScoreIsGenerated() && (! $comment->exists || $comment->isDirty(['helpful_count', 'unhelpful_count']))) {
+                $comment->setAttribute('helpful_score', self::wilsonLowerBound((int) $comment->helpful_count, (int) $comment->unhelpful_count));
+            }
+        });
     }
 
     public function supportsDimension(VoteDimension $dimension): bool

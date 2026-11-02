@@ -31,6 +31,7 @@ use RatingsAndReviews\Services\VoteService;
 use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ReviewSort;
+use RatingsAndReviews\Support\SqlDialect;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -68,7 +69,7 @@ class ReviewController extends Controller
 
         if ($ratingFilter !== false && $ratingFilter !== null) {
             // The rating on the section's scale, as the histogram buckets it.
-            $query->whereRaw('ROUND(1 + (rating - 1) / GREATEST(scale_max - 1, 1) * ?) = ?', [$scale - 1, $ratingFilter]);
+            $query->whereRaw('ROUND(1 + (rating - 1) * 1.0 / '.SqlDialect::greatest('scale_max - 1', '1').' * ?) = ?', [$scale - 1, $ratingFilter]);
         }
 
         $facetFilter = $this->facetFilter($request->query('facet'));
@@ -257,8 +258,8 @@ class ReviewController extends Controller
     {
         match ($sort) {
             ReviewSort::Newest => $query->orderByDesc('created_at')->orderByDesc('id'),
-            ReviewSort::Highest => $query->orderByRaw('(rating - 1) / GREATEST(scale_max - 1, 1) DESC')->orderByDesc('created_at')->orderByDesc('id'),
-            ReviewSort::Lowest => $query->orderByRaw('(rating - 1) / GREATEST(scale_max - 1, 1) ASC')->orderByDesc('created_at')->orderByDesc('id'),
+            ReviewSort::Highest => $query->orderByRaw('(rating - 1) * 1.0 / '.SqlDialect::greatest('scale_max - 1', '1').' DESC')->orderByDesc('created_at')->orderByDesc('id'),
+            ReviewSort::Lowest => $query->orderByRaw('(rating - 1) * 1.0 / '.SqlDialect::greatest('scale_max - 1', '1').' ASC')->orderByDesc('created_at')->orderByDesc('id'),
             ReviewSort::Helpful => $query->orderByDesc('helpful_count')->orderByDesc('created_at')->orderByDesc('id'),
         };
     }

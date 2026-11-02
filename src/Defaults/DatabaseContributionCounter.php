@@ -16,6 +16,6 @@ class DatabaseContributionCounter implements ContributionCounter
     public function approvedContributions(int $userId): int
     {
         return Review::query()->approved()->where('counted', true)->where('user_id', $userId)->count()
-            + Comment::query()->published()->where('counted', true)->where('user_id', $userId)->whereNull('author_removed_at')->count();
+            + Comment::query()->published()->where('counted', true)->where('user_id', $userId)->withContent()->count();
     }
 }

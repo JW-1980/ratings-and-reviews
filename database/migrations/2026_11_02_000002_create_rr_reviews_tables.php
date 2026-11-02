@@ -47,7 +47,11 @@ return new class extends Migration
             $table->index(['reviewable_type', 'reviewable_id', 'status', 'helpful_count'], 'rr_reviews_subject_status_index');
             $table->index(['status', 'created_at'], 'rr_reviews_status_created_index');
             $table->index(['user_id', 'created_at'], 'rr_reviews_user_created_index');
-            $table->fullText(['title', 'body_text'], 'rr_reviews_fulltext');
+
+            // FULLTEXT exists on MySQL/MariaDB only; elsewhere SearchService falls back to LIKE.
+            if (in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+                $table->fullText(['title', 'body_text'], 'rr_reviews_fulltext');
+            }
         });
 
         Schema::create('rr_review_topic_ratings', function (Blueprint $table): void {

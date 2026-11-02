@@ -38,7 +38,7 @@ class DiscussionDigest
     {
         $settings = $this->settings->for($subject->commentSection());
         $threshold = $settings->digestThreshold;
-        $base = Comment::query()->forSubject($subject)->published()->whereNull('author_removed_at')->where('counted', true);
+        $base = Comment::query()->forSubject($subject)->published()->withContent()->where('counted', true);
         $total = (clone $base)->count();
 
         $digest = ['available' => $threshold > 0 && $total >= $threshold, 'threshold' => $threshold, 'total_comments' => $total];

@@ -2,6 +2,7 @@
 
 namespace RatingsAndReviews\Services;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -9,6 +10,7 @@ use RatingsAndReviews\Contracts\AuthorResolver;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Support\AuthorProfile;
+use RatingsAndReviews\Support\SqlDialect;
 
 /**
  * Full-text search within the reviews and the discussion of one subject (MySQL FULLTEXT in
@@ -22,7 +24,8 @@ use RatingsAndReviews\Support\AuthorProfile;
  * At most `search.max_terms` terms and phrases are used. Only public content is searched:
  * approved reviews, published comments that were not removed.
  *
- * Note: InnoDB full-text indexes only see committed rows.
+ * Note: InnoDB full-text indexes only see committed rows. On engines without FULLTEXT
+ * (SQLite, PostgreSQL in a host's test suite) the same terms are matched with LIKE instead.
  */
 class SearchService
 {
@@ -95,12 +98,9 @@ class SearchService
         $reviewTotal = 0;
 
         if ($reviews) {
-            $base = Review::query()->forSubject($subject)->approved()
-                ->whereRaw('MATCH(`title`, `body_text`) AGAINST (? IN BOOLEAN MODE)', [$parsed['boolean']]);
+            $base = $this->matching(Review::query()->forSubject($subject)->approved(), ['title', 'body_text'], $parsed);
             $reviewTotal = (clone $base)->count();
-            $reviewRows = $reviewTotal === 0 ? collect() : $base
-                ->select('*')
-                ->selectRaw('MATCH(`title`, `body_text`) AGAINST (? IN BOOLEAN MODE) as relevance', [$parsed['boolean']])
+            $reviewRows = $reviewTotal === 0 ? collect() : $this->withRelevance($base, ['title', 'body_text'], $parsed)
                 ->orderByDesc('relevance')->orderByDesc('helpful_count')->orderByDesc('id')
                 ->limit($limit)->get();
         }
@@ -109,12 +109,9 @@ class SearchService
         $commentTotal = 0;
 
         if ($comments) {
-            $base = Comment::query()->forSubject($subject)->published()->whereNull('author_removed_at')
-                ->whereRaw('MATCH(`body_text`) AGAINST (? IN BOOLEAN MODE)', [$parsed['boolean']]);
+            $base = $this->matching(Comment::query()->forSubject($subject)->published()->withContent(), ['body_text'], $parsed);
             $commentTotal = (clone $base)->count();
-            $commentRows = $commentTotal === 0 ? collect() : $base
-                ->select('*')
-                ->selectRaw('MATCH(`body_text`) AGAINST (? IN BOOLEAN MODE) as relevance', [$parsed['boolean']])
+            $commentRows = $commentTotal === 0 ? collect() : $this->withRelevance($base, ['body_text'], $parsed)
                 ->orderByDesc('relevance')->orderByDesc('helpful_score')->orderByDesc('id')
                 ->limit($limit)->get();
         }
@@ -141,6 +138,65 @@ class SearchService
                 'limit_per_type' => $limit,
             ],
         ];
+    }
+
+    /**
+     * Narrows the query to rows matching every term and phrase: MATCH … AGAINST in boolean
+     * mode on MySQL (the FULLTEXT indexes), a portable LIKE per term on other engines (no
+     * FULLTEXT index there; slower and without prefix-only matching, but the same results for
+     * whole words). The columns are package constants, never user input.
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @param  list<string>  $columns
+     * @param  array{terms: list<string>, phrases: list<string>, boolean: string}  $parsed
+     * @return Builder<TModel>
+     */
+    private function matching(Builder $query, array $columns, array $parsed): Builder
+    {
+        if (SqlDialect::isMysql($query->getConnection())) {
+            return $query->whereRaw('MATCH('.$this->columnList($columns).') AGAINST (? IN BOOLEAN MODE)', [$parsed['boolean']]);
+        }
+
+        foreach ([...$parsed['terms'], ...$parsed['phrases']] as $needle) {
+            $pattern = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], mb_strtolower($needle)).'%';
+            $query->where(function (Builder $any) use ($columns, $pattern): void {
+                foreach ($columns as $column) {
+                    $any->orWhereRaw('LOWER('.$column.") LIKE ? ESCAPE '\\'", [$pattern]);
+                }
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * Selects the rows with a `relevance` column: the FULLTEXT score on MySQL, 0 elsewhere
+     * (the secondary orderings decide).
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @param  list<string>  $columns
+     * @param  array{terms: list<string>, phrases: list<string>, boolean: string}  $parsed
+     * @return Builder<TModel>
+     */
+    private function withRelevance(Builder $query, array $columns, array $parsed): Builder
+    {
+        $query->select('*');
+
+        return SqlDialect::isMysql($query->getConnection())
+            ? $query->selectRaw('MATCH('.$this->columnList($columns).') AGAINST (? IN BOOLEAN MODE) as relevance', [$parsed['boolean']])
+            : $query->selectRaw('0 as relevance');
+    }
+
+    /**
+     * @param  list<string>  $columns
+     */
+    private function columnList(array $columns): string
+    {
+        return implode(', ', array_map(fn (string $column): string => '`'.$column.'`', $columns));
     }
 
     /**

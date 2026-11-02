@@ -14,6 +14,7 @@ use RatingsAndReviews\Models\RatingAggregate;
 use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Models\ReviewTopicRating;
 use RatingsAndReviews\Support\ContentStatus;
+use RatingsAndReviews\Support\SqlDialect;
 
 /**
  * Rating aggregates of a subject, computed from its approved, counted reviews.
@@ -207,7 +208,7 @@ class RatingAggregator
             // $group matches ^[a-z][a-z0-9_]*$ (ReviewFacets), so the JSON path is safe; it is bound anyway.
             $rows = (clone $reviews)->toBase()
                 ->whereNotNull('facets')
-                ->selectRaw('JSON_UNQUOTE(JSON_EXTRACT(facets, ?)) as facet_value, COUNT(*) as total', ['$."'.$group.'"'])
+                ->selectRaw(SqlDialect::jsonText('facets').' as facet_value, COUNT(*) as total', [SqlDialect::jsonTextBinding($group)])
                 ->groupBy('facet_value')
                 ->get();
 
@@ -232,7 +233,7 @@ class RatingAggregator
         $months = [];
 
         $rows = (clone $reviews)->toBase()
-            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, scale_max, rating, COUNT(*) as total")
+            ->selectRaw(SqlDialect::yearMonth('created_at').' as month, scale_max, rating, COUNT(*) as total')
             ->groupBy('month', 'scale_max', 'rating')
             ->get();
 

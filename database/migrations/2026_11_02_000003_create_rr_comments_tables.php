@@ -18,7 +18,12 @@ return new class extends Migration
 
     public function up(): void
     {
-        Schema::create('rr_comments', function (Blueprint $table): void {
+        // MySQL/MariaDB: FULLTEXT and the generated Wilson column. Other engines (a host's
+        // SQLite test suite) get no FULLTEXT (SearchService uses LIKE there) and a plain
+        // helpful_score column that the Comment model computes on save.
+        $mysql = in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true);
+
+        Schema::create('rr_comments', function (Blueprint $table) use ($mysql): void {
             $table->id();
             $table->string('commentable_type', 64);
             $table->unsignedBigInteger('commentable_id');
@@ -40,7 +45,12 @@ return new class extends Migration
             $table->unsignedInteger('helpful_count')->default(0);
             $table->unsignedInteger('unhelpful_count')->default(0);
             $table->unsignedInteger('needs_source_count')->default(0);
-            $table->double('helpful_score')->storedAs(self::WILSON);
+            if ($mysql) {
+                $table->double('helpful_score')->storedAs(self::WILSON);
+            } else {
+                $table->double('helpful_score')->default(0);
+            }
+
             $table->decimal('controversy_score', 14, 6)->default(0);
             $table->unsignedInteger('flags_count')->default(0);
 
@@ -61,7 +71,10 @@ return new class extends Migration
             $table->index(['root_id', 'status', 'depth'], 'rr_comments_root_index');
             $table->index(['status', 'created_at'], 'rr_comments_status_created_index');
             $table->index(['user_id', 'created_at'], 'rr_comments_user_created_index');
-            $table->fullText('body_text', 'rr_comments_fulltext');
+
+            if ($mysql) {
+                $table->fullText('body_text', 'rr_comments_fulltext');
+            }
         });
 
         Schema::create('rr_comment_revisions', function (Blueprint $table): void {
