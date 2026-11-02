@@ -1,0 +1,29 @@
+/*
+ * Example theme: WelZoLekker ("Warm Premium"): raspberry, Geist. Load Geist in the host
+ * (for example @fontsource/geist or the host's own font setup); this only maps tokens.
+ */
+:root {
+    --rr-font-family: "Geist", "Geist Fallback", system-ui, sans-serif;
+    --rr-font-size-score: 3rem;
+    --rr-color-text: #2b1b22;
+    --rr-color-muted: #6e5560;
+    --rr-color-surface: #fffaf7;
+    --rr-color-surface-alt: #f8eee9;
+    --rr-color-border: #ead9d2;
+    --rr-color-primary: #8a2250;
+    --rr-color-primary-contrast: #ffffff;
+    --rr-color-primary-soft: #f7e6ee;
+    --rr-color-accent: #c2185b;
+    --rr-color-success: #2e7d4f;
+    --rr-color-warning: #9a5b00;
+    --rr-color-warning-soft: #fff4e0;
+    --rr-color-danger: #b3261e;
+    --rr-color-danger-soft: #fdecea;
+    --rr-color-new: #8a2250;
+    --rr-color-focus: #8a2250;
+    --rr-color-bar: #efdfe6;
+    --rr-color-mark: #ffe3ec;
+    --rr-radius: 0.875rem;
+    --rr-radius-small: 0.5rem;
+    --rr-shadow: 0 1px 2px rgb(43 27 34 / 0.06), 0 8px 24px rgb(138 34 80 / 0.10);
+}

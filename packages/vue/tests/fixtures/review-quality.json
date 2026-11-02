@@ -1,0 +1,529 @@
+{
+    "generated_by": "packages/vue/scripts/quality-fixture.php",
+    "rules": {
+        "version": 1,
+        "text": {
+            "normalize": "collapse_whitespace_trim_lowercase",
+            "length_unit": "code_points",
+            "word_boundary": "(?<![\\p{L}\\p{N}])…(?![\\p{L}\\p{N}])"
+        },
+        "score": "round_half_up(earned * 100 / applicable)",
+        "rules": [
+            {
+                "key": "length",
+                "type": "length",
+                "steps": [
+                    [
+                        40,
+                        10
+                    ],
+                    [
+                        120,
+                        20
+                    ],
+                    [
+                        300,
+                        30
+                    ]
+                ],
+                "max_points": 30,
+                "hint": "Tell a bit more: what did you notice?"
+            },
+            {
+                "key": "pros",
+                "type": "pros",
+                "points": 15,
+                "max_points": 15,
+                "hint": "Add a pro."
+            },
+            {
+                "key": "cons",
+                "type": "cons",
+                "points": 15,
+                "max_points": 15,
+                "hint": "Add a con, even a small one."
+            },
+            {
+                "key": "usage",
+                "type": "words",
+                "points": 15,
+                "words": [
+                    "gebruik",
+                    "gebruikt",
+                    "gebruiken",
+                    "gegeten",
+                    "gedronken",
+                    "geprobeerd",
+                    "gekookt",
+                    "gebakken",
+                    "opgewarmd",
+                    "ontbijt",
+                    "lunch",
+                    "avondeten",
+                    "recept",
+                    "in koffie",
+                    "in de thee",
+                    "bij het eten",
+                    "used",
+                    "use",
+                    "using",
+                    "tried",
+                    "ate",
+                    "drank",
+                    "cooked",
+                    "baked",
+                    "heated",
+                    "breakfast",
+                    "dinner",
+                    "recipe",
+                    "in coffee",
+                    "with milk"
+                ],
+                "max_points": 15,
+                "hint": "Mention how you used it."
+            },
+            {
+                "key": "topics",
+                "type": "topics",
+                "points": 15,
+                "max_points": 15,
+                "hint": "Rate the topics as well."
+            },
+            {
+                "key": "concrete",
+                "type": "concrete",
+                "points": 10,
+                "units": [
+                    "gram",
+                    "kilo",
+                    "liter",
+                    "euro",
+                    "minuten",
+                    "minutes",
+                    "uur",
+                    "hours",
+                    "dagen",
+                    "days",
+                    "weken",
+                    "weeks",
+                    "kcal",
+                    "calorieën",
+                    "calories",
+                    "procent",
+                    "percent"
+                ],
+                "max_points": 10,
+                "hint": "Be concrete: an amount, a price or a time helps others."
+            }
+        ],
+        "levels": [
+            {
+                "level": "weak",
+                "min": 0,
+                "label": "Weak"
+            },
+            {
+                "level": "fair",
+                "min": 40,
+                "label": "Fair"
+            },
+            {
+                "level": "good",
+                "min": 65,
+                "label": "Good"
+            },
+            {
+                "level": "strong",
+                "min": 85,
+                "label": "Strong"
+            }
+        ]
+    },
+    "cases": [
+        {
+            "name": "empty",
+            "body": "",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 0,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "short body only",
+            "body": "<p>Prima.</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 4,
+            "extended_fields": true,
+            "expected": {
+                "score": 0,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "topics",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "length step 40",
+            "body": "<p>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 0,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "length step 40 reached",
+            "body": "<p>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 12,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "multibyte length",
+            "body": "<p>éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 24,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "whitespace collapses",
+            "body": "<p>a      b</p><p>\n\n   c</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 0,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "pros and cons",
+            "body": "<p>Goed product voor elke dag, echt een aanrader.</p>",
+            "pros": [
+                "Romig"
+            ],
+            "cons": [
+                "Duur"
+            ],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 47,
+                "level": "fair",
+                "hints": [
+                    "length",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "blank points do not count",
+            "body": "<p>Goed.</p>",
+            "pros": [
+                "   "
+            ],
+            "cons": [
+                ""
+            ],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 0,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "no extended fields",
+            "body": "<p>Goed.</p>",
+            "pros": [
+                "Romig"
+            ],
+            "cons": [
+                "Duur"
+            ],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": false,
+            "expected": {
+                "score": 0,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "usage word",
+            "body": "<p>Ik heb het gebruikt bij het ontbijt.</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 18,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "usage word inside another word",
+            "body": "<p>Ongebruikte verpakking.</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 0,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "usage phrase uppercase",
+            "body": "<p>Lekker IN KOFFIE.</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 18,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "concrete digit",
+            "body": "<p>Kost 2 euro.</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 12,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage"
+                ]
+            }
+        },
+        {
+            "name": "concrete unit word",
+            "body": "<p>Een halve liter is genoeg.</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 12,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage"
+                ]
+            }
+        },
+        {
+            "name": "topics partly rated",
+            "body": "<p>Goed.</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 1,
+            "topics_available": 3,
+            "extended_fields": true,
+            "expected": {
+                "score": 5,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "topics",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "topics all rated",
+            "body": "<p>Goed.</p>",
+            "pros": [],
+            "cons": [],
+            "topics_rated": 4,
+            "topics_available": 4,
+            "extended_fields": true,
+            "expected": {
+                "score": 15,
+                "level": "weak",
+                "hints": [
+                    "length",
+                    "pros",
+                    "cons",
+                    "usage",
+                    "concrete"
+                ]
+            }
+        },
+        {
+            "name": "strong review",
+            "body": "<p>Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Lekker romig en niet te zoet. Ik heb het 3 dagen gebruikt in de thee.</p>",
+            "pros": [
+                "Romig",
+                "Lang houdbaar"
+            ],
+            "cons": [
+                "Prijs"
+            ],
+            "topics_rated": 4,
+            "topics_available": 4,
+            "extended_fields": true,
+            "expected": {
+                "score": 100,
+                "level": "strong",
+                "hints": []
+            }
+        },
+        {
+            "name": "formatted html",
+            "body": "<p><strong>Heerlijk</strong> en <em>romig</em>.</p><ul><li>200 gram</li><li>recept</li></ul>",
+            "pros": [
+                "Smaak"
+            ],
+            "cons": [],
+            "topics_rated": 2,
+            "topics_available": 4,
+            "extended_fields": true,
+            "expected": {
+                "score": 47,
+                "level": "fair",
+                "hints": [
+                    "length",
+                    "cons",
+                    "topics"
+                ]
+            }
+        },
+        {
+            "name": "english",
+            "body": "<p>I tried it for breakfast with milk, 250 calories per bowl, nice and crunchy for weeks.</p>",
+            "pros": [
+                "Crunchy"
+            ],
+            "cons": [
+                "Sweet"
+            ],
+            "topics_rated": 0,
+            "topics_available": 0,
+            "extended_fields": true,
+            "expected": {
+                "score": 76,
+                "level": "good",
+                "hints": [
+                    "length"
+                ]
+            }
+        }
+    ]
+}
