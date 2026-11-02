@@ -86,8 +86,8 @@ Elk optioneel contract heeft een standaardbinding die de feature uitschakelt. De
 - `rr_read_markers`: `user_id`, `commentable_type`/`_id`, `last_read_at`, unique. Voor "nieuw sinds je laatste bezoek".
 - `rr_polls`, `rr_poll_options`, `rr_poll_votes`: mini-peiling aan een reactie (2–4 opties). De stem heeft dezelfde velden als `rr_votes`, unique (poll, voter_key).
 - `rr_review_invitations`: `user_id`, `reviewable_type`/`_id`, `source`, `due_at`, `sent_at`, `completed_at`, `dismissed_at`, unique (user, reviewable).
-- `rr_uploads`: `user_id`, `disk`, `path`, `alt_text` (nullable, voor later), `attached_type`/`_id`, `attached_at`. Wordt opgeruimd door `rr:prune-uploads`.
-- `rr_stickers`: `name` (json), `path`, `is_active`, `sort_order`.
+- `rr_uploads`: `user_id`, `disk`, `path`, `mime_type`, `size`, `width`, `height`, `alt_text` (nullable), `attached_type`/`_id`, `attached_at`, `role` (`inline` of `photo`), `position`. Wordt opgeruimd door `rr:prune-uploads`.
+- `rr_stickers`: `name` (json), `path`, `disk` (gezet als het pakket het bestand opsloeg), `is_active`, `sort_order`.
 
 ## Services
 
@@ -139,14 +139,16 @@ Prefix, middleware en throttles komen uit de config. Alle schrijfroutes hebben e
 - `GET  subjects/{type}/{id}/digest`: de TL;DR.
 - `GET  subjects/{type}/{id}/search?q=`
 - `POST subjects/{type}/{id}/comments`, `PATCH comments/{comment}`, `DELETE comments/{comment}`, `POST comments/{comment}/undo`
-- `GET  comments/{comment}/revisions`
+- `GET  comments/{comment}/revisions`, `GET comments/{comment}/replies` (rest van een afgekapte draad)
 - `POST comments/{comment}/votes`, `POST polls/{poll}/votes`
 - `POST reports`
 - `GET  authors/{id}/card`: hovercard.
 - `GET  cards/{type}/{id}`: productkaart.
 - `POST subjects/{type}/{id}/want-to-try`
 - `POST tone-check`, `GET review-quality-rules`
-- Admin, met ability-check: `GET|PATCH admin/sections/{section}`, CRUD `admin/topics`, `admin/reports`, `admin/moderation`.
+- `POST uploads`, `GET media/{path}` (private uploads), `GET stickers`
+- Admin, met ability-check: `GET|PATCH admin/sections/{section}`, CRUD `admin/topics`, CRUD `admin/stickers` (`rr.manage-settings`), `admin/reports`, `admin/moderation`.
+- Opt-in formulierroutes zonder JavaScript (`routes/web.php`, `web_routes.enabled`, middleware `web`): dezelfde schrijfacties als hierboven, met een redirect terug.
 
 `{type}` is een morph-alias uit de morph map van de host; onbekende aliassen geven een 404.
 
@@ -176,3 +178,11 @@ Er gebeurt eerst fase A per app (bugs en morph map). Daarna:
 - **Vertrouwensniveau `deep_reply`** weigert niet, maar plaatst diepere antwoorden op niveau 1 (met `in_reply_to_id`), zoals de bestaande platslaan-regel.
 - **"Controversieel"** is er alleen voor reacties: stemmen op reviews zijn eenzijdig (alleen "nuttig").
 - **Zoeken** heeft een throttle (`rr-lookup`), net als hovercards, productkaarten en de toon-check.
+- **Uploads (2 november 2026, tweede ronde).** Het pakket heeft nu een eigen uploadroute (`POST uploads`) in plaats van alleen een host-callback; `uploadImage` van de host wint nog steeds. Bestanden staan op een publieke disk (host serveert ze onder `uploads.url_prefix`) of op een private disk, waarna het pakket ze serveert onder `/{prefix}/media/{path}`: aan de uploader en moderators altijd, aan anderen alleen zolang de bijdrage publiek is. Daarvoor kwam `illuminate/filesystem` in `composer.json` (onderdeel van Laravel zelf, geen nieuwe externe dependency). JPEG, PNG en WebP worden met GD opnieuw gecodeerd om EXIF (locatie) te verwijderen als GD er is; zonder GD worden ze ongewijzigd bewaard. SVG wordt niet geaccepteerd.
+- **Een upload hoort bij één bijdrage.** `MediaSources` laat alleen eigen uploads toe die nog nergens aan hangen of al aan de bijdrage die bewerkt wordt. Zonder die regel kon het verwijderen van de ene reactie de afbeelding van een andere breken. Reviews koppelen hun afbeeldingen nu ook (dat ontbrak); bij het bewerken van een review gaan niet meer gebruikte afbeeldingen en foto's terug naar "vrij" (reviews hebben geen revisies; reacties houden ze, omdat hun revisies ze nog tonen).
+- **Opruimen.** Ongedaan maken (undo) maakt uploads vrij in plaats van ze te verwijderen, omdat de tekst terug in de editor komt en opnieuw geplaatst kan worden; `rr:prune-uploads` (elk uur ingepland) verwijdert vrije uploads na `uploads.prune_after_hours`. Verwijdert de auteur een review of reactie, dan gaan de bestanden direct weg, behalve als een open melding de bijdrage als bewijs vasthoudt. Verwijderen door een moderator is een soft delete en houdt de bestanden. Een bestand dat niet verwijderd kan worden houdt zijn rij, zodat een volgende run het opnieuw probeert.
+- **Reviewfoto's** zijn `rr_uploads` met `role = photo` (tot `reviews.max_photos`). Een foto heeft geen eigen moderatiestatus: hij volgt de review (niet goedgekeurd: alleen de auteur ziet hem; moderators zien hem in `admin/moderation`). Met `reviews.photos_require_approval` wacht een review die een nieuwe foto krijgt op een moderator, omdat de SpamGuard geen afbeeldingen beoordeelt. Het filter "met foto's" uit de lijst hierboven is nog niet gebouwd.
+- **Uitgebreide reviewvelden.** Zonder `review_extended_fields` worden titel, plus- en minpunten geweigerd (422) in plaats van stil weggegooid. De review-meta geeft `review_scale`, `review_extended_fields`, `review_min_length` en `review_form` (limieten).
+- **Afgekapte draden.** `GET comments/{comment}/replies` geeft de antwoorden plat in boomvolgorde (eerst ondiep, dan oudst) met `cursor`, of met `after` (het laatste antwoord dat de client al toont) voor de eerste aanvraag; antwoorden onder een verborgen reactie blijven weg. Blade laadt ze op de server (`?rr_cthread`), ook zonder JavaScript.
+- **Stickers.** Verwijderen haalt de rij weg maar laat het bestand staan (oude berichten tonen het nog), tenzij `delete_file=1` voor een bestand dat het pakket zelf opsloeg. Het plaatje van een bestaande sticker wordt niet vervangen; voeg een nieuwe toe.
+- **Posten zonder JavaScript** is niet langer alleen een hostverantwoordelijkheid: `web_routes.enabled` zet pakketroutes aan die de API-controllers in-process aanroepen en terugsturen met `rr_status`, fouten per formulier (`rr_review`, `rr_comment`, `rr_report`, `rr_vote`) en `rr_form`. Bewerken zonder JavaScript toont de opgeslagen HTML in een textarea (de server saneert opnieuw).

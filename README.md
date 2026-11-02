@@ -20,7 +20,7 @@ php artisan vendor:publish --tag=ratings-and-reviews-config   # optioneel
 php artisan migrate                                            # maakt de rr_-tabellen
 ```
 
-Vereisten: PHP 8.3+, Laravel 12 of 13, MySQL 8.4. Publiceerbare tags: `ratings-and-reviews-config`, `-migrations`, `-translations`, `-views`.
+Vereisten: PHP 8.3+, Laravel 12 of 13, MySQL 8.4; `ext-gd` (aanbevolen) om EXIF uit geüploade foto's te halen, zonder GD worden ze ongewijzigd opgeslagen. Publiceerbare tags: `ratings-and-reviews-config`, `-migrations`, `-translations`, `-views`.
 
 ## Gebruik
 
@@ -40,13 +40,15 @@ Vereisten: PHP 8.3+, Laravel 12 of 13, MySQL 8.4. Publiceerbare tags: `ratings-a
    $this->app->singleton(\RatingsAndReviews\Contracts\RiskSignals::class, DeviceIdRiskSignals::class);
    Gate::define('rr.moderate', fn (User $user) => $user->hasPermission('moderate'));
    ```
-3. **Config** (`config/ratings-and-reviews.php`): `routes` (prefix `rr`, middleware, admin-middleware, guard), `rate_limits` (named limiters `rr-write`, `rr-vote`, `rr-report`, `rr-admin`), `section_defaults` en `sections.<naam>` (diepte, editor-tools, stemdimensies, gaststemmen, sortering, lengtes, bewerktermijn, reviewschaal, …; een admin overschrijft ze per sectie via `PATCH admin/sections/{section}`), `rating_topics.max_active`, `reports.reasons`, `sanitizer`, `uploads`/`stickers` (url-prefix voor toegestane afbeeldingen) en `spam` (woordenlijsten en drempels).
+3. **Config** (`config/ratings-and-reviews.php`): `routes` (prefix `rr`, middleware, admin-middleware, guard), `web_routes` (opt-in formulierroutes zonder JavaScript, zie Frontend), `rate_limits` (named limiters `rr-write`, `rr-vote`, `rr-report`, `rr-admin`, `rr-lookup`, `rr-upload`), `section_defaults` en `sections.<naam>` (diepte, editor-tools, stemdimensies, gaststemmen, sortering, lengtes, bewerktermijn, reviewschaal, uitgebreide reviewvelden, minimale reviewlengte, …; een admin overschrijft ze per sectie via `PATCH admin/sections/{section}`), `discussions` (`replies_per_request`), `reviews` (`max_photos`, `photos_require_approval`, lengtes), `rating_topics.max_active`, `reports.reasons`, `sanitizer`, `uploads` (zie hieronder), `stickers` (`url_prefix`, `disk`, `directory`, limieten) en `spam` (woordenlijsten en drempels).
+
+   **Uploads** (`uploads.*`): `visibility` `public` (bestanden op `disk`, standaard `public`, door de host geserveerd onder `url_prefix`; `php artisan storage:link`) of `private` (niet-publieke disk; het pakket serveert ze onder `/{prefix}/media/{path}`, aan de uploader en moderators altijd, aan anderen alleen zolang de review of reactie waar ze bij horen publiek is; dat werkt met sessie-auth, niet met bearer tokens in `<img>`). Limieten: `max_kilobytes`, `mime_types` (standaard JPEG, PNG, WebP, GIF; geen SVG), `min_/max_width|height`, `daily_quota` per 24 uur (429 met `Retry-After`) plus `rr-upload` per minuut. `strip_metadata` codeert JPEG/PNG/WebP opnieuw met GD (als die geïnstalleerd is), zodat EXIF-locatie niet gepubliceerd wordt; een JPEG wordt eerst rechtop gezet. `prune_after_hours`: daarna ruimt `rr:prune-uploads` nooit gekoppelde uploads op.
 4. **API** onder `/{prefix}`. Alle schrijfroutes hebben een throttle; zoeken, kaarten, hovercards en de toon-check hebben de limiter `rr-lookup`.
 
    | Route | Feature |
    |---|---|
-   | `GET subjects/{type}/{id}/reviews` | lijst; `sort`, `rating`, `facet[groep]=waarde`; `meta` met facetten, editor-vertrouwen (`meta.editor`) en `features` |
-   | `POST subjects/{type}/{id}/reviews`, `PATCH`/`DELETE reviews/{id}` | met `facets`, `compared_type`/`compared_id`/`comparison`, `confirm_tone`; antwoord bevat `quality` |
+   | `GET subjects/{type}/{id}/reviews` | lijst; `sort`, `rating`, `facet[groep]=waarde`; `meta` met facetten, editor-vertrouwen (`meta.editor`), `features`, `review_scale`, `review_extended_fields`, `review_min_length` en `review_form` (`max_body_length`, `max_title_length`, `max_pros_cons`, `max_pro_con_length`, `max_photos`, `photos_require_approval`, `requires_approval`); elke review heeft `photos[{id,url,alt,width,height}]` |
+   | `POST subjects/{type}/{id}/reviews`, `PATCH`/`DELETE reviews/{id}` | met `facets`, `compared_type`/`compared_id`/`comparison`, `photos` (upload-id's in volgorde; weglaten bij `PATCH` houdt de huidige), `confirm_tone`; titel/pluspunten/minpunten geven 422 als de sectie geen uitgebreide velden heeft; antwoord bevat `quality` |
    | `GET subjects/{type}/{id}/rating-summary` | plus `uncertainty`, `trend`, `facets`, `comparisons` |
    | `GET subjects/{type}/{id}/comments` | boom met `visibility` (eigen pending/gepland), `quote`, `poll`, `is_new`; `meta.trust`, `meta.discussion`, `meta.new_since` |
    | `POST subjects/{type}/{id}/comments` | met `quoted_comment_id` + `quote_text`, `poll`, `confirm_tone` |
@@ -57,13 +59,19 @@ Vereisten: PHP 8.3+, Laravel 12 of 13, MySQL 8.4. Publiceerbare tags: `ratings-a
    | `GET polls/{id}`, `POST polls/{id}/votes` | mini-peiling |
    | `GET authors/{id}/card`, `GET cards/{type}/{id}` | hovercard, productkaart (404 zonder `CardResolver`) |
    | `POST tone-check`, `GET review-quality-rules` | herformuleer-suggestie, regels van de kwaliteitsmeter (JSON) |
+   | `POST uploads` | afbeelding (multipart `image`, optioneel `alt`) → `201 {data: {id, url, alt, width, height}}`; throttle `rr-upload`, dagquotum (429) |
+   | `GET media/{path}` | private upload (alleen bij `uploads.visibility = private`; anders 404) |
+   | `GET comments/{id}/replies?after=&cursor=&limit=` | de rest van een afgekapte draad (`meta.truncated_threads`): plat, in boomvolgorde, `parent_id` om te plaatsen; `meta.{root_id,total,next_cursor,has_more}` |
+   | `GET stickers` | actieve stickers voor de editor `[{id, name, url}]` |
+   | `GET|POST admin/stickers`, `PATCH|DELETE admin/stickers/{id}` | stickerbeheer (`rr.manage-settings`): `image` (upload) of `path`, `name.nl`/`name.en`, `is_active`, `sort_order`; verwijderen laat het bestand staan tenzij `delete_file=1` |
    | `GET review-invitations`, `POST review-invitations/{id}/dismiss` | open uitnodigingen van het lid |
    | `GET|PATCH admin/sections/{section}`, `admin/topics`, `admin/reports`, `admin/moderation` | beheer |
    | `GET|PATCH admin/discussions/{type}/{id}` | slow mode en vergrendelen (`rr.moderate`) |
 
 5. **Features van versie 1** (allemaal deterministisch, geen AI):
    - TL;DR van lange discussies, zoeken binnen een subject, prijs op het moment van de review (`PriceAtReviewResolver`), "Vergeleken met…", kwaliteitsmeter (`quality` in de config), review-uitnodigingen (`ReviewInvitations::schedule()`), context-facetten (`reviews.facets`), onzekerheidsband en scoreverloop in de samenvatting, sorteren op "Controversieel" (reacties), citeer-selectie, productkaart, mini-peiling (`polls`), "Nieuw sinds je laatste bezoek", slow mode en vergrendelen, vertrouwensniveaus (`trust_levels` per sectie), herformuleer-suggestie (`tone.words`), profiel-hovercard, ongedaan maken na plaatsen (`undo_window_seconds`), "Wil ik proberen" (`WantToTryList`).
-   - **Commands** (automatisch ingepland, uit te zetten met `schedule.enabled`): `rr:publish-due` (elke minuut: reacties na het venster publiceren, daarna pas `CommentPosted`) en `rr:send-review-invitations` (elk uur: `ReviewInvitationDue`).
+   - **Commands** (automatisch ingepland, uit te zetten met `schedule.enabled`): `rr:publish-due` (elke minuut: reacties na het venster publiceren, daarna pas `CommentPosted`), `rr:send-review-invitations` (elk uur: `ReviewInvitationDue`) en `rr:prune-uploads` (elk uur, `--hours=` overschrijft de wachttijd: nooit gekoppelde uploads met hun bestand verwijderen).
+   - **Uploads en foto's**: een upload hoort bij één bijdrage. De sanitizer laat alleen eigen uploads toe die nog nergens aan hangen of al aan de bijdrage die bewerkt wordt; bij opslaan worden afbeeldingen in de tekst (`inline`) en reviewfoto's (`photo`) gekoppeld. Ongedaan maken (undo) maakt de uploads weer vrij (de tekst gaat terug naar de editor); verwijdert de auteur een review of reactie, dan gaan de bestanden direct weg, behalve als een open melding de bijdrage als bewijs vasthoudt. Verwijderen door een moderator houdt ze. Foto's van een review die niet goedgekeurd is ziet alleen de auteur (en moderators in `admin/moderation`); met `reviews.photos_require_approval` wacht een review die een foto krijgt op een moderator.
    - `RiskSignals` kreeg `forPollVote()`. Een bijdrage met `counted=false` blijft zichtbaar, maar telt niet als bijdrage (vertrouwensniveaus, TL;DR, topreactie); bij reviews telt hij ook niet mee in de aggregaten. Hosts lezen `$event->comment->counted` voordat ze punten geven.
 6. **Events** (na de commit verstuurd) om punten, notificaties en volgers in de host te koppelen: `ReviewSubmitted`, `ReviewPublished`, `ReviewModerated`, `ReviewDeleted`, `CommentPosted`, `CommentEdited`, `CommentModerated`, `CommentDeleted`, `VoteCast`, `ContentReported`, `ReportResolved`, `RatingAggregatesRefreshed`, `ReviewInvitationDue`, `WantToTryRequested` (namespace `RatingsAndReviews\Events`).
 
@@ -101,9 +109,8 @@ Peer-dependencies (in de host): `@tiptap/core`, `@tiptap/pm`, `@tiptap/starter-k
    import { enhanceRatingsAndReviews } from '../../vendor/jw-1980/ratings-and-reviews/resources/js/blade/index.js';
 
    enhanceRatingsAndReviews(document, {
-       uploadImage: (file) => /* eigen upload-route */ uploadToHost(file),   // → { url, alt? } onder uploads.url_prefix
        searchCards: (query) => /* eigen productzoeker */ searchProducts(query), // → [{ type, id, title, url, imageUrl, price }]
-       stickers: window.rrStickers ?? [],                                      // [{ id, name, url }]
+       // Optioneel: uploadImage (standaard POST uploads van het pakket) en stickers (standaard GET stickers, geladen bij het eerste openen).
    });
    ```
 4. In een view:
@@ -111,28 +118,15 @@ Peer-dependencies (in de host): `@tiptap/core`, `@tiptap/pm`, `@tiptap/starter-k
    ```blade
    <x-rr::rating-summary :subject="$product" />
    <x-rr::reviews :subject="$product" :brand-reply="fn (array $review) => view('brands.reply', ['review' => $review])" />
-   <x-rr::review-form :subject="$product" :action="route('product.reviews.store', $product)" :login-url="route('login')">
+   <x-rr::review-form :subject="$product" :login-url="route('login')">
        <x-slot:comparison-picker>@include('products.compare-picker')</x-slot:comparison-picker>
    </x-rr::review-form>
-   <x-rr::discussion :subject="$product" :action="route('product.comments.store', $product)" :login-url="route('login')" />
+   <x-rr::discussion :subject="$product" :login-url="route('login')" />
    ```
 
-   De componenten renderen op de server via de pakketroutes (in-process, met de rechten en vormen van de API). Zonder JavaScript werken lezen, sorteren, filteren (`?rr_rating`, `?rr_facet[groep]`, `?rr_sort`, `?rr_page`; discussie `?rr_csort`, `?rr_cpage`, `?rr_cq`, `?rr_creply`), zoeken en antwoorden. Met JavaScript gebeurt hetzelfde zonder herladen. Het voorvoegsel is instelbaar met `prefix`.
+   De componenten renderen op de server via de pakketroutes (in-process, met de rechten en vormen van de API). Zonder JavaScript werken lezen, sorteren, filteren (`?rr_rating`, `?rr_facet[groep]`, `?rr_sort`, `?rr_page`; discussie `?rr_csort`, `?rr_cpage`, `?rr_cq`, `?rr_creply`), zoeken, antwoorden en "Meer antwoorden tonen" (`?rr_cthread=ID&rr_cthread_pages=N`). Met JavaScript gebeurt hetzelfde zonder herladen. Het voorvoegsel is instelbaar met `prefix`. Het reviewformulier volgt `review_extended_fields` (titel, plus- en minpunten), `review_min_length` en `reviews.max_photos` (foto's: met JavaScript direct geüpload, zonder als bestanden meegestuurd).
 
-**Hostverantwoordelijkheid: posten zonder JavaScript.** De API antwoordt met JSON; een gewone formulier-POST heeft een webroute nodig die terugstuurt. `action` is optioneel; zonder `action` meldt het formulier dat JavaScript nodig is. Voorbeeld:
-
-```php
-Route::middleware(['web', 'auth'])->group(function () {
-    Route::post('/producten/{product}/reacties', function (Product $product) {
-        $response = app()->call([app(\RatingsAndReviews\Http\Controllers\CommentController::class), 'store'], ['type' => 'product', 'id' => (string) $product->id]);
-
-        return back()->with('rr_status', $response->getData(true)['message'] ?? null);
-    })->name('product.comments.store');
-    // idem voor reviews met ReviewController::store (en ::update met _method=PATCH als `update-action`)
-});
-```
-
-Validatiefouten gaan via de gewone redirect met `$errors`; de componenten tonen `$errors` en `session('rr_status')`.
+**Posten zonder JavaScript.** Zet `web_routes.enabled` op `true`: het pakket registreert dan formulierroutes onder `/{web_routes.prefix}` (standaard `rr-forms`, routenamen `rr.web.*`, middleware `web` plus `web_routes.middleware`) voor reviews (met foto's als `photo_files[]`), reacties, bewerken, verwijderen (met bevestiging in een `<details>`), ongedaan maken, stemmen, peilingstemmen en meldingen. Elke route draait de API-controller in-process en stuurt terug naar de pagina: `rr_status` bij succes, fouten in een eigen error bag per formulier (`rr_review`, `rr_comment`, `rr_report`, `rr_vote`) met de oude invoer, `rr_form` om te weten bij welk formulier ze horen, `rr_tone` bij de herformuleer-suggestie (het formulier biedt dan "Toch plaatsen") en `rr_error` bij 401/403/404/429. De Blade-componenten gebruiken deze routes automatisch; bewerken zonder JavaScript gaat via `?rr_cedit=ID`. Met JavaScript blijven dezelfde formulieren via de JSON-API werken. `action`/`update-action` overschrijven de URL nog steeds met een eigen hostroute (die dan zelf `$errors` en `session('rr_status')` moet vullen).
 
 ### NutriCompare (Vue 3)
 
@@ -160,20 +154,22 @@ app.use(createRatingsAndReviews({
     isAuthenticated: Boolean(page.props.auth.user),
     loginUrl: route('login'),
     reportReasons: page.props.rr.reportReasons,
-    mediaPrefixes: ['/storage/'],
-    stickers, uploadImage, searchCards,        // zoals bij Blade
+    mediaPrefixes: ['/storage/'],              // bij uploads.visibility = private ook '/rr/media/'
+    searchCards,                               // optioneel: uploadImage (standaard POST uploads) en stickers (standaard GET stickers)
 }));
 ```
 
 ```vue
 <RrRatingSummary :subject="{ type: 'product', id }" v-model:rating="rating" v-model:facets="facets" />
 <RrReviews :subject="{ type: 'product', id }" v-model:rating="rating" v-model:facets="facets" :topics="topics" @loaded="page = $event" />
-<RrReviewForm :subject="{ type: 'product', id }" :scale="page.meta.scaleMax" :topics="topics" :facet-options="page.meta.facets"
+<RrReviewForm :subject="{ type: 'product', id }" :meta="page.meta" :topics="topics" :facet-options="page.meta.facets"
               :comparisons="page.meta.comparisons" :tools="page.meta.editor.editorTools ?? undefined" :review="page.meta.ownReview">
     <template #comparison-picker="{ select }"><ProductPicker @pick="select" /></template>
 </RrReviewForm>
 <RrDiscussion :subject="{ type: 'product', id }" />
 ```
+
+Met `:meta` volgt `RrReviewForm` de sectie (schaal, uitgebreide velden, minimale lengte, foto's en lengtelimieten); losse props (`scale`, `extended-fields`, `min-length`, `max-photos`, `max-title`, `max-points`) winnen als ze gegeven zijn. `RrDiscussion` toont bij een afgekapte draad "Meer antwoorden tonen" en laadt de rest per pagina. De API-client heeft ook `uploadImage`, `replies`, `stickers` en voor beheer `adminStickers`, `createSticker`, `updateSticker`, `deleteSticker`.
 
 Alle API-vormen staan getypeerd in `packages/vue/src/types.ts`; de mapping van de server-JSON zit op één plek, `resources/js/normalize.js`.
 
@@ -196,7 +192,7 @@ npm run build       # dist/: ES-module, CSS, thema's en .d.ts
 ```
 
 - `php packages/vue/scripts/quality-fixture.php` schrijft `tests/fixtures/review-quality.json` uit de echte PHP-regels en -scores; de parity-spec rekent dezelfde gevallen in JavaScript na.
-- `DB_DATABASE=rr_ui_views vendor/bin/phpunit --bootstrap vendor/autoload.php packages/vue/scripts/blade-fixture/BladeComponentsRenderTest.php` rendert de Blade-componenten op MySQL 8.4 en schrijft de HTML waartegen `tests/blade.spec.ts` de Blade-verrijking test.
+- `DB_DATABASE=rr_ui_views vendor/bin/phpunit --bootstrap vendor/autoload.php packages/vue/scripts/blade-fixture/BladeComponentsRenderTest.php` rendert de Blade-componenten op MySQL 8.4 en schrijft de HTML waartegen `tests/blade.spec.ts` de Blade-verrijking test; `BladeFormRoutesRenderTest.php` (zelfde aanroep) doet dat met de formulierroutes aan voor `tests/blade-forms.spec.ts`.
 - `node_modules` staat alleen in `packages/vue` (genegeerd door git). Het PHP-pakket heeft bij installatie geen JavaScript-build nodig.
 
-Nog niet in de API, dus in de UI alleen als slot of verborgen: foto's bij reviews, merkreacties (slot `brand-reply`), een uploadroute voor afbeeldingen (host: `uploadImage`), productzoeken voor `#` (host: `searchCards`; zonder zoeker werkt `#type:id`) en `review_extended_fields` in de review-meta (pluspunten, minpunten en titel worden altijd getoond).
+Nog niet in de API, dus in de UI alleen als slot of verborgen: merkreacties (slot `brand-reply`) en productzoeken voor `#` (host: `searchCards`; zonder zoeker werkt `#type:id`).
