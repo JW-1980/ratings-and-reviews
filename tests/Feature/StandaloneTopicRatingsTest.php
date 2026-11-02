@@ -169,4 +169,16 @@ class StandaloneTopicRatingsTest extends TestCase
         $this->expectException(ValidationException::class);
         $service->import(503, $product, 999999, 3, 5);
     }
+
+    public function test_deleting_a_topic_removes_its_standalone_scores_and_refreshes_the_subject(): void
+    {
+        $product = $this->product();
+        $this->app->make(TopicRatings::class)->import(601, $product, $this->taste->id, 5, 5);
+        $this->assertSame(1, RatingAggregate::query()->sole()->topics[(string) $this->taste->id]['count']);
+
+        $this->actingAs($this->moderator())->deleteJson("/rr/admin/topics/{$this->taste->id}")->assertOk()->assertJsonPath('data.deleted_ratings', 1);
+
+        $this->assertSame(0, TopicRating::query()->count());
+        $this->assertArrayNotHasKey((string) $this->taste->id, (array) RatingAggregate::query()->sole()->topics);
+    }
 }

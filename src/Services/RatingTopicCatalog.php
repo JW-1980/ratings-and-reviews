@@ -152,7 +152,8 @@ class RatingTopicCatalog
     public function delete(RatingTopic $topic): int
     {
         return DB::transaction(function () use ($topic): int {
-            $count = $topic->ratings()->count();
+            // Review-attached and standalone scores (both go with the topic, by cascade).
+            $count = $topic->ratings()->count() + TopicRating::query()->withoutGlobalScopes()->where('topic_id', $topic->id)->count();
             $this->refreshSubjectsRatedOn($topic->id);
             RatingTopic::query()->where('parent_id', $topic->id)->update(['parent_id' => null]);
             $topic->delete();
