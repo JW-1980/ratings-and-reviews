@@ -13,9 +13,13 @@ abstract class Controller extends BaseController
 {
     use ResolvesCurrentUser;
 
-    protected function moderates(?Authenticatable $user): bool
+    /**
+     * Whether the user may moderate this item or subject (a Review, a Comment, a Commentable
+     * or Reviewable subject, an Upload without content): rr.moderate with that subject.
+     */
+    protected function moderates(?Authenticatable $user, mixed $subject): bool
     {
-        return $user !== null && app(AbilityResolver::class)->allows($user, Ability::MODERATE);
+        return $user !== null && app(AbilityResolver::class)->allows($user, Ability::MODERATE, $subject);
     }
 
     /**

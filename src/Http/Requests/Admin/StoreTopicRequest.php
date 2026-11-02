@@ -4,6 +4,7 @@ namespace RatingsAndReviews\Http\Requests\Admin;
 
 use Illuminate\Validation\Rule;
 use RatingsAndReviews\Http\Requests\PackageRequest;
+use RatingsAndReviews\Models\RatingTopic;
 use RatingsAndReviews\Support\Ability;
 
 class StoreTopicRequest extends PackageRequest
@@ -11,6 +12,21 @@ class StoreTopicRequest extends PackageRequest
     protected function ability(): ?string
     {
         return Ability::MANAGE_TOPICS;
+    }
+
+    /**
+     * An unsaved topic with the submitted scope and category, so a host can allow managing
+     * topics per scope. Without a valid scope the ability is asked in general (and the
+     * validation answers 422 after it).
+     */
+    protected function abilitySubject(): mixed
+    {
+        $scope = $this->input('scope');
+        $category = $this->input('category_key');
+
+        return is_string($scope) && $scope !== ''
+            ? new RatingTopic(['scope' => $scope, 'category_key' => is_string($category) && $category !== '' ? $category : null])
+            : null;
     }
 
     /**

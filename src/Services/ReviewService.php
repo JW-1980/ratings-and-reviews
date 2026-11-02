@@ -321,7 +321,7 @@ class ReviewService
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.too_large')]);
         }
 
-        $clean = $this->sanitizer->clean($body, $this->trust->for($author, $settings)->settings, $authorId, $target);
+        $clean = $this->sanitizer->clean($body, $this->trust->for($author, $settings, $target ?? $subject)->settings, $authorId, $target);
         $length = mb_strlen($clean->text);
         $maxLength = max(1, (int) config('ratings-and-reviews.reviews.max_body_length', 10000));
 
@@ -363,6 +363,7 @@ class ReviewService
 
         return [
             'attributes' => [
+                'section' => $subject->reviewSectionKey(),
                 'rating' => $rating,
                 'scale_max' => $settings->reviewScale,
                 'title' => $title === '' ? null : $title,

@@ -26,6 +26,16 @@ abstract class PackageRequest extends FormRequest
         return null;
     }
 
+    /**
+     * What the ability is checked on (the item, subject or section the request acts on), so
+     * a host can grant it per section or kind. Null: the ability in general. Resolved before
+     * validation; an unknown item answers 404 here.
+     */
+    protected function abilitySubject(): mixed
+    {
+        return null;
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -34,7 +44,7 @@ abstract class PackageRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if ($this->ability() !== null) {
-            $this->requireAbility($this, $this->ability());
+            $this->requireAbility($this, $this->ability(), $this->abilitySubject());
         } elseif ($this->requiresUser()) {
             $this->requireUser($this);
         }

@@ -115,7 +115,7 @@ class ReviewController extends Controller
                 'filters' => ['rating' => $ratingFilter === false ? null : $ratingFilter, 'facets' => (object) $facetFilter],
                 'facets' => $this->facets->options(),
                 'comparisons' => array_map(fn ($case): array => ['value' => $case->value, 'label' => $case->label()], Comparison::cases()),
-                'editor' => $this->trust->for($viewer, $settings)->toArray(),
+                'editor' => $this->trust->for($viewer, $settings, $subject)->toArray(),
                 'features' => [
                     'price_at_review' => app(PriceAtReviewResolver::class)->isEnabled(),
                     'want_to_try' => app(WantToTryList::class)->isEnabled(),
@@ -177,7 +177,7 @@ class ReviewController extends Controller
 
         if ($model->user_id === $this->userId($user)) {
             $this->reviews->delete($model);
-        } elseif ($this->moderates($user)) {
+        } elseif ($this->moderates($user, $model)) {
             $this->reviews->delete($model, $user->getAuthIdentifier());
         } else {
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.not_yours'));
@@ -240,11 +240,11 @@ class ReviewController extends Controller
         $subject = $review->reviewable;
         $own = $review->user_id === $this->userId($user);
 
-        if (! $subject instanceof Reviewable || (! $subject->reviewsVisibleTo($user) && ! $this->moderates($user))) {
+        if (! $subject instanceof Reviewable || (! $subject->reviewsVisibleTo($user) && ! $this->moderates($user, $review))) {
             throw new NotFoundHttpException;
         }
 
-        if ($review->status !== ContentStatus::Approved && ! $own && ! ($allowHidden && $this->moderates($user))) {
+        if ($review->status !== ContentStatus::Approved && ! $own && ! ($allowHidden && $this->moderates($user, $review))) {
             throw new NotFoundHttpException;
         }
 

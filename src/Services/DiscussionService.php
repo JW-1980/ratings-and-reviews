@@ -87,13 +87,13 @@ class DiscussionService
         }
 
         $authorId = (int) $author->getAuthIdentifier();
-        $moderator = $this->abilities->allows($author, Ability::MODERATE);
+        $moderator = $this->abilities->allows($author, Ability::MODERATE, $subject);
 
         if (! $moderator && $this->states->isLocked($subject)) {
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.discussion_locked')]);
         }
 
-        $trust = $this->trust->for($author, $settings);
+        $trust = $this->trust->for($author, $settings, $subject);
         $placement = $this->placement($subject, $trust->settings, $parentId);
         $clean = $this->cleanBody($html, $trust->settings, $authorId);
         $quote = $this->quote($subject, $options['quoted_comment_id'] ?? null, $options['quote_text'] ?? null);
@@ -222,7 +222,7 @@ class DiscussionService
                 throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comments_closed')]);
             }
 
-            if ($subject instanceof Model && ! $this->abilities->allows($editor, Ability::MODERATE) && $this->states->isLocked($subject)) {
+            if ($subject instanceof Model && ! $this->abilities->allows($editor, Ability::MODERATE, $comment) && $this->states->isLocked($subject)) {
                 throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.discussion_locked')]);
             }
 
@@ -235,7 +235,7 @@ class DiscussionService
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comment_removed')]);
         }
 
-        $clean = $this->cleanBody($html, $this->trust->for($editor, $settings)->settings, $comment->user_id, $comment);
+        $clean = $this->cleanBody($html, $this->trust->for($editor, $settings, $comment)->settings, $comment->user_id, $comment);
         $clean = $this->withQuoteReferences($clean, $comment->quoted_comment_id);
 
         if ($clean->html === $comment->body_html) {

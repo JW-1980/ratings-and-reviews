@@ -75,11 +75,11 @@ class UploadController extends Controller
 
     private function mayView(Upload $upload, ?Authenticatable $viewer): bool
     {
-        if ($viewer !== null && ($this->userId($viewer) === $upload->user_id || $this->moderates($viewer))) {
+        $content = $upload->attached_id === null ? null : $upload->attached;
+
+        if ($viewer !== null && ($this->userId($viewer) === $upload->user_id || $this->moderates($viewer, $content ?? $upload))) {
             return true;
         }
-
-        $content = $upload->attached_id === null ? null : $upload->attached;
 
         return match (true) {
             $content instanceof Review => $content->isPubliclyVisible()

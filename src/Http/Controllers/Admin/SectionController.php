@@ -4,12 +4,14 @@ namespace RatingsAndReviews\Http\Controllers\Admin;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use RatingsAndReviews\Contracts\AbilityResolver;
 use RatingsAndReviews\Http\Controllers\Controller;
 use RatingsAndReviews\Http\Requests\Admin\UpdateSectionRequest;
 use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Support\DiscussionSort;
 use RatingsAndReviews\Support\EditorTool;
+use RatingsAndReviews\Support\SectionScope;
 use RatingsAndReviews\Support\VoteDimension;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -19,21 +21,23 @@ class SectionController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $this->requireAbility($request, Ability::MANAGE_SETTINGS);
+        $user = $this->requireAbility($request, Ability::MANAGE_SETTINGS);
+        $resolver = app(AbilityResolver::class);
+        $sections = array_values(array_filter($this->settings->knownSections(), fn (string $section): bool => $resolver->allows($user, Ability::MANAGE_SETTINGS, new SectionScope($section))));
 
         return new JsonResponse([
             'data' => array_map(fn (string $section): array => [
                 'section' => $section,
                 'settings' => $this->settings->for($section)->toArray(),
-            ], $this->settings->knownSections()),
+            ], $sections),
             'meta' => $this->options(),
         ]);
     }
 
     public function show(Request $request, string $section): JsonResponse
     {
-        $this->requireAbility($request, Ability::MANAGE_SETTINGS);
         $this->assertKnown($section);
+        $this->requireAbility($request, Ability::MANAGE_SETTINGS, new SectionScope($section));
 
         return new JsonResponse(['data' => ['section' => $section, 'settings' => $this->settings->for($section)->toArray()], 'meta' => $this->options()]);
     }

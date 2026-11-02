@@ -54,7 +54,7 @@ class CommentController extends Controller
         $sort = DiscussionSort::tryFrom((string) $request->query('sort'));
         $page = max(1, (int) $request->query('page', 1));
         $viewerId = $this->userId($viewer);
-        $moderates = $this->moderates($viewer);
+        $moderates = $this->moderates($viewer, $subject);
 
         $lastVisit = $viewerId === null ? null : $this->markers->lastReadAt($viewerId, $subject);
         $discussion = $this->tree->load($subject, $this->identity->voterKey($request, $viewer), $sort, $page, $viewerId, $lastVisit);
@@ -66,7 +66,7 @@ class CommentController extends Controller
 
         $state = $this->states->find($subject);
         $locked = $state?->locked_at !== null;
-        $trust = $this->trust->for($viewer, $discussion->settings);
+        $trust = $this->trust->for($viewer, $discussion->settings, $subject);
 
         return new JsonResponse([
             'data' => $discussion->roots->map(fn (Comment $comment): array => (new CommentResource($comment))
@@ -153,7 +153,7 @@ class CommentController extends Controller
         $model = $this->findComment($comment, $user);
         $own = $model->user_id === $this->userId($user);
 
-        if (! $own && ! $this->moderates($user)) {
+        if (! $own && ! $this->moderates($user, $model)) {
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.not_yours'));
         }
 
@@ -169,7 +169,7 @@ class CommentController extends Controller
 
         if ($model->user_id === $this->userId($user)) {
             $this->discussions->deleteByAuthor($model, $user);
-        } elseif ($this->moderates($user)) {
+        } elseif ($this->moderates($user, $model)) {
             $this->discussions->deleteByModerator($model, $user->getAuthIdentifier());
         } else {
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.not_yours'));
@@ -187,7 +187,7 @@ class CommentController extends Controller
         $viewer = $this->currentUser($request);
         $model = ctype_digit($comment) ? Comment::query()->find((int) $comment) : null;
         $subject = $model?->commentable;
-        $moderates = $this->moderates($viewer);
+        $moderates = $model !== null && $this->moderates($viewer, $model);
 
         if ($model === null || ! $subject instanceof Commentable || (! $model->isPubliclyVisible() && ! $moderates) || (! $subject->commentsVisibleTo($viewer) && ! $moderates)) {
             throw new NotFoundHttpException;
@@ -209,10 +209,10 @@ class CommentController extends Controller
     {
         $viewer = $this->currentUser($request);
         $viewerId = $this->userId($viewer);
-        $moderates = $this->moderates($viewer);
         $model = ctype_digit($comment) ? Comment::query()->find((int) $comment) : null;
         $root = $model === null ? null : ($model->root_id === null ? $model : Comment::query()->find($model->root_id));
         $subject = $root?->commentable;
+        $moderates = $subject !== null && $this->moderates($viewer, $subject);
 
         if ($root === null || ! $subject instanceof Commentable || ! $subject->commentsVisibleTo($viewer)) {
             throw new NotFoundHttpException;
@@ -257,7 +257,7 @@ class CommentController extends Controller
 
         return new JsonResponse([
             'data' => (new CommentResource($comment))
-                ->withContext($profiles, [], $this->userId($user), $this->moderates($user), $settings)
+                ->withContext($profiles, [], $this->userId($user), $this->moderates($user, $comment), $settings)
                 ->withExtras($quotes, [], null)
                 ->resolve($request),
             'message' => match ($comment->visibility()) {
@@ -289,7 +289,7 @@ class CommentController extends Controller
     {
         $comment = ctype_digit($id) ? Comment::query()->find((int) $id) : null;
         $subject = $comment?->commentable;
-        $moderates = $this->moderates($user);
+        $moderates = $comment !== null && $this->moderates($user, $comment);
 
         if ($comment === null || ! $subject instanceof Commentable || (! $subject->commentsVisibleTo($user) && ! $moderates)) {
             throw new NotFoundHttpException;

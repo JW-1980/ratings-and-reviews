@@ -33,7 +33,11 @@ class TrustLevels
         private readonly CardResolver $cards,
     ) {}
 
-    public function for(?Authenticatable $user, SectionSettings $settings): TrustProfile
+    /**
+     * @param  mixed  $subject  what the member writes on or edits (a Commentable or Reviewable subject, a Comment or
+     *                          Review): moderators of it are exempt (rr.moderate with this subject)
+     */
+    public function for(?Authenticatable $user, SectionSettings $settings, mixed $subject): TrustProfile
     {
         $tools = $settings->editorTools;
 
@@ -41,7 +45,7 @@ class TrustLevels
             $tools = array_values(array_filter($tools, fn (EditorTool $tool): bool => $tool !== EditorTool::ProductCard));
         }
 
-        $exempt = $user !== null && $this->abilities->allows($user, Ability::MODERATE);
+        $exempt = $user !== null && $this->abilities->allows($user, Ability::MODERATE, $subject);
         $thresholds = array_filter($settings->trustLevels, fn (int $required): bool => $required > 0);
         $contributions = null;
         $locked = [];

@@ -72,7 +72,7 @@ class StickerController extends Controller
 
     public function update(UpdateStickerRequest $request, string $sticker): JsonResponse
     {
-        $model = $this->find($sticker);
+        $model = $request->sticker();
         $data = $request->validated();
 
         if (isset($data['name'])) {
@@ -86,8 +86,8 @@ class StickerController extends Controller
 
     public function destroy(Request $request, string $sticker): JsonResponse
     {
-        $this->requireAbility($request, Ability::MANAGE_SETTINGS);
         $model = $this->find($sticker);
+        $this->requireAbility($request, Ability::MANAGE_SETTINGS, $model);
         $deleteFile = $request->boolean('delete_file') && $model->disk !== null;
 
         $model->delete();

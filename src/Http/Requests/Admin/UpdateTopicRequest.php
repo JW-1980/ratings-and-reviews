@@ -4,13 +4,30 @@ namespace RatingsAndReviews\Http\Requests\Admin;
 
 use Illuminate\Validation\Rule;
 use RatingsAndReviews\Http\Requests\PackageRequest;
+use RatingsAndReviews\Models\RatingTopic;
 use RatingsAndReviews\Support\Ability;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class UpdateTopicRequest extends PackageRequest
 {
+    private ?RatingTopic $topic = null;
+
     protected function ability(): ?string
     {
         return Ability::MANAGE_TOPICS;
+    }
+
+    /** The topic named by `{topic}` (404 otherwise); rr.manage-topics is checked on it. */
+    protected function abilitySubject(): mixed
+    {
+        return $this->topic();
+    }
+
+    public function topic(): RatingTopic
+    {
+        $id = (string) $this->route('topic');
+
+        return $this->topic ??= (ctype_digit($id) ? RatingTopic::query()->find((int) $id) : null) ?? throw new NotFoundHttpException;
     }
 
     /**

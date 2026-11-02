@@ -28,8 +28,8 @@ class DiscussionController extends Controller
 
     public function show(Request $request, string $type, string $id): JsonResponse
     {
-        $this->requireAbility($request, Ability::MODERATE);
         $subject = $this->subjects->resolve($type, $id, Commentable::class);
+        $this->requireAbility($request, Ability::MODERATE, $subject);
 
         return new JsonResponse(['data' => $this->present($subject, $this->states->find($subject))]);
     }
@@ -37,7 +37,7 @@ class DiscussionController extends Controller
     public function update(UpdateDiscussionRequest $request, string $type, string $id): JsonResponse
     {
         $moderator = $this->requireUser($request);
-        $subject = $this->subjects->resolve($type, $id, Commentable::class);
+        $subject = $request->subject();
 
         /** @var array{slow_mode_seconds?: int|null, locked?: bool} $changes */
         $changes = $request->validated();

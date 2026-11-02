@@ -7,6 +7,7 @@ use RatingsAndReviews\Http\Requests\PackageRequest;
 use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Support\DiscussionSort;
 use RatingsAndReviews\Support\EditorTool;
+use RatingsAndReviews\Support\SectionScope;
 use RatingsAndReviews\Support\VoteDimension;
 
 class UpdateSectionRequest extends PackageRequest
@@ -14,6 +15,11 @@ class UpdateSectionRequest extends PackageRequest
     protected function ability(): ?string
     {
         return Ability::MANAGE_SETTINGS;
+    }
+
+    protected function abilitySubject(): mixed
+    {
+        return new SectionScope((string) $this->route('section'));
     }
 
     /**

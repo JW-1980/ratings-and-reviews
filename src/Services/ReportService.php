@@ -9,10 +9,14 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use RatingsAndReviews\Contracts\Commentable;
 use RatingsAndReviews\Contracts\Moderatable;
+use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Events\ContentReported;
 use RatingsAndReviews\Events\ReportResolved;
+use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Report;
+use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Support\ReportStatus;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
@@ -78,6 +82,7 @@ class ReportService
                 $report = Report::query()->create([
                     'reportable_type' => $item->getMorphClass(),
                     'reportable_id' => $item->getKey(),
+                    'section' => self::sectionOf($item),
                     'reporter_id' => $reporterId,
                     'reason' => $reason,
                     'details' => $details,
@@ -154,6 +159,20 @@ class ReportService
     }
 
     /** Keeps `flags_count` (when the item has one) equal to its number of open reports. */
+    /**
+     * The section of a reported item: a review's or comment's own, a host item's comment or
+     * review section, otherwise null.
+     */
+    public static function sectionOf(Model $item): ?string
+    {
+        return match (true) {
+            $item instanceof Review, $item instanceof Comment => $item->section,
+            $item instanceof Commentable => $item->commentSectionKey(),
+            $item instanceof Reviewable => $item->reviewSectionKey(),
+            default => null,
+        };
+    }
+
     private function recountFlags(Model $item): void
     {
         if (! array_key_exists('flags_count', $item->getAttributes())) {

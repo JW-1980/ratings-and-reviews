@@ -25,6 +25,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property string $reviewable_type
  * @property int $reviewable_id
  * @property int $user_id
+ * @property string|null $section the subject's reviewSectionKey() when written (null: rows from before it was stored)
  * @property ContentStatus $status
  * @property int $rating
  * @property int $scale_max
@@ -62,7 +63,7 @@ class Review extends Model implements Moderatable, Votable
     protected $table = 'rr_reviews';
 
     protected $fillable = [
-        'reviewable_type', 'reviewable_id', 'user_id', 'status', 'rating', 'scale_max', 'title', 'body_html', 'body_text',
+        'reviewable_type', 'reviewable_id', 'user_id', 'section', 'status', 'rating', 'scale_max', 'title', 'body_html', 'body_text',
         'pros', 'cons', 'facets', 'price_cents', 'price_currency', 'compared_type', 'compared_id', 'comparison',
         'quality_score', 'helpful_count', 'flags_count', 'ip_hash', 'network_hash', 'device_hash', 'counted',
         'approved_at', 'edited_at',

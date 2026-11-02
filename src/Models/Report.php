@@ -15,6 +15,7 @@ use RatingsAndReviews\Support\ReportStatus;
  * @property int $id
  * @property string $reportable_type
  * @property int $reportable_id
+ * @property string|null $section the section of the reported item (null: a host item without one)
  * @property int $reporter_id
  * @property string $reason
  * @property string|null $details
@@ -33,7 +34,7 @@ class Report extends Model
     protected $table = 'rr_reports';
 
     protected $fillable = [
-        'reportable_type', 'reportable_id', 'reporter_id', 'reason', 'details', 'snapshot', 'status', 'handled_by',
+        'reportable_type', 'reportable_id', 'section', 'reporter_id', 'reason', 'details', 'snapshot', 'status', 'handled_by',
         'handled_at', 'resolution_note',
     ];
 

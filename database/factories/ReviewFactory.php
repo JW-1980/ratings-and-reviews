@@ -4,6 +4,7 @@ namespace RatingsAndReviews\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
+use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Support\ContentStatus;
 
@@ -33,7 +34,11 @@ class ReviewFactory extends Factory
 
     public function forSubject(Model $subject): static
     {
-        return $this->state(['reviewable_type' => $subject->getMorphClass(), 'reviewable_id' => $subject->getKey()]);
+        return $this->state([
+            'reviewable_type' => $subject->getMorphClass(),
+            'reviewable_id' => $subject->getKey(),
+            'section' => $subject instanceof Reviewable ? $subject->reviewSectionKey() : null,
+        ]);
     }
 
     public function status(ContentStatus $status): static
