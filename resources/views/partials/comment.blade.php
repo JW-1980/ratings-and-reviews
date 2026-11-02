@@ -5,6 +5,9 @@
     $name = $comment['author']['name'] ?? __('ratings-and-reviews::ui.reviews.anonymous');
     $approved = $comment['status'] === 'approved' && ($comment['visibility'] ?? 'public') === 'public';
     $bodyHasQuote = str_contains((string) $comment['body_html'], 'data-rr-quote');
+    $editing = ($editId ?? null) === $comment['id'] && $comment['can']['edit'] && $rr['webRoute']('comments.update', ['comment' => $comment['id']]) !== null;
+    $editForm = 'edit:'.$comment['id'];
+    $editErrors = $rr['isForm']($editForm) ? $rr['formErrors']('rr_comment') : new \Illuminate\Support\MessageBag;
 @endphp
 <li class="rr-thread__item" data-depth="{{ $depth }}">
     <article id="{{ $anchor }}" tabindex="-1" data-rr-comment="{{ $comment['id'] }}"
@@ -42,8 +45,26 @@
                     </blockquote>
                 @endif
 
+                @if ($editing)
+                    {{-- No-JavaScript edit (?{{ $prefix }}edit=ID): the text as the editor stores it; the server sanitizes it again. --}}
+                    <form method="post" action="{{ $rr['webRoute']('comments.update', ['comment' => $comment['id']]) }}" class="rr-comment__edit rr-form" novalidate>
+                        @csrf
+                        <input type="hidden" name="_method" value="PATCH">
+                        <label for="{{ $anchor }}-edit" class="rr-label">{{ __('ratings-and-reviews::ui.common.edit') }}</label>
+                        <textarea id="{{ $anchor }}-edit" name="body" class="rr-textarea" rows="4" required @if ($editErrors->has('body')) aria-invalid="true" aria-describedby="{{ $anchor }}-edit-error" @endif>{{ $rr['isForm']($editForm) ? old('body', $comment['body_html']) : $comment['body_html'] }}</textarea>
+                        <p id="{{ $anchor }}-edit-error" class="rr-field-error" role="alert">{{ $editErrors->first('body') ?: $editErrors->first('confirm_tone') }}</p>
+                        @if ($rr['isForm']($editForm) && session('rr_tone'))
+                            <label class="rr-choice"><input type="checkbox" name="confirm_tone" value="1"><span>{{ __('ratings-and-reviews::ui.tone.post_anyway') }}</span></label>
+                        @endif
+                        <div class="rr-actions">
+                            <a href="{{ $rr['query']($prefix, ['edit' => null]) }}#{{ $anchor }}" class="rr-button rr-button--ghost">{{ __('ratings-and-reviews::ui.common.cancel') }}</a>
+                            <button type="submit" class="rr-button rr-button--primary">{{ __('ratings-and-reviews::ui.common.save') }}</button>
+                        </div>
+                    </form>
+                @else
                 {{-- body_html is the output of the package HtmlSanitizer (allowlist per section). --}}
                 <div class="rr-prose rr-comment__body" data-rr-quote-source="{{ $comment['id'] }}" data-rr-body>{!! $comment['body_html'] !!}</div>
+                @endif
 
                 @if (! empty($comment['poll']))
                     @include('rr::partials.poll', ['poll' => $comment['poll']])
@@ -73,6 +94,19 @@
                         @if (! $comment['is_own'] && $approved && $authenticated)
                             <button type="button" class="rr-button rr-button--small rr-button--ghost rr-js-only" data-rr-report="rr_comment" data-id="{{ $comment['id'] }}">{{ __('ratings-and-reviews::ui.reviews.report') }}</button>
                         @endif
+                        {{-- The same actions without JavaScript, through the package form routes (web_routes.enabled). --}}
+                        @if ($comment['can']['edit'] && ! $editing && $rr['webRoute']('comments.update', ['comment' => $comment['id']]))
+                            <a href="{{ $rr['query']($prefix, ['edit' => $comment['id']]) }}#{{ $anchor }}" class="rr-button rr-button--small rr-button--ghost rr-nojs-only">{{ __('ratings-and-reviews::ui.common.edit') }}</a>
+                        @endif
+                        @if (($comment['can']['undo'] ?? false) && ! empty($comment['publish_at']) && ($undoAction = $rr['webRoute']('comments.undo', ['comment' => $comment['id']])))
+                            <form method="post" action="{{ $undoAction }}" class="rr-inline-form rr-nojs-only">@csrf<button type="submit" class="rr-button rr-button--small">{{ __('ratings-and-reviews::ui.undo.action') }}</button></form>
+                        @endif
+                        @if ($comment['can']['delete'])
+                            @include('rr::partials.delete-form', ['deleteAction' => $rr['webRoute']('comments.destroy', ['comment' => $comment['id']]), 'deleteQuestion' => __('ratings-and-reviews::ui.discussion.delete_confirm')])
+                        @endif
+                        @if (! $comment['is_own'] && $approved && $authenticated)
+                            @include('rr::partials.report-form', ['reportType' => 'rr_comment', 'reportId' => $comment['id']])
+                        @endif
                     </div>
                 </footer>
             </div>
@@ -89,6 +123,13 @@
         </ol>
     @endif
     @if (! empty($truncated[$comment['id']] ?? null))
-        <p class="rr-help rr-thread__truncated">{{ __('ratings-and-reviews::ui.discussion.more_replies') }} ({{ $truncated[$comment['id']] }})</p>
+        @php
+            $shownReplies = count($rr['flattenReplies']($comment['replies'] ?? []));
+            $threadPages = ($threadId ?? null) === $comment['id'] ? ($threadPages ?? 1) + 1 : 1;
+        @endphp
+        <p class="rr-thread__truncated">
+            <a href="{{ $rr['query']($prefix, ['thread' => $comment['id'], 'thread_pages' => $threadPages > 1 ? $threadPages : null]) }}#rr-comment-{{ $comment['id'] }}" class="rr-button rr-button--small rr-button--ghost" data-rr-nav data-rr-more-replies="{{ $comment['id'] }}">{{ __('ratings-and-reviews::ui.discussion.more_replies') }}</a>
+            <span class="rr-help">{{ __('ratings-and-reviews::ui.discussion.replies_shown', ['shown' => $shownReplies, 'total' => $truncated[$comment['id']]]) }}</span>
+        </p>
     @endif
 </li>

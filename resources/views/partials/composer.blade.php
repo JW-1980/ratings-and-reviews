@@ -3,6 +3,11 @@
     $label = $parentId ? __('ratings-and-reviews::ui.composer.reply_label', ['name' => $replyName ?? '']) : __('ratings-and-reviews::ui.composer.label');
     $polls = $settings['polls'] ?? ['enabled' => false, 'min_options' => 2, 'max_options' => 4];
     $canPoll = ! $parentId && ($polls['enabled'] ?? false) && ($trust['can_create_poll'] ?? true);
+    // Flashed errors and old input belong to this composer only (top level or the reply to $parentId).
+    $template = $parentId === '__PARENT__';
+    $composerForm = 'comment:'.($parentId ?: 'root');
+    $ownsFlash = ! $template && $rr['isForm']($composerForm, main: ! $parentId);
+    $composerErrors = $ownsFlash ? $rr['formErrors']('rr_comment') : new \Illuminate\Support\MessageBag;
 @endphp
 <form method="post" action="{{ $action ?? '#' }}" id="{{ $formId }}" class="rr-composer {{ $parentId ? 'rr-composer--reply' : '' }}" novalidate aria-labelledby="{{ $formId }}-label"
     data-rr-composer data-min-length="{{ $settings['min_length'] }}" data-max-length="{{ $settings['max_length'] }}" data-tone-check="{{ ($settings['tone_check'] ?? false) ? '1' : '0' }}"
@@ -23,8 +28,8 @@
         <button type="button" class="rr-icon-button" data-rr-quote-remove aria-label="{{ __('ratings-and-reviews::ui.discussion.remove_quote') }}">×</button>
     </p>
 
-    <x-rr::editor name="body" :id="$formId.'-body'" :value="$parentId ? '' : old('body', '')" :tools="$settings['editor_tools']" :locked="$locked"
-        :label="$label" :placeholder="__('ratings-and-reviews::ui.composer.placeholder')" :described-by="$formId.'-meta'" :invalid="! $parentId && $errors->has('body')"
+    <x-rr::editor name="body" :id="$formId.'-body'" :value="$ownsFlash ? old('body', '') : ''" :tools="$settings['editor_tools']" :locked="$locked"
+        :label="$label" :placeholder="__('ratings-and-reviews::ui.composer.placeholder')" :described-by="$formId.'-meta'" :invalid="$composerErrors->has('body')"
         :minlength="$settings['min_length']" :maxlength="$settings['max_length']" required :rows="4" />
 
     @if ($canPoll)
@@ -57,7 +62,11 @@
         </div>
     </div>
 
-    <p class="rr-field-error" role="alert" data-rr-error>{{ $parentId ? '' : $errors->first('body') }}</p>
+    <p class="rr-field-error" role="alert" data-rr-error>{{ $composerErrors->first('body') ?: ($composerErrors->first('parent_id') ?: $composerErrors->first('confirm_tone')) }}</p>
+    @if ($ownsFlash && session('rr_tone'))
+        {{-- The rephrase nudge after a form post without JavaScript: posting again with this ticked goes through. --}}
+        <label class="rr-choice rr-nojs-only"><input type="checkbox" name="confirm_tone" value="1"><span>{{ __('ratings-and-reviews::ui.tone.post_anyway') }}</span></label>
+    @endif
     <p class="rr-notice rr-notice--slow" role="status" data-rr-wait @if (($wait ?? 0) <= 0) hidden @endif>{{ __('ratings-and-reviews::ui.discussion.slow_mode_wait', ['seconds' => $wait ?? 0]) }}</p>
     @if (! ($action ?? null))
         <noscript><p class="rr-notice">{{ __('ratings-and-reviews::ui.common.js_required') }}</p></noscript>

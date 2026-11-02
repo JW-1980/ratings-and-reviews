@@ -74,6 +74,14 @@
         </header>
 
         <p class="rr-visually-hidden" aria-live="polite" role="status" data-rr-live></p>
+        {{-- Outcome of a form post without JavaScript (package form routes) that belongs to this list. --}}
+        @php $listFlash = in_array(session('rr_form'), ['review:delete', 'vote:review'], true) || str_starts_with((string) session('rr_form'), 'report:rr_review'); @endphp
+        @if ($listFlash && session('rr_status'))
+            <p class="rr-alert rr-alert--success" role="status">{{ session('rr_status') }}</p>
+        @endif
+        @if ($listFlash && session('rr_error'))
+            <p class="rr-alert rr-alert--error" role="alert">{{ session('rr_error') }}</p>
+        @endif
 
         @if ($own !== null)
             <div class="rr-reviews__own">

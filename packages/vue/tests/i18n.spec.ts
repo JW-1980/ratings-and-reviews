@@ -25,7 +25,8 @@ describe('translations', () => {
     it('every literal key used by the components and shared modules exists', () => {
         const sources = [
             ...readdirSync(resolve(__dirname, '../src/components')).map((file) => resolve(__dirname, '../src/components', file)),
-            ...['../src/composables/errors.ts', '../../../resources/js/poll.js', '../../../resources/js/editor/index.js'].map((file) => resolve(__dirname, file)),
+            ...['../src/composables/errors.ts', '../src/composables/discussion.ts', '../../../resources/js/poll.js', '../../../resources/js/editor/index.js'].map((file) => resolve(__dirname, file)),
+            ...readdirSync(resolve(__dirname, '../../../resources/js/blade')).map((file) => resolve(__dirname, '../../../resources/js/blade', file)),
         ];
         const available = new Set(keys(en));
         const used = new Set<string>();
@@ -42,7 +43,7 @@ describe('translations', () => {
             }
         }
 
-        expect(used.size).toBeGreaterThan(80);
+        expect(used.size).toBeGreaterThan(120);
         expect([...used].filter((key) => !available.has(key))).toEqual([]);
     });
 

@@ -5,9 +5,9 @@
  * Mapped from the controllers and resources in src/Http (CommentResource,
  * ReviewResource, the Summary extensions, DigestController, SearchController,
  * PollService::present(), AuthorCardController, CardController, ToneCheckController,
- * ReviewQualityMeter::rules()). Fields the server does not send (yet) default to empty, so
- * the matching UI stays hidden; those are marked "not sent by the API (yet)". The
- * TypeScript counterparts are in packages/vue/src/types.ts.
+ * ReviewQualityMeter::rules(), UploadController, StickerController). Fields the server does
+ * not send (yet) default to empty, so the matching UI stays hidden; those are marked "not
+ * sent by the API (yet)". The TypeScript counterparts are in packages/vue/src/types.ts.
  */
 
 const num = (value, fallback = null) => (value === null || value === undefined || value === '' || Number.isNaN(Number(value)) ? fallback : Number(value));
@@ -160,8 +160,9 @@ export function review(raw) {
             ? { verdict: str(compared.comparison), verdictLabel: str(compared.comparison_label), subject: productRef(compared) }
             : null,
         qualityScore: num(data.quality_score),
-        // Not sent by the API (yet): photos and a brand reply; the UI hides them when empty.
-        photos: list(data.photos).map((photo) => ({ url: str(photo.url, ''), alt: str(photo.alt ?? photo.alt_text, '') })),
+        // ReviewResource `photos`: [{ id, url, alt, width, height }] (others see them only on approved reviews).
+        photos: list(data.photos).map(photo),
+        // Not sent by the API (yet): a brand reply; the UI hides it when empty (hosts use the `brand-reply` slot).
         brandReply: data.brand_reply ? { author: author(data.brand_reply.author), bodyHtml: str(data.brand_reply.body_html, ''), createdAt: str(data.brand_reply.created_at) } : null,
         helpfulCount: num(data.helpful_count, 0),
         viewerVotes: { ...(data.viewer_votes ?? {}) },
@@ -170,6 +171,45 @@ export function review(raw) {
         createdAt: str(data.created_at),
         editedAt: str(data.edited_at),
         isEdited: data.edited_at !== null && data.edited_at !== undefined,
+    };
+}
+
+/** A review photo or an upload (UploadController::present()). */
+export function photo(raw) {
+    return {
+        id: raw?.id ?? null,
+        url: str(raw?.url, ''),
+        alt: str(raw?.alt ?? raw?.alt_text, ''),
+        width: num(raw?.width),
+        height: num(raw?.height),
+    };
+}
+
+/** POST uploads: `{ id, url, alt, width, height }`. */
+export function upload(raw) {
+    const data = photo(raw);
+
+    return { ...data, alt: raw?.alt ?? null };
+}
+
+/** GET stickers: `{ id, name, url }` (name in the current locale). */
+export function sticker(raw) {
+    return { id: raw?.id, name: str(raw?.name, ''), url: str(raw?.url, '') };
+}
+
+/** GET admin/stickers (StickerResource). */
+export function adminSticker(raw) {
+    const data = raw ?? {};
+
+    return {
+        id: data.id,
+        name: { nl: str(data.name?.nl, ''), en: str(data.name?.en, '') },
+        label: str(data.label, ''),
+        path: str(data.path, ''),
+        url: str(data.url, ''),
+        managedFile: Boolean(data.managed_file),
+        isActive: Boolean(data.is_active),
+        sortOrder: num(data.sort_order, 0),
     };
 }
 
@@ -220,6 +260,19 @@ export function reviewPage(raw) {
             facets: facetOptions(meta.facets),
             comparisons: list(meta.comparisons).map((option) => ({ value: String(option.value), label: str(option.label, String(option.value)) })),
             editor: trust(meta.editor),
+            // The section's review form: scale, extended fields (title, pros, cons), minimum text length and limits.
+            reviewScale: num(meta.review_scale ?? meta.scale_max, 5),
+            extendedFields: meta.review_extended_fields === undefined ? true : Boolean(meta.review_extended_fields),
+            minLength: num(meta.review_min_length, 0),
+            form: {
+                maxBodyLength: num(meta.review_form?.max_body_length, 10000),
+                maxTitleLength: num(meta.review_form?.max_title_length, 150),
+                maxProsCons: num(meta.review_form?.max_pros_cons, 5),
+                maxProConLength: num(meta.review_form?.max_pro_con_length, 200),
+                maxPhotos: num(meta.review_form?.max_photos, 0),
+                photosRequireApproval: Boolean(meta.review_form?.photos_require_approval),
+                requiresApproval: Boolean(meta.review_form?.requires_approval),
+            },
             features: {
                 priceAtReview: Boolean(meta.features?.price_at_review),
                 wantToTry: Boolean(meta.features?.want_to_try),
@@ -343,6 +396,19 @@ export function commentPage(raw) {
                 },
             },
         },
+    };
+}
+
+/** GET comments/{comment}/replies: flat replies in tree order (place them by `parentId`). */
+export function replyPage(raw) {
+    const meta = raw?.meta ?? {};
+
+    return {
+        items: list(raw?.data).map((item) => comment(item)),
+        rootId: meta.root_id ?? null,
+        total: num(meta.total, 0),
+        nextCursor: str(meta.next_cursor),
+        hasMore: Boolean(meta.has_more),
     };
 }
 
@@ -485,6 +551,7 @@ export function qualityRules(raw) {
  * @property {Record<string|number, number|null>} [topicRatings]
  * @property {Record<string, string|null>} [facets] group => value
  * @property {{ type: string, id: string|number, verdict: string }|null} [comparison]
+ * @property {Array<number|string>} [photos] upload ids in display order; leave out to keep the current photos
  * @property {boolean} [confirmTone]
  * @property {number} [formStartedAt] unix seconds, for the SpamGuard time trap
  */
@@ -509,6 +576,10 @@ export function reviewPayload(draft) {
 
     if (draft.confirmTone) {
         payload.confirm_tone = true;
+    }
+
+    if (draft.photos !== undefined) {
+        payload.photos = list(draft.photos).map(Number).filter((id) => Number.isInteger(id) && id > 0);
     }
 
     if (draft.comparison) {

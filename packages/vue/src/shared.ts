@@ -5,6 +5,7 @@
  */
 import * as js from './shared/index.js';
 import type {
+    AdminSticker,
     AuthorCard,
     CommentPage,
     Digest,
@@ -15,13 +16,16 @@ import type {
     QualityResult,
     QualityRules,
     RatingSummary,
+    ReplyPage,
     Review,
     ReviewPage,
     Revision,
     SearchResults,
+    Sticker,
     SubjectRef,
     ToneResult,
     TrendPoint,
+    Upload,
     VoteResult,
 } from './types';
 
@@ -40,6 +44,8 @@ export interface ReviewDraftPayload {
     topicRatings?: Record<string, number | null>;
     facets?: Record<string, string | null>;
     comparison?: { type: string; id: string | number; verdict: string } | null;
+    /** Upload ids in display order; leave out to keep the current photos. */
+    photos?: Array<number | string>;
     confirmTone?: boolean;
     formStartedAt?: number;
 }
@@ -64,7 +70,7 @@ export interface ApiOptions {
 }
 
 export interface ApiClient {
-    request(method: string, path: string, init?: { query?: Record<string, unknown>; body?: unknown; signal?: AbortSignal }): Promise<unknown>;
+    request(method: string, path: string, init?: { query?: Record<string, unknown>; body?: unknown; form?: FormData; signal?: AbortSignal }): Promise<unknown>;
     ratingSummary(subject: SubjectRef, signal?: AbortSignal): Promise<RatingSummary>;
     reviews(subject: SubjectRef, query?: { sort?: string; rating?: number | null; facets?: Record<string, string>; page?: number }, signal?: AbortSignal): Promise<ReviewPage>;
     createReview(subject: SubjectRef, payload: ReviewDraftPayload): Promise<Saved<Review>>;
@@ -76,6 +82,7 @@ export interface ApiClient {
     updateComment(id: number, body: string, confirmTone?: boolean): Promise<Saved<Comment>>;
     deleteComment(id: number): Promise<void>;
     undoComment(id: number): Promise<void>;
+    replies(commentId: number | string, query?: { cursor?: string | null; after?: number | null; limit?: number }, signal?: AbortSignal): Promise<ReplyPage>;
     revisions(id: number, signal?: AbortSignal): Promise<Revision[]>;
     voteComment(id: number, dimension: string, value: number): Promise<VoteResult>;
     votePoll(pollId: number, optionId: number): Promise<{ poll: Poll | null; counted: boolean; changed: boolean }>;
@@ -88,6 +95,12 @@ export interface ApiClient {
     wantToTry(subject: SubjectRef, reviewId?: number | null): Promise<{ added: boolean; message: string | null }>;
     toneCheck(text: string, signal?: AbortSignal): Promise<ToneResult>;
     qualityRules(signal?: AbortSignal): Promise<QualityRules | null>;
+    uploadImage(file: Blob, alt?: string | null): Promise<Upload>;
+    stickers(signal?: AbortSignal): Promise<Sticker[]>;
+    adminStickers(signal?: AbortSignal): Promise<AdminSticker[]>;
+    createSticker(sticker: { image?: Blob; path?: string; name: { nl: string; en: string }; isActive?: boolean; sortOrder?: number }): Promise<AdminSticker>;
+    updateSticker(id: number, changes: { name?: { nl: string; en: string }; isActive?: boolean; sortOrder?: number }): Promise<AdminSticker>;
+    deleteSticker(id: number, options?: { deleteFile?: boolean }): Promise<{ deleted: boolean; fileDeleted: boolean }>;
 }
 
 export interface ApiErrorShape extends Error {
@@ -146,6 +159,7 @@ export interface EditorOptions {
     describedBy?: string;
     uploadPrefixes?: string[];
     stickers?: Array<{ id: string | number; name: string; url: string }>;
+    getStickers?: () => Array<{ id: string | number; name: string; url: string }>;
     editable?: boolean;
     onUpdate?: (state: { html: string; text: string; isEmpty: boolean }) => void;
     onCardQuery?: (query: { query: string; from: number; to: number } | null) => void;

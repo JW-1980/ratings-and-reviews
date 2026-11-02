@@ -21,6 +21,17 @@ export interface DiscussionContext {
     announce: (text: string) => void;
     setWait: (seconds: number) => void;
     jumpTo: (commentId: number | string) => void;
+    /** Loads the next page of replies of a thread the tree cut at the reply cap. */
+    loadReplies: (root: Comment) => Promise<void>;
+    /** Per cut thread (root id): loading, error and the cursor of the next page. */
+    threads: Ref<Record<string, ThreadState>>;
+}
+
+export interface ThreadState {
+    loading: boolean;
+    error: string;
+    cursor: string | null;
+    total: number;
 }
 
 export const RR_DISCUSSION: InjectionKey<DiscussionContext> = Symbol('rr-discussion');
@@ -70,6 +81,54 @@ export function insertInTree(items: Comment[], comment: Comment, parentId: numbe
 
         return item.replies.length ? { ...item, replies: insertInTree(item.replies, comment, parentId) } : item;
     });
+}
+
+/**
+ * The last reply a thread already shows in the server's reply order (shallowest first, then
+ * oldest): the deepest, then newest one. GET comments/{id}/replies?after= continues behind it.
+ */
+export function lastShownReply(root: Comment): Comment | null {
+    const replies = flatten(root.replies);
+
+    return replies.reduce<Comment | null>((last, reply) => {
+        if (last === null) {
+            return reply;
+        }
+
+        const key = (comment: Comment) => [comment.depth, comment.createdAt ?? '', comment.id] as const;
+        const [a, b] = [key(reply), key(last)];
+
+        return a[0] !== b[0] ? (a[0] > b[0] ? reply : last) : a[1] !== b[1] ? (a[1] > b[1] ? reply : last) : (a[2] > b[2] ? reply : last);
+    }, null);
+}
+
+/**
+ * Adds flat replies (GET comments/{id}/replies) to a thread: every reply goes under its
+ * parent, children oldest first; replies already shown keep their state, and a reply whose
+ * parent is not in the thread is left out.
+ */
+export function mergeReplies(root: Comment, incoming: Comment[]): Comment {
+    const nodes = new Map<number, Comment>();
+
+    for (const reply of [...flatten(root.replies), ...incoming]) {
+        if (!nodes.has(reply.id)) {
+            nodes.set(reply.id, { ...reply, replies: [] });
+        }
+    }
+
+    const children = new Map<number, Comment[]>();
+
+    for (const reply of nodes.values()) {
+        const parent = reply.parentId ?? root.id;
+        children.set(parent, [...(children.get(parent) ?? []), reply]);
+    }
+
+    const build = (parentId: number): Comment[] => (children.get(parentId) ?? [])
+        .slice()
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id - b.id)
+        .map((reply) => ({ ...reply, replies: build(reply.id) }));
+
+    return { ...root, replies: build(root.id) };
 }
 
 /** Comments in reading order (depth first). */

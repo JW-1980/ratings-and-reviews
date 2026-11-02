@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vu
 import { useRr } from '../context';
 import { useAnnouncer } from '../composables/useAnnouncer';
 import { errorMessage } from '../composables/errors';
-import { RR_DISCUSSION, flatten, insertInTree, removeFromTree, replaceInTree } from '../composables/discussion';
+import { RR_DISCUSSION, flatten, insertInTree, lastShownReply, mergeReplies, removeFromTree, replaceInTree, type ThreadState } from '../composables/discussion';
 import { quotableSelection, secondsUntil } from '../shared';
 import RrComment from './RrComment.vue';
 import RrComposer from './RrComposer.vue';
@@ -44,6 +44,7 @@ const deleteTarget = ref<Comment | null>(null);
 const deleting = ref(false);
 const waitSeconds = ref(0);
 const thread = ref<HTMLElement | null>(null);
+const threads = ref<Record<string, ThreadState>>({});
 let controller: AbortController | null = null;
 
 const fallbackSettings: DiscussionSettings = { maxDepth: 5, editorTools: [], voteDimensions: [], guestVotes: false, minLength: 1, maxLength: 10000, editWindowMinutes: null, undoWindowSeconds: 0, maxQuoteLength: 500, toneCheck: false, polls: { enabled: false, minOptions: 2, maxOptions: 4 } };
@@ -197,6 +198,40 @@ async function confirmDelete() {
     }
 }
 
+/**
+ * "Show more replies": the next page of a thread cut at the reply cap. The first request
+ * continues after the last reply shown, later ones follow `nextCursor`; when nothing is left
+ * the thread is no longer marked as cut.
+ */
+async function loadReplies(root: Comment) {
+    const key = String(root.id);
+    const state = threads.value[key] ?? { loading: false, error: '', cursor: null, total: meta.value?.truncatedThreads[key] ?? 0 };
+
+    if (state.loading) {
+        return;
+    }
+
+    threads.value = { ...threads.value, [key]: { ...state, loading: true, error: '' } };
+
+    try {
+        const page = await rr.api.replies(root.id, state.cursor ? { cursor: state.cursor } : { after: lastShownReply(root)?.id ?? null });
+        const current = items.value.find((item) => item.id === root.id) ?? root;
+        const before = flatten(current.replies).length;
+        const merged = mergeReplies(current, page.items);
+        items.value = items.value.map((item) => (item.id === root.id ? merged : item));
+        threads.value = { ...threads.value, [key]: { loading: false, error: '', cursor: page.nextCursor, total: page.total } };
+
+        if (!page.hasMore && meta.value) {
+            const { [key]: _done, ...rest } = meta.value.truncatedThreads;
+            meta.value = { ...meta.value, truncatedThreads: rest };
+        }
+
+        announce(rr.tc('discussion.replies_loaded', flatten(merged.replies).length - before));
+    } catch (failure) {
+        threads.value = { ...threads.value, [key]: { ...state, loading: false, error: errorMessage(failure, rr.t) || rr.t('discussion.replies_failed') } };
+    }
+}
+
 function onSelection() {
     if (!acceptsComments.value || !rr.isAuthenticated) {
         return;
@@ -275,6 +310,8 @@ provide(RR_DISCUSSION, {
     announce,
     setWait: (seconds: number) => (waitSeconds.value = seconds),
     jumpTo,
+    loadReplies,
+    threads,
 });
 
 onMounted(() => {

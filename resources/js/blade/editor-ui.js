@@ -13,6 +13,29 @@ import { el, uniqueId } from './dom.js';
 const CARD_REFERENCE = /^[a-z][a-z0-9_]{0,63}:[A-Za-z0-9-]{1,64}$/;
 
 /**
+ * The message for a failed upload: the server's (size, type, quota) when it sent one, else
+ * a generic line (network errors carry no translated text).
+ */
+export function uploadErrorText(failure, t) {
+    const field = failure?.errors?.image?.[0] ?? failure?.errors?.file?.[0] ?? null;
+
+    if (field) {
+        return field;
+    }
+
+    if (failure?.status === 429) {
+        // The daily quota sends its own line (Retry-After in hours); the per-minute throttle does not.
+        return (failure.retryAfter ?? 0) > 60 && failure.message ? failure.message : t('common.throttled', { seconds: failure.retryAfter ?? 60 });
+    }
+
+    if (failure?.status === 401) {
+        return t('common.login_required');
+    }
+
+    return failure?.status && failure.status !== 0 && failure.message ? failure.message : t('editor.image_failed');
+}
+
+/**
  * @param {HTMLElement} wrapper `[data-rr-editor]`
  * @param {{ t: Function, tc: Function, api: object, locale: string, mediaPrefixes: string[], uploadImage?: Function, searchCards?: Function, stickers?: Array, emojis?: string[] }} env
  */
@@ -187,6 +210,7 @@ export function mountEditor(wrapper, env) {
         describedBy: wrapper.dataset.describedBy || textarea.getAttribute('aria-describedby') || undefined,
         uploadPrefixes: env.mediaPrefixes,
         stickers: env.stickers ?? [],
+        getStickers: env.getStickers,
         onUpdate: ({ html, text }) => {
             textarea.value = html;
             wrapper.dispatchEvent(new CustomEvent('rr:input', { bubbles: true, detail: { html, text } }));
@@ -295,8 +319,33 @@ export function mountEditor(wrapper, env) {
                 el('button', { type: 'button', class: 'rr-picker__item', 'aria-label': emoji, text: emoji, onclick: () => { handle.insertText(emoji); closePanel(); } })));
         }
 
-        return el('div', { class: 'rr-editor__panel rr-picker rr-picker--stickers', role: 'group', 'aria-label': env.t('editor.stickers') }, (env.stickers ?? []).map((sticker) =>
-            el('button', { type: 'button', class: 'rr-picker__item', 'aria-label': sticker.name, onclick: () => { handle.insertSticker(sticker); closePanel(); } }, [el('img', { src: sticker.url, alt: '', loading: 'lazy' })])));
+        const stickerButtons = (stickers) => stickers.map((sticker) =>
+            el('button', { type: 'button', class: 'rr-picker__item', 'aria-label': sticker.name, onclick: () => { handle.insertSticker(sticker); closePanel(); } }, [el('img', { src: sticker.url, alt: '', loading: 'lazy' })]));
+        const known = env.stickers?.length ? env.stickers : (env.getStickers?.() ?? []);
+        const picker = el('div', { class: 'rr-editor__panel rr-picker rr-picker--stickers', role: 'group', 'aria-label': env.t('editor.stickers'), 'aria-busy': null }, stickerButtons(known));
+
+        if (known.length === 0 && env.loadStickers) {
+            const note = el('p', { class: 'rr-help', role: 'status', text: env.t('editor.stickers_loading') });
+            picker.setAttribute('aria-busy', 'true');
+            picker.append(note);
+            env.loadStickers().then((stickers) => {
+                picker.removeAttribute('aria-busy');
+                note.textContent = stickers.length ? '' : env.t('editor.stickers_empty');
+                note.hidden = stickers.length > 0;
+                picker.prepend(...stickerButtons(stickers));
+
+                if (picker.isConnected) {
+                    picker.querySelector('button')?.focus();
+                }
+            }, () => {
+                picker.removeAttribute('aria-busy');
+                note.textContent = env.t('editor.stickers_failed');
+            });
+        } else if (known.length === 0) {
+            picker.append(el('p', { class: 'rr-help', text: env.t('editor.stickers_empty') }));
+        }
+
+        return picker;
     };
 
     const fileInput = el('input', { type: 'file', accept: 'image/*', class: 'rr-visually-hidden', tabindex: '-1', 'aria-hidden': 'true' });
@@ -313,8 +362,8 @@ export function mountEditor(wrapper, env) {
         try {
             const uploaded = await env.uploadImage(file);
             showStatus(handle.insertImage({ url: uploaded.url, alt: uploaded.alt ?? '' }) ? '' : env.t('editor.image_failed'));
-        } catch {
-            showStatus(env.t('editor.image_failed'));
+        } catch (failure) {
+            showStatus(uploadErrorText(failure, env.t));
         }
     });
 

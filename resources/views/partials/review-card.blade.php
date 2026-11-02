@@ -63,6 +63,15 @@
         </div>
     @endif
 
+    @if (! empty($review['photos']))
+        {{-- Thumbnails link to the full image; alt comes from the API (the uploader's text or the review title). --}}
+        <ul class="rr-photos" aria-label="{{ __('ratings-and-reviews::ui.reviews.photos') }}">
+            @foreach ($review['photos'] as $photo)
+                <li><a href="{{ $photo['url'] }}" class="rr-photo"><img src="{{ $photo['url'] }}" alt="{{ $photo['alt'] }}" loading="lazy" decoding="async" @if (! empty($photo['width'])) width="{{ $photo['width'] }}" height="{{ $photo['height'] }}" @endif></a></li>
+            @endforeach
+        </ul>
+    @endif
+
     @if (! empty($review['price']) || ! empty($review['compared']))
         <p class="rr-review__context">
             @if (! empty($review['price']))
@@ -99,6 +108,15 @@
             @endif
             @if (! $review['is_own'] && $approved && $rr['clientConfig']()['authenticated'])
                 <button type="button" class="rr-button rr-button--small rr-button--ghost" data-rr-report="rr_review" data-id="{{ $review['id'] }}">{{ __('ratings-and-reviews::ui.reviews.report') }}</button>
+            @endif
+        </div>
+        {{-- Without JavaScript, through the package form routes (web_routes.enabled). --}}
+        <div class="rr-review__actions rr-nojs-only">
+            @if ($review['can']['delete'] ?? false)
+                @include('rr::partials.delete-form', ['deleteAction' => $rr['webRoute']('reviews.destroy', ['review' => $review['id']]), 'deleteQuestion' => __('ratings-and-reviews::ui.reviews.delete_confirm')])
+            @endif
+            @if (! $review['is_own'] && $approved && $rr['clientConfig']()['authenticated'])
+                @include('rr::partials.report-form', ['reportType' => 'rr_review', 'reportId' => $review['id']])
             @endif
         </div>
     </footer>

@@ -3,8 +3,10 @@
     Threaded discussion: sort (incl. controversial), TL;DR digest, search, composer with the
     section's editor tools, polls, votes, quotes, "new since your last visit", slow mode,
     locks, deleted placeholders, collapsed low scores, revisions and reports.
-    Reading, sorting, paging, searching and replying (?rr_reply=ID) work without JavaScript;
-    posting without JavaScript needs the host route `action` (see the README).
+    Reading, sorting, paging, searching, replying (?rr_creply=ID) and loading the rest of a long
+    thread (?rr_cthread=ID) work without JavaScript. Posting, editing (?rr_cedit=ID), deleting,
+    undo, votes, poll votes and reports work without JavaScript through the package form routes
+    (`web_routes.enabled`); `action` overrides the posting URL with a host route.
 --}}
 @props(['subject', 'action' => null, 'prefix' => 'rr_c', 'loginUrl' => null, 'searchable' => true])
 @php
@@ -17,6 +19,10 @@
     ]);
     $rootId = 'rr-discussion-'.\Illuminate\Support\Str::slug($type.'-'.$key);
     $authenticated = $rr['clientConfig']()['authenticated'];
+    $action ??= $rr['webRoute']('comments.store', ['type' => $type, 'id' => $key]);
+    $editId = filter_var(request()->query($prefix.'edit'), FILTER_VALIDATE_INT) ?: null;
+    $threadId = filter_var(request()->query($prefix.'thread'), FILTER_VALIDATE_INT) ?: null;
+    $threadPages = max(1, min(20, (int) (filter_var(request()->query($prefix.'thread_pages'), FILTER_VALIDATE_INT) ?: 1)));
 @endphp
 @if ($response !== null && isset($response['data']))
     @php
@@ -28,6 +34,29 @@
         $discussionState = $meta['discussion'] ?? [];
         $acceptsComments = (bool) $meta['accepts_comments'];
         $truncated = (array) ($meta['truncated_threads'] ?? []);
+        // "Show more replies" without JavaScript: the rest of one cut thread, $threadPages pages of it.
+        if ($threadId !== null && isset($truncated[$threadId])) {
+            foreach ($items as $index => $root) {
+                if ($root['id'] !== $threadId) { continue; }
+                $fetched = [];
+                $cursor = null;
+                $more = false;
+                // Continue after the last reply the tree already shows (deepest, then newest).
+                $shown = $rr['flattenReplies']($root['replies'] ?? []);
+                usort($shown, fn (array $a, array $b): int => [$a['depth'], $a['created_at'] ?? '', $a['id']] <=> [$b['depth'], $b['created_at'] ?? '', $b['id']]);
+                $lastShown = $shown === [] ? null : end($shown)['id'];
+                for ($pageNumber = 0; $pageNumber < $threadPages; $pageNumber++) {
+                    $chunk = $rr['api']('comments.replies', ['comment' => $threadId], $cursor === null ? ['after' => $lastShown] : ['cursor' => $cursor]);
+                    if ($chunk === null || ! isset($chunk['data'])) { break; }
+                    $fetched = [...$fetched, ...$chunk['data']];
+                    $cursor = $chunk['meta']['next_cursor'] ?? null;
+                    $more = (bool) ($chunk['meta']['has_more'] ?? false);
+                    if (! $more) { break; }
+                }
+                $items[$index]['replies'] = $rr['replyTree']($threadId, [...$rr['flattenReplies']($root['replies'] ?? []), ...$fetched]);
+                if ($more) { $truncated[$threadId] = (int) ($chunk['meta']['total'] ?? $truncated[$threadId]); } else { unset($truncated[$threadId]); }
+            }
+        }
         $newSince = $meta['new_since'] ?? [];
         $wait = (int) ($discussionState['seconds_until_next_post'] ?? 0);
         $slow = (int) ($discussionState['slow_mode_seconds'] ?? 0);
@@ -164,8 +193,12 @@
         @if ($slow > 0)
             <p class="rr-notice rr-notice--slow">{{ __('ratings-and-reviews::ui.discussion.slow_mode', ['interval' => $interval]) }}</p>
         @endif
-        @if (session('rr_status'))
+        @php $flashOwned = preg_match('/^(comment|edit|delete|undo|poll|vote:comment|report:rr_comment)/', (string) session('rr_form')) === 1; @endphp
+        @if (session('rr_status') && (session('rr_form') === null || $flashOwned))
             <p class="rr-alert rr-alert--success" role="status">{{ session('rr_status') }}</p>
+        @endif
+        @if (session('rr_error') && $flashOwned)
+            <p class="rr-alert rr-alert--error" role="alert">{{ session('rr_error') }}</p>
         @endif
 
         @if ($acceptsComments)

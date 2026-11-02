@@ -89,7 +89,8 @@ export const RestrictedImage = Image.extend({
 
 /**
  * A sticker from the sticker library: an inline image whose `src` is one of the known
- * sticker URLs (`stickers` option: `[{ id, name, url }]`).
+ * sticker URLs (`stickers` option: `[{ id, name, url }]`, or `getStickers()` for a library
+ * loaded later from GET stickers).
  */
 export const Sticker = Node.create({
     name: 'sticker',
@@ -100,7 +101,7 @@ export const Sticker = Node.create({
     priority: 1100,
 
     addOptions() {
-        return { stickers: [] };
+        return { stickers: [], getStickers: null };
     },
 
     addAttributes() {
@@ -126,7 +127,8 @@ export const Sticker = Node.create({
     addCommands() {
         return {
             insertSticker: (sticker) => ({ commands }) => {
-                const known = this.options.stickers.find((item) => item.url === sticker?.url || item.id === sticker?.id);
+                const library = [...this.options.stickers, ...(this.options.getStickers?.() ?? [])];
+                const known = library.find((item) => item.url === sticker?.url || item.id === sticker?.id);
 
                 if (!known) {
                     return false;

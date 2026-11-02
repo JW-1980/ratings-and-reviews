@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRr } from '../context';
-import { useDiscussion } from '../composables/discussion';
+import { flatten, useDiscussion } from '../composables/discussion';
 import { errorMessage } from '../composables/errors';
 import { formatDate, formatRelative } from '../shared';
 import RrAuthorName from './RrAuthorName.vue';
@@ -28,6 +28,9 @@ const anchor = computed(() => `rr-comment-${props.comment.id}`);
 const bodyHasQuote = computed(() => props.comment.bodyHtml.includes('data-rr-quote'));
 const visualDepth = computed(() => Math.min(props.comment.depth, 3));
 const name = computed(() => props.comment.author?.name ?? rr.t('reviews.anonymous'));
+const shownReplies = computed(() => flatten(props.comment.replies).length);
+const thread = computed(() => discussion.threads.value[String(props.comment.id)] ?? null);
+const totalReplies = computed(() => Math.max(thread.value?.total || props.truncated || 0, shownReplies.value));
 
 function startEdit() {
     editHtml.value = props.comment.bodyHtml;
@@ -146,6 +149,12 @@ async function saveEdit() {
         <ol v-if="comment.replies.length" class="rr-thread rr-thread--replies">
             <RrComment v-for="reply in comment.replies" :key="reply.id" :comment="reply" />
         </ol>
-        <p v-if="truncated" class="rr-help rr-thread__truncated">{{ rr.t('discussion.more_replies') }} ({{ truncated }})</p>
+        <p v-if="truncated" class="rr-thread__truncated">
+            <button type="button" class="rr-button rr-button--small rr-button--ghost" :disabled="thread?.loading" :aria-busy="thread?.loading ? 'true' : undefined" @click="discussion.loadReplies(comment)">
+                {{ thread?.loading ? rr.t('discussion.replies_loading') : rr.t('discussion.more_replies') }}
+            </button>
+            <span class="rr-help">{{ rr.t('discussion.replies_shown', { shown: shownReplies, total: totalReplies }) }}</span>
+            <span v-if="thread?.error" class="rr-field-error" role="alert">{{ thread.error }}</span>
+        </p>
     </li>
 </template>

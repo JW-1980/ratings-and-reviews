@@ -17,7 +17,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\MessageBag;
+use Illuminate\Support\ViewErrorBag;
 use Illuminate\Validation\ValidationException;
+use RatingsAndReviews\Models\Upload;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 $locale = fn (): string => str_replace('_', '-', (string) app()->getLocale());
@@ -141,12 +144,91 @@ $clientConfig = static fn (): array => [
     'api' => url((string) config('ratings-and-reviews.routes.prefix', 'rr')),
     'locale' => $locale(),
     'mediaPrefixes' => array_values(array_unique([
-        (string) config('ratings-and-reviews.uploads.url_prefix', '/storage/'),
+        Upload::urlPrefix(),
         (string) config('ratings-and-reviews.stickers.url_prefix', '/storage/'),
     ])),
+    'uploadTypes' => array_values((array) config('ratings-and-reviews.uploads.mime_types', [])),
     'reportDetailsRequiredFor' => array_values((array) config('ratings-and-reviews.reports.details_required_for', [])),
     'authenticated' => auth(config('ratings-and-reviews.routes.guard'))->check(),
 ];
+
+/**
+ * A URL of the package's no-JavaScript form routes (`web_routes.enabled`), or null when they
+ * are off: the components then fall back to the host `action` (or JavaScript only).
+ */
+$webRoute = static function (string $name, array $parameters = []): ?string {
+    if (! config('ratings-and-reviews.web_routes.enabled', false)) {
+        return null;
+    }
+
+    $routeName = (string) config('ratings-and-reviews.web_routes.name', 'rr.web.').$name;
+
+    return Route::has($routeName) ? route($routeName, $parameters) : null;
+};
+
+/**
+ * Whether the flashed errors and old input belong to this form. The form routes flash
+ * `rr_form` (`review`, `comment:root`, `comment:<parent id>`, `edit:<id>`, `report:<type>:<id>`,
+ * …); a host route that does not is treated as the page's main form (`$main`).
+ */
+$isForm = static function (string $form, bool $main = false): bool {
+    $flashed = session('rr_form');
+
+    return $flashed === null ? $main : $flashed === $form;
+};
+
+/** The errors of one form: the package's named bag when the form routes used it, else the default bag. */
+$formErrors = static function (string $bag): MessageBag {
+    $errors = session('errors');
+
+    if (! $errors instanceof ViewErrorBag) {
+        return new MessageBag;
+    }
+
+    return $errors->hasBag($bag) ? $errors->getBag($bag) : $errors->getBag('default');
+};
+
+/**
+ * Builds a reply tree from flat CommentResource arrays (`parent_id`), children oldest first;
+ * replies whose parent is not in the list (or the root) are left out.
+ *
+ * @param  list<array<string, mixed>>  $flat
+ * @return list<array<string, mixed>>
+ */
+$replyTree = static function (int $rootId, array $flat): array {
+    $nodes = [];
+
+    foreach ($flat as $item) {
+        $nodes[$item['id']] ??= ['replies' => []] + $item;
+        $nodes[$item['id']]['replies'] = [];
+    }
+
+    $children = [];
+
+    foreach ($nodes as $id => $node) {
+        $children[$node['parent_id'] ?? 0][] = $id;
+    }
+
+    $build = function (int $parent) use (&$build, &$children, $nodes): array {
+        $ids = $children[$parent] ?? [];
+        usort($ids, fn (int $a, int $b): int => [$nodes[$a]['created_at'] ?? '', $a] <=> [$nodes[$b]['created_at'] ?? '', $b]);
+
+        return array_map(fn (int $id): array => ['replies' => $build($id)] + $nodes[$id], $ids);
+    };
+
+    return $build($rootId);
+};
+
+/** Every reply in a tree, depth first. */
+$flattenReplies = static function (array $replies) use (&$flattenReplies): array {
+    $flat = [];
+
+    foreach ($replies as $reply) {
+        $flat = [...$flat, ['replies' => []] + $reply, ...$flattenReplies($reply['replies'] ?? [])];
+    }
+
+    return $flat;
+};
 
 $reportReasons = static fn (): array => array_map(
     fn (string $reason): array => ['value' => $reason, 'label' => (string) __('ratings-and-reviews::enums.report_reason.'.$reason)],
@@ -162,4 +244,9 @@ return [
     'clientConfig' => $clientConfig,
     'reportReasons' => $reportReasons,
     'locale' => $locale,
+    'webRoute' => $webRoute,
+    'isForm' => $isForm,
+    'formErrors' => $formErrors,
+    'replyTree' => $replyTree,
+    'flattenReplies' => $flattenReplies,
 ];

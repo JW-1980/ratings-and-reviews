@@ -86,8 +86,8 @@ async function addToList() {
         </div>
 
         <ul v-if="review.photos.length" class="rr-photos" :aria-label="rr.t('reviews.photos')">
-            <li v-for="(photo, index) in review.photos" :key="photo.url">
-                <a :href="photo.url" class="rr-photo"><img :src="photo.url" :alt="photo.alt || rr.t('reviews.photo_alt', { number: index + 1, name: review.author?.name ?? '' })" loading="lazy"></a>
+            <li v-for="(photo, index) in review.photos" :key="photo.id ?? photo.url">
+                <a :href="photo.url" class="rr-photo"><img :src="photo.url" :alt="photo.alt || rr.t('reviews.photo_alt', { number: index + 1, name: review.author?.name ?? '' })" :width="photo.width ?? undefined" :height="photo.height ?? undefined" loading="lazy" decoding="async"></a>
             </li>
         </ul>
 

@@ -12,6 +12,8 @@
 
 import * as normalize from './normalize.js';
 
+const list = (value) => (Array.isArray(value) ? value : []);
+
 export class ApiError extends Error {
     /**
      * @param {string} message
@@ -137,14 +139,16 @@ export function createApiClient(options = {}) {
     /**
      * @param {string} method
      * @param {string} path
-     * @param {{ query?: Record<string, unknown>, body?: unknown, signal?: AbortSignal }} [init]
+     * @param {{ query?: Record<string, unknown>, body?: unknown, form?: FormData, signal?: AbortSignal }} [init]
+     *   `form` sends multipart/form-data (the browser sets the boundary) instead of JSON.
      */
     async function request(method, path, init = {}) {
+        const multipart = init.form !== undefined;
         const headers = {
             Accept: 'application/json',
             'X-Requested-With': 'XMLHttpRequest',
             ...(options.locale ? { 'Accept-Language': options.locale } : {}),
-            ...(method === 'GET' ? {} : { 'Content-Type': 'application/json', ...csrfHeaders() }),
+            ...(method === 'GET' ? {} : { ...(multipart ? {} : { 'Content-Type': 'application/json' }), ...csrfHeaders() }),
             ...(options.headers ?? {}),
         };
 
@@ -155,7 +159,7 @@ export function createApiClient(options = {}) {
                 method,
                 headers,
                 credentials: options.credentials ?? 'same-origin',
-                body: init.body === undefined ? undefined : JSON.stringify(init.body),
+                body: multipart ? init.form : (init.body === undefined ? undefined : JSON.stringify(init.body)),
                 signal: init.signal,
             });
         } catch (error) {
@@ -270,6 +274,21 @@ export function createApiClient(options = {}) {
             await post(`comments/${encodeURIComponent(id)}/undo`);
         },
 
+        /**
+         * The rest of a thread the tree cut at the reply cap (`meta.truncated_threads`):
+         * flat replies in tree order; page with `cursor` (the previous page's `nextCursor`).
+         *
+         * The first request passes `after` (the last reply already shown: deepest, then newest).
+         *
+         * @param {number|string} commentId the thread's root (or any reply in it)
+         * @param {{ cursor?: string|null, after?: number|null, limit?: number }} [query]
+         */
+        async replies(commentId, query = {}, signal) {
+            const params = query.cursor ? { cursor: query.cursor } : { after: query.after ?? undefined };
+
+            return normalize.replyPage(await get(`comments/${encodeURIComponent(commentId)}/replies`, { ...params, limit: query.limit ?? undefined }, signal));
+        },
+
         async revisions(id, signal) {
             return ((await get(`comments/${encodeURIComponent(id)}/revisions`, {}, signal))?.data ?? []).map(normalize.revision);
         },
@@ -336,6 +355,86 @@ export function createApiClient(options = {}) {
 
         async qualityRules(signal) {
             return normalize.qualityRules((await get('review-quality-rules', {}, signal))?.data);
+        },
+
+        /**
+         * Uploads an image (editor image or review photo) to POST uploads.
+         *
+         * @param {Blob} file
+         * @param {string|null} [alt]
+         * @returns {Promise<{ id: number, url: string, alt: string|null, width: number|null, height: number|null }>}
+         */
+        async uploadImage(file, alt = null) {
+            const form = new FormData();
+            form.append('image', file, typeof file?.name === 'string' ? file.name : 'image');
+
+            if (alt) {
+                form.append('alt', alt);
+            }
+
+            return normalize.upload((await request('POST', 'uploads', { form }))?.data);
+        },
+
+        /** The active sticker library for the editor. */
+        async stickers(signal) {
+            return list((await get('stickers', {}, signal))?.data).map(normalize.sticker);
+        },
+
+        /** Admin (rr.manage-settings): every sticker with both names. */
+        async adminStickers(signal) {
+            return list((await get('admin/stickers', {}, signal))?.data).map(normalize.adminSticker);
+        },
+
+        /**
+         * @param {{ image?: Blob, path?: string, name: { nl: string, en: string }, isActive?: boolean, sortOrder?: number }} sticker
+         */
+        async createSticker(sticker) {
+            const form = new FormData();
+
+            if (sticker.image) {
+                form.append('image', sticker.image, typeof sticker.image?.name === 'string' ? sticker.image.name : 'sticker');
+            } else if (sticker.path) {
+                form.append('path', sticker.path);
+            }
+
+            form.append('name[nl]', sticker.name.nl);
+            form.append('name[en]', sticker.name.en);
+
+            if (sticker.isActive !== undefined) {
+                form.append('is_active', sticker.isActive ? '1' : '0');
+            }
+
+            if (sticker.sortOrder !== undefined) {
+                form.append('sort_order', String(sticker.sortOrder));
+            }
+
+            return normalize.adminSticker((await request('POST', 'admin/stickers', { form }))?.data);
+        },
+
+        /** @param {{ name?: { nl: string, en: string }, isActive?: boolean, sortOrder?: number }} changes */
+        async updateSticker(id, changes) {
+            const body = {};
+
+            if (changes.name) {
+                body.name = changes.name;
+            }
+
+            if (changes.isActive !== undefined) {
+                body.is_active = changes.isActive;
+            }
+
+            if (changes.sortOrder !== undefined) {
+                body.sort_order = changes.sortOrder;
+            }
+
+            return normalize.adminSticker((await request('PATCH', `admin/stickers/${encodeURIComponent(id)}`, { body }))?.data);
+        },
+
+        /** Deletes a sticker; its file stays (old posts keep showing it) unless `deleteFile`. */
+        async deleteSticker(id, { deleteFile = false } = {}) {
+            const payload = await request('DELETE', `admin/stickers/${encodeURIComponent(id)}`, { body: deleteFile ? { delete_file: true } : {} });
+
+            return { deleted: Boolean(payload?.data?.deleted), fileDeleted: Boolean(payload?.data?.file_deleted) };
         },
     };
 }

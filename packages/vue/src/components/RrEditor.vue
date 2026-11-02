@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRr } from '../context';
-import { errorMessage } from '../composables/errors';
+import { uploadErrorMessage } from '../composables/errors';
 import { DEFAULT_EMOJIS, createEditor, formatMoney } from '../shared';
 import type { ProductCard } from '../types';
 
@@ -40,6 +40,9 @@ let cardTimer: ReturnType<typeof setTimeout> | null = null;
 let cardRequest = 0;
 
 const toolbar = computed(() => handle.value?.toolbar ?? []);
+const stickers = computed(() => (rr.stickers.length ? rr.stickers : rr.loadedStickers.value));
+const stickersLoading = ref(false);
+const stickersError = ref('');
 const emojis = computed(() => rr.emojis ?? DEFAULT_EMOJIS);
 const cardOpen = computed(() => cardQuery.value !== null);
 
@@ -158,6 +161,7 @@ function build() {
         describedBy: props.describedBy,
         uploadPrefixes: rr.mediaPrefixes,
         stickers: rr.stickers,
+        getStickers: () => rr.loadedStickers.value,
         editable: !props.disabled,
         onUpdate: ({ html, text }) => {
             lastEmitted = html;
@@ -256,8 +260,15 @@ function press(item: RrEditorHandle['toolbar'][number]) {
             nextTick(() => document.getElementById(`${uid}-link`)?.focus());
             break;
         case 'emoji':
+            panel.value = panel.value === item.kind ? null : item.kind;
+            break;
         case 'sticker':
             panel.value = panel.value === item.kind ? null : item.kind;
+
+            if (panel.value === 'sticker' && stickers.value.length === 0) {
+                openStickers();
+            }
+
             break;
         case 'image':
             if (!rr.uploadImage) {
@@ -307,9 +318,22 @@ async function onFile(event: Event) {
             uploadError.value = rr.t('editor.image_failed');
         }
     } catch (failure) {
-        uploadError.value = failure instanceof Error && failure.message ? errorMessage(failure, rr.t) : rr.t('editor.image_failed');
+        uploadError.value = uploadErrorMessage(failure, rr.t);
     } finally {
         uploading.value = false;
+    }
+}
+
+async function openStickers() {
+    stickersLoading.value = true;
+    stickersError.value = '';
+
+    try {
+        await rr.loadStickers();
+    } catch {
+        stickersError.value = rr.t('editor.stickers_failed');
+    } finally {
+        stickersLoading.value = false;
     }
 }
 
@@ -377,10 +401,13 @@ defineExpose({
             <button v-for="emoji in emojis" :key="emoji" type="button" class="rr-picker__item" :aria-label="emoji" @click="insertEmoji(emoji)">{{ emoji }}</button>
         </div>
 
-        <div v-if="panel === 'sticker'" class="rr-editor__panel rr-picker rr-picker--stickers" role="group" :aria-label="rr.t('editor.stickers')">
-            <button v-for="sticker in rr.stickers" :key="sticker.id" type="button" class="rr-picker__item" :aria-label="sticker.name" @click="insertSticker(sticker)">
+        <div v-if="panel === 'sticker'" class="rr-editor__panel rr-picker rr-picker--stickers" role="group" :aria-label="rr.t('editor.stickers')" :aria-busy="stickersLoading ? 'true' : undefined">
+            <button v-for="sticker in stickers" :key="sticker.id" type="button" class="rr-picker__item" :aria-label="sticker.name" @click="insertSticker(sticker)">
                 <img :src="sticker.url" alt="" loading="lazy">
             </button>
+            <p v-if="stickersLoading" class="rr-help" role="status">{{ rr.t('editor.stickers_loading') }}</p>
+            <p v-else-if="stickersError" class="rr-field-error" role="alert">{{ stickersError }}</p>
+            <p v-else-if="!stickers.length" class="rr-help">{{ rr.t('editor.stickers_empty') }}</p>
         </div>
 
         <input v-if="tools.includes('image')" ref="fileInput" type="file" accept="image/*" class="rr-visually-hidden" tabindex="-1" aria-hidden="true" @change="onFile">

@@ -3,7 +3,10 @@
     Score on the section's scale, topic scores, title, text (editor), pros and cons, facets,
     an optional comparison picker slot and the live quality meter (JavaScript, same rules as
     the server). With JavaScript it posts to the package API; without it, it posts to `action`
-    (a host route, see the README) and shows `$errors`/`session('rr_status')` after the redirect.
+    (a host route) or, with `web_routes.enabled`, to the package form routes, and shows the
+    errors and `session('rr_status')` after the redirect. Title, pros and cons follow the
+    section's `review_extended_fields`; photos (up to `reviews.max_photos`) are uploaded with
+    POST uploads (JavaScript) or sent as files to the form route.
 
     <x-slot:comparison-picker> must render inputs `compared_type` and `compared_id` (the host's
     own product search); the verdict select is part of this component.
@@ -25,25 +28,39 @@
         $own = $meta['own_review'] ?? null;
         $scale = (int) $meta['scale_max'];
         $topics = (array) ($summary['topics'] ?? []);
-        $extended = true;
+        $extended = (bool) ($meta['review_extended_fields'] ?? true);
+        $minLength = (int) ($meta['review_min_length'] ?? 0);
+        $limits = (array) ($meta['review_form'] ?? []);
+        $maxPhotos = (int) ($limits['max_photos'] ?? 0);
+        $ownsFlash = $rr['isForm']('review', main: true);
+        $formErrors = $ownsFlash ? $rr['formErrors']('rr_review') : new \Illuminate\Support\MessageBag;
         $toolList = $tools ?? ($meta['editor']['editor_tools'] ?? ['bold', 'italic']);
         $locked = collect($meta['editor']['locked'] ?? [])->pluck('required', 'key')->all();
-        $old = fn (string $field, mixed $default = null) => old($field, $default);
+        $old = fn (string $field, mixed $default = null) => $ownsFlash ? old($field, $default) : $default;
         $rating = (int) $old('rating', $own['rating'] ?? 0);
         $ownTopics = collect($own['topic_ratings'] ?? [])->pluck('value', 'topic_id')->all();
         $ownFacets = collect($own['facets'] ?? [])->pluck('value', 'group')->all();
         $pros = array_values((array) $old('pros', $own['pros'] ?? []));
         $cons = array_values((array) $old('cons', $own['cons'] ?? []));
-        $maxPoints = (int) config('ratings-and-reviews.reviews.max_pros_cons', 5);
-        $maxTitle = (int) config('ratings-and-reviews.reviews.max_title_length', 150);
+        $maxPoints = (int) ($limits['max_pros_cons'] ?? config('ratings-and-reviews.reviews.max_pros_cons', 5));
+        $maxTitle = (int) ($limits['max_title_length'] ?? config('ratings-and-reviews.reviews.max_title_length', 150));
+        $maxPointLength = (int) ($limits['max_pro_con_length'] ?? config('ratings-and-reviews.reviews.max_pro_con_length', 200));
+        $updateAction ??= $own !== null ? $rr['webRoute']('reviews.update', ['review' => $own['id']]) : null;
+        $action ??= $rr['webRoute']('reviews.store', ['type' => $type, 'id' => $key]);
         $formAction = $own !== null ? ($updateAction ?? $action) : $action;
+        $ownPhotos = (array) ($own['photos'] ?? []);
+        $keptPhotos = $ownsFlash && old('photos_present') ? array_map('intval', (array) old('photos', [])) : array_column($ownPhotos, 'id');
+        $errors = $formErrors;
     @endphp
     @include('rr::partials.client')
     <section {{ $attributes->merge(['class' => 'rr rr-nojs rr-review-form']) }} id="{{ $rootId }}" data-rr="review-form" data-rr-subject-type="{{ $type }}" data-rr-subject-id="{{ $key }}" @if ($own) data-rr-review-id="{{ $own['id'] }}" @endif aria-labelledby="{{ $rootId }}-title">
         <h2 id="{{ $rootId }}-title" class="rr-section-header__title">{{ $own ? __('ratings-and-reviews::ui.form.edit_title') : __('ratings-and-reviews::ui.form.title') }}</h2>
 
-        @if (session('rr_status'))
+        @if (session('rr_status') && in_array(session('rr_form'), [null, 'review'], true))
             <p class="rr-alert rr-alert--success" role="status">{{ session('rr_status') }}</p>
+        @endif
+        @if (session('rr_error') && session('rr_form') === 'review')
+            <p class="rr-alert rr-alert--error" role="alert">{{ session('rr_error') }}</p>
         @endif
 
         @if (! $authenticated)
@@ -54,9 +71,14 @@
             @if ($rules !== null)
                 <script type="application/json" data-rr-quality-rules>@json($rules)</script>
             @endif
-            <form method="post" action="{{ $formAction ?? '#' }}" class="rr-form" novalidate data-rr-review-form data-topic-count="{{ count($topics) }}" data-extended="{{ $extended ? '1' : '0' }}" data-max-points="{{ $maxPoints }}">
+            <form method="post" action="{{ $formAction ?? '#' }}" class="rr-form" novalidate data-rr-review-form data-topic-count="{{ count($topics) }}" data-extended="{{ $extended ? '1' : '0' }}" data-max-points="{{ $maxPoints }}" data-max-photos="{{ $maxPhotos }}" data-min-length="{{ $minLength }}" @if ($maxPhotos > 0) enctype="multipart/form-data" @endif>
                 @csrf
                 @if ($own !== null && $updateAction)<input type="hidden" name="_method" value="PATCH">@endif
+                @if ($ownsFlash && session('rr_tone'))
+                    {{-- The rephrase nudge after a post without JavaScript: ticking this posts it as it is. --}}
+                    <p class="rr-notice rr-nojs-only">{{ session('rr_tone') }}</p>
+                    <label class="rr-choice rr-nojs-only"><input type="checkbox" name="confirm_tone" value="1"><span>{{ __('ratings-and-reviews::ui.tone.post_anyway') }}</span></label>
+                @endif
                 <input type="hidden" name="{{ config('ratings-and-reviews.spam.started_at_field', 'form_started_at') }}" value="{{ time() }}">
                 <div class="rr-visually-hidden" aria-hidden="true">
                     <label>Website <input type="text" name="{{ config('ratings-and-reviews.spam.honeypot_field', 'website') }}" tabindex="-1" autocomplete="off"></label>
@@ -113,20 +135,23 @@
                     </fieldset>
                 @endif
 
+                @if ($extended)
                 <div class="rr-field" data-rr-field="title">
                     <label for="{{ $rootId }}-title-input" class="rr-label">{{ __('ratings-and-reviews::ui.form.title_label') }}</label>
                     <input id="{{ $rootId }}-title-input" type="text" name="title" class="rr-input" maxlength="{{ $maxTitle }}" value="{{ $old('title', $own['title'] ?? '') }}" aria-describedby="{{ $rootId }}-title-help">
                     <p id="{{ $rootId }}-title-help" class="rr-help">{{ __('ratings-and-reviews::ui.form.title_help', ['max' => $maxTitle]) }}</p>
                     <p class="rr-field-error" data-rr-field-error>{{ $errors->first('title') }}</p>
                 </div>
+                @endif
 
                 <div class="rr-field" data-rr-field="body">
                     <span class="rr-label">{{ __('ratings-and-reviews::ui.form.body') }}</span>
                     <x-rr::editor name="body" :id="$rootId.'-body'" :value="$old('body', $own['body_html'] ?? '')" :tools="$toolList" :locked="$locked" :label="__('ratings-and-reviews::ui.form.body')" :described-by="$rootId.'-body-help'" :invalid="$errors->has('body')" :rows="6" />
-                    <p id="{{ $rootId }}-body-help" class="rr-help">{{ __('ratings-and-reviews::ui.form.body_help') }}</p>
+                    <p id="{{ $rootId }}-body-help" class="rr-help">{{ __('ratings-and-reviews::ui.form.body_help') }}@if ($minLength > 0) {{ trans_choice('ratings-and-reviews::ui.form.min_length', $minLength, ['count' => $minLength]) }}@endif</p>
                     <p class="rr-field-error" data-rr-field-error>{{ $errors->first('body') }}</p>
                 </div>
 
+                @if ($extended)
                 <div class="rr-points-inputs">
                     @foreach (['pros' => $pros, 'cons' => $cons] as $kind => $points)
                         @php $rowsToShow = max(1, min($maxPoints, count(array_filter($points)) + 1)); @endphp
@@ -134,7 +159,7 @@
                             <legend class="rr-label">{{ __('ratings-and-reviews::ui.form.'.$kind) }}</legend>
                             @for ($index = 0; $index < $maxPoints; $index++)
                                 <div class="rr-input-row" @if ($index >= $rowsToShow) data-rr-spare @endif>
-                                    <input type="text" name="{{ $kind }}[]" class="rr-input" maxlength="{{ (int) config('ratings-and-reviews.reviews.max_pro_con_length', 200) }}" value="{{ $points[$index] ?? '' }}" aria-label="{{ __('ratings-and-reviews::ui.form.'.$kind) }}: {{ __('ratings-and-reviews::ui.form.point', ['number' => $index + 1]) }}">
+                                    <input type="text" name="{{ $kind }}[]" class="rr-input" maxlength="{{ $maxPointLength }}" value="{{ $points[$index] ?? '' }}" aria-label="{{ __('ratings-and-reviews::ui.form.'.$kind) }}: {{ __('ratings-and-reviews::ui.form.point', ['number' => $index + 1]) }}">
                                 </div>
                             @endfor
                             <button type="button" class="rr-button rr-button--small rr-button--ghost rr-js-only" data-rr-add-point>{{ __('ratings-and-reviews::ui.form.'.($kind === 'pros' ? 'add_pro' : 'add_con')) }}</button>
@@ -142,6 +167,33 @@
                         </fieldset>
                     @endforeach
                 </div>
+                @endif
+
+                @if ($maxPhotos > 0)
+                    {{-- Photos: kept ones are ticked checkboxes (photos[]); new ones are uploaded at once with JavaScript, or sent as photo_files[] by the form route. --}}
+                    <fieldset class="rr-fieldset rr-photo-input" data-rr-field="photos" data-rr-photos data-max="{{ $maxPhotos }}">
+                        <legend class="rr-label">{{ __('ratings-and-reviews::ui.form.photos') }}</legend>
+                        <p id="{{ $rootId }}-photos-help" class="rr-help">{{ trans_choice('ratings-and-reviews::ui.form.photos_help', $maxPhotos, ['count' => $maxPhotos]) }}@if ($limits['photos_require_approval'] ?? false) {{ __('ratings-and-reviews::ui.form.photos_moderated') }}@endif</p>
+                        <input type="hidden" name="photos_present" value="1">
+                        <ul class="rr-photos rr-photos--input" data-rr-photo-list>
+                            @foreach ($ownPhotos as $photo)
+                                <li>
+                                    <label class="rr-photo-choice">
+                                        <input type="checkbox" name="photos[]" value="{{ $photo['id'] }}" @checked(in_array($photo['id'], $keptPhotos, true))>
+                                        <img src="{{ $photo['url'] }}" alt="{{ $photo['alt'] }}" loading="lazy">
+                                        <span class="rr-photo-choice__label">{{ __('ratings-and-reviews::ui.form.photo_keep') }}</span>
+                                    </label>
+                                </li>
+                            @endforeach
+                        </ul>
+                        <div class="rr-field @if (! $formAction) rr-js-only @endif">
+                            <label for="{{ $rootId }}-photo-files" class="rr-label rr-label--minor">{{ __('ratings-and-reviews::ui.form.photos_add') }}</label>
+                            <input id="{{ $rootId }}-photo-files" type="file" name="photo_files[]" class="rr-input rr-input--file" multiple accept="{{ implode(',', $rr['clientConfig']()['uploadTypes']) }}" aria-describedby="{{ $rootId }}-photos-help" data-rr-photo-files>
+                        </div>
+                        <p class="rr-help" role="status" data-rr-photo-status></p>
+                        <p class="rr-field-error" data-rr-field-error>{{ $errors->first('photos') ?: $errors->first('photos.*') }}</p>
+                    </fieldset>
+                @endif
 
                 @if (! empty($meta['facets']))
                     <fieldset class="rr-fieldset">

@@ -92,7 +92,7 @@ export function cardQueryAt(editor) {
  * Builds the extension list for a tool set.
  *
  * @param {string[]} tools enabled tools (already without locked ones)
- * @param {{ uploadPrefixes?: string[], stickers?: Array<{id: string|number, name: string, url: string}> }} [media]
+ * @param {{ uploadPrefixes?: string[], stickers?: Array<{id: string|number, name: string, url: string}>, getStickers?: () => Array<{id: string|number, name: string, url: string}> }} [media]
  */
 export function extensionsFor(tools, media = {}) {
     const on = (tool) => tools.includes(tool);
@@ -128,7 +128,7 @@ export function extensionsFor(tools, media = {}) {
     }
 
     if (on('sticker')) {
-        extensions.push(Sticker.configure({ stickers: media.stickers ?? [] }));
+        extensions.push(Sticker.configure({ stickers: media.stickers ?? [], getStickers: media.getStickers ?? null }));
     }
 
     if (on('product_card')) {
@@ -152,6 +152,7 @@ export function extensionsFor(tools, media = {}) {
  * @property {string} [describedBy] id of a help or error element
  * @property {string[]} [uploadPrefixes]
  * @property {Array<{id: string|number, name: string, url: string}>} [stickers]
+ * @property {() => Array<{id: string|number, name: string, url: string}>} [getStickers] the library loaded later (GET stickers)
  * @property {boolean} [editable]
  * @property {(state: { html: string, text: string, isEmpty: boolean }) => void} [onUpdate]
  * @property {(query: { query: string, from: number, to: number }|null) => void} [onCardQuery]
@@ -183,7 +184,7 @@ export function createEditor(options) {
 
     const editor = new Editor({
         element: options.element,
-        extensions: extensionsFor(tools, { uploadPrefixes: options.uploadPrefixes, stickers: options.stickers }),
+        extensions: extensionsFor(tools, { uploadPrefixes: options.uploadPrefixes, stickers: options.stickers, getStickers: options.getStickers }),
         content: options.content ?? '',
         editable: options.editable ?? true,
         editorProps: {

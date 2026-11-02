@@ -1,4 +1,4 @@
-import { inject, type App, type InjectionKey } from 'vue';
+import { inject, shallowRef, type App, type InjectionKey, type Ref } from 'vue';
 import { createApiClient, createTranslator, sanitizeHtml, type ApiClient, type ApiOptions } from './shared';
 import type { Option, ProductCard, Sticker, Translate, TranslateChoice } from './types';
 
@@ -20,12 +20,12 @@ export interface RatingsAndReviewsOptions {
     reportDetailsRequiredFor?: string[];
     /** URL prefixes of own uploads and stickers (config `uploads.url_prefix`, `stickers.url_prefix`). */
     mediaPrefixes?: string[];
-    /** The active sticker library. */
+    /** The active sticker library; without it the picker loads it from GET stickers when first opened. */
     stickers?: Sticker[];
     /** Emoji choices for the emoji tool. */
     emojis?: string[];
-    /** Uploads an image (host route; the package API has no upload endpoint) and returns its URL. */
-    uploadImage?: (file: File) => Promise<{ url: string; alt?: string }>;
+    /** Uploads an editor image and returns its URL. Default: the package's POST uploads; a host callback overrides it. */
+    uploadImage?: (file: File) => Promise<{ url: string; alt?: string | null }>;
     /** Product search for the `#` card trigger; without it `#type:id` is resolved through the API. */
     searchCards?: (query: string) => Promise<ProductCard[]>;
 }
@@ -41,8 +41,12 @@ export interface RatingsAndReviewsContext {
     reportDetailsRequiredFor: string[];
     mediaPrefixes: string[];
     stickers: Sticker[];
+    /** The sticker library loaded from the API (empty until loadStickers() resolved; unused when `stickers` was given). */
+    loadedStickers: Ref<Sticker[]>;
+    /** Loads the active stickers from GET stickers once (resolves to `stickers` when the host gave them). */
+    loadStickers: () => Promise<Sticker[]>;
     emojis: string[] | null;
-    uploadImage: RatingsAndReviewsOptions['uploadImage'] | null;
+    uploadImage: NonNullable<RatingsAndReviewsOptions['uploadImage']> | null;
     searchCards: RatingsAndReviewsOptions['searchCards'] | null;
     sanitize: (html: string, extraTags?: string[]) => string;
 }
@@ -57,6 +61,24 @@ export function createContext(options: RatingsAndReviewsOptions): RatingsAndRevi
     const { t, tc } = createTranslator(options.messages ?? {});
     const api = isClient(options.api) ? options.api : createApiClient({ locale: options.locale, ...(options.api ?? {}) });
     const mediaPrefixes = options.mediaPrefixes ?? ['/storage/'];
+    const loadedStickers = shallowRef<Sticker[]>([]);
+    let pendingStickers: Promise<Sticker[]> | null = null;
+    const loadStickers = (): Promise<Sticker[]> => {
+        if (options.stickers) {
+            return Promise.resolve(options.stickers);
+        }
+
+        pendingStickers ??= api.stickers().then((stickers) => {
+            loadedStickers.value = stickers;
+
+            return stickers;
+        }, (failure: unknown) => {
+            pendingStickers = null;
+            throw failure;
+        });
+
+        return pendingStickers;
+    };
 
     return {
         api,
@@ -69,8 +91,10 @@ export function createContext(options: RatingsAndReviewsOptions): RatingsAndRevi
         reportDetailsRequiredFor: options.reportDetailsRequiredFor ?? ['other'],
         mediaPrefixes,
         stickers: options.stickers ?? [],
+        loadedStickers,
+        loadStickers,
         emojis: options.emojis ?? null,
-        uploadImage: options.uploadImage ?? null,
+        uploadImage: options.uploadImage ?? ((file: File) => api.uploadImage(file)),
         searchCards: options.searchCards ?? null,
         sanitize: (html, extraTags) => sanitizeHtml(html, { mediaPrefixes, extraTags }),
     };

@@ -9,7 +9,7 @@
  *
  *   import { enhanceRatingsAndReviews } from '../../vendor/jw-1980/ratings-and-reviews/resources/js/blade/index.js';
  *   import '../../vendor/jw-1980/ratings-and-reviews/resources/js/css/ratings-and-reviews.css';
- *   enhanceRatingsAndReviews(document, { uploadImage, searchCards, stickers });
+ *   enhanceRatingsAndReviews(document, { searchCards });   // uploadImage and stickers default to the package API
  *
  * Strings come from `#rr-messages` (lang/{locale}/ui.php, printed by the components) and
  * settings from `#rr-config`; CSRF from `<meta name="csrf-token">` or the XSRF-TOKEN cookie.
@@ -28,6 +28,35 @@ import { bindHovercard, confirmAction, errorText, openReport, showRevisions, vot
 /** Restores of undone comments, applied after the discussion is re-rendered. */
 const pendingRestore = new Map();
 const cardCache = new Map();
+
+/**
+ * Without a host `stickers` list the sticker picker loads the active library from GET
+ * stickers the first time it opens (once per page).
+ */
+function stickerLibrary(api, given) {
+    if (given) {
+        return { loadStickers: null, getStickers: () => given };
+    }
+
+    const loaded = [];
+    let pending = null;
+
+    return {
+        getStickers: () => loaded,
+        loadStickers: () => {
+            pending ??= api.stickers().then((items) => {
+                loaded.splice(0, loaded.length, ...items);
+
+                return loaded;
+            }).catch((failure) => {
+                pending = null;
+                throw failure;
+            });
+
+            return pending;
+        },
+    };
+}
 
 function createEnv(options) {
     const messages = readJson('#rr-messages', {});
@@ -63,9 +92,11 @@ function createEnv(options) {
         locale: config.locale ?? document.documentElement.lang ?? 'en',
         mediaPrefixes: config.mediaPrefixes ?? ['/storage/'],
         startedAtField: options.startedAtField ?? 'form_started_at',
-        uploadImage: options.uploadImage ?? null,
+        // Default: the package's POST uploads; a host callback still overrides it.
+        uploadImage: options.uploadImage ?? ((file) => api.uploadImage(file)),
         searchCards: options.searchCards ?? null,
         stickers: options.stickers ?? [],
+        ...stickerLibrary(api, options.stickers),
         emojis: options.emojis ?? null,
     };
 }
@@ -318,8 +349,11 @@ function enhanceRoot(root, env) {
             event.preventDefault();
             await loadMore(env, root, target);
         } else if (target.matches('.rr-vote')) {
+            // Inside a no-JavaScript vote form (form routes): vote through the API instead.
+            event.preventDefault();
             await vote(target, env);
         } else if (target.matches('[data-rr-poll-option]')) {
+            event.preventDefault();
             await votePoll(target, env, root);
         } else if (target.matches('[data-rr-report]')) {
             openReport(target, env, root);

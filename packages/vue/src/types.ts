@@ -105,9 +105,22 @@ export interface Comparison {
     subject: ProductRef;
 }
 
+/** ReviewResource `photos[]` (also the shape of an upload). */
 export interface Photo {
+    id: number | null;
     url: string;
     alt: string;
+    width: number | null;
+    height: number | null;
+}
+
+/** POST uploads. */
+export interface Upload {
+    id: number;
+    url: string;
+    alt: string | null;
+    width: number | null;
+    height: number | null;
 }
 
 export interface BrandReply {
@@ -133,7 +146,7 @@ export interface Review {
     facets: Array<{ group: string; value: string; label: string }>;
     comparison: Comparison | null;
     qualityScore: number | null;
-    /** Not sent by the API (yet). */
+    /** Up to `reviews.max_photos`; on a review that is not approved only its author gets them. */
     photos: Photo[];
     /** Not sent by the API (yet); hosts can fill the `brand-reply` slot instead. */
     brandReply: BrandReply | null;
@@ -166,9 +179,28 @@ export interface ReviewPage {
         facets: FacetGroup[];
         comparisons: Option[];
         editor: Trust;
+        /** `review_scale` of the section (same as scaleMax). */
+        reviewScale: number;
+        /** `review_extended_fields`: title, pros and cons are part of the form. */
+        extendedFields: boolean;
+        /** `review_min_length`: minimum characters of the review text. */
+        minLength: number;
+        form: ReviewFormLimits;
         features: { priceAtReview: boolean; wantToTry: boolean; productCards: boolean; toneCheck: boolean };
         acceptsReviews: boolean;
     };
+}
+
+/** Reviews meta `review_form`. */
+export interface ReviewFormLimits {
+    maxBodyLength: number;
+    maxTitleLength: number;
+    maxProsCons: number;
+    maxProConLength: number;
+    /** 0: photos are off. */
+    maxPhotos: number;
+    photosRequireApproval: boolean;
+    requiresApproval: boolean;
 }
 
 /** TrustProfile: the tools and depth the viewer has unlocked. */
@@ -270,6 +302,15 @@ export interface CommentPage {
         trust: Trust;
         settings: DiscussionSettings;
     };
+}
+
+/** GET comments/{comment}/replies: flat replies (place them by parentId), in tree order. */
+export interface ReplyPage {
+    items: Comment[];
+    rootId: number | null;
+    total: number;
+    nextCursor: string | null;
+    hasMore: boolean;
 }
 
 export interface Revision {
@@ -385,6 +426,18 @@ export interface Sticker {
     id: string | number;
     name: string;
     url: string;
+}
+
+/** GET admin/stickers. */
+export interface AdminSticker {
+    id: number;
+    name: { nl: string; en: string };
+    label: string;
+    path: string;
+    url: string;
+    managedFile: boolean;
+    isActive: boolean;
+    sortOrder: number;
 }
 
 export interface ReviewTopic {

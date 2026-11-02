@@ -12,7 +12,7 @@ import { validatePoll } from '../poll.js';
 import { toneSuggestionFromError, createToneChecker } from '../tone-check.js';
 import { secondsUntil } from '../undo.js';
 import { readJson, setBusy } from './dom.js';
-import { mountEditor } from './editor-ui.js';
+import { mountEditor, uploadErrorText } from './editor-ui.js';
 import { errorText } from './widgets.js';
 
 const cssEscape = (value) => (globalThis.CSS?.escape ? globalThis.CSS.escape(value) : String(value).replace(/["\\\]\[]/g, "\\$&"));
@@ -361,7 +361,57 @@ export function showUndoToast(env, comment, onUndo, onExpire) {
     button.focus({ preventScroll: true });
 }
 
-/** The review form: editor, quality meter, pros/cons rows, API submit. */
+/**
+ * Review photos with JavaScript: chosen files are uploaded at once (POST uploads, always the
+ * package endpoint: a photo needs the upload id) and appear as ticked `photos[]` choices,
+ * the same markup the server renders for kept photos.
+ */
+function enhancePhotos(box, env) {
+    const input = box.querySelector('[data-rr-photo-files]');
+    const list = box.querySelector('[data-rr-photo-list]');
+    const status = box.querySelector('[data-rr-photo-status]');
+    const error = box.querySelector('[data-rr-field-error]');
+    const max = Number(box.dataset.max || 0);
+    const ticked = () => box.querySelectorAll('input[name="photos[]"]:checked').length;
+
+    input?.closest('.rr-field')?.classList.remove('rr-js-only');
+    input?.addEventListener('change', async () => {
+        const files = [...(input.files ?? [])];
+        input.value = '';
+        error.textContent = '';
+
+        for (const file of files) {
+            if (ticked() >= max) {
+                error.textContent = env.tc('form.photos_limit', max);
+                break;
+            }
+
+            status.textContent = env.t('form.photo_uploading');
+
+            try {
+                const uploaded = await env.api.uploadImage(file);
+                const item = document.createElement('li');
+                const label = document.createElement('label');
+                label.className = 'rr-photo-choice';
+                const checkbox = Object.assign(document.createElement('input'), { type: 'checkbox', name: 'photos[]', value: String(uploaded.id), checked: true });
+                const image = Object.assign(document.createElement('img'), { src: uploaded.url, alt: uploaded.alt ?? '', loading: 'lazy' });
+                const text = Object.assign(document.createElement('span'), { className: 'rr-photo-choice__label', textContent: env.t('form.photo_keep') });
+                label.append(checkbox, image, text);
+                item.append(label);
+                list.append(item);
+                status.textContent = env.t('form.photo_uploaded');
+                closestForm(box)?.dispatchEvent(new Event('change', { bubbles: true }));
+            } catch (failure) {
+                status.textContent = '';
+                error.textContent = uploadErrorText(failure, env.t);
+            }
+        }
+    });
+}
+
+const closestForm = (box) => box.closest('form');
+
+/** The review form: editor, quality meter, pros/cons rows, photos, API submit. */
 export function enhanceReviewForm(form, env, root, hooks) {
     if (form.rrReviewForm) {
         return;
@@ -375,6 +425,12 @@ export function enhanceReviewForm(form, env, root, hooks) {
     const submit = form.querySelector('[type="submit"]');
     const reviewId = root.dataset.rrReviewId ? Number(root.dataset.rrReviewId) : null;
     const startedAt = Number(form.querySelector(`[name="${env.startedAtField}"]`)?.value || 0);
+
+    const photoBox = form.querySelector('[data-rr-photos]');
+
+    if (photoBox) {
+        enhancePhotos(photoBox, env);
+    }
 
     form.querySelectorAll('[data-rr-points]').forEach((fieldset) => {
         const rows = [...fieldset.querySelectorAll('.rr-input-row')];
@@ -416,15 +472,19 @@ export function enhanceReviewForm(form, env, root, hooks) {
         const comparedId = String(data.get('compared_id') ?? '');
         const verdict = String(data.get('comparison') ?? '');
 
+        const extended = form.dataset.extended !== '0';
+
         return {
             rating: Number(data.get('rating') || 0),
-            title: String(data.get('title') ?? ''),
+            title: extended ? String(data.get('title') ?? '') : '',
             body: editor.getHTML(),
-            pros: data.getAll('pros[]').map(String),
-            cons: data.getAll('cons[]').map(String),
+            pros: extended ? data.getAll('pros[]').map(String) : [],
+            cons: extended ? data.getAll('cons[]').map(String) : [],
             topicRatings,
             facets,
             comparison: comparedType && comparedId && verdict ? { type: comparedType, id: Number(comparedId), verdict } : null,
+            // Ticked photos (kept and newly uploaded), in their order; left out without the photo field.
+            ...(photoBox ? { photos: data.getAll('photos[]').map(Number) } : {}),
         };
     };
 

@@ -23,7 +23,8 @@ export function fakeApi(overrides: Partial<Record<keyof ApiClient, unknown>> = {
     const names: Array<keyof ApiClient> = [
         'request', 'ratingSummary', 'reviews', 'createReview', 'updateReview', 'deleteReview', 'voteReview', 'comments', 'createComment',
         'updateComment', 'deleteComment', 'undoComment', 'revisions', 'voteComment', 'votePoll', 'poll', 'digest', 'search', 'report',
-        'authorCard', 'card', 'wantToTry', 'toneCheck', 'qualityRules',
+        'authorCard', 'card', 'wantToTry', 'toneCheck', 'qualityRules', 'replies', 'uploadImage', 'stickers', 'adminStickers',
+        'createSticker', 'updateSticker', 'deleteSticker',
     ];
     const api: Record<string, unknown> = {};
 

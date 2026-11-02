@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRr } from '../context';
-import { errorMessage, fieldErrors } from '../composables/errors';
+import { errorMessage, fieldErrors, uploadErrorMessage } from '../composables/errors';
 import { useAnnouncer } from '../composables/useAnnouncer';
 import { evaluateQuality, toneSuggestionFromError } from '../shared';
 import RrEditor from './RrEditor.vue';
 import RrQualityMeter from './RrQualityMeter.vue';
 import RrScaleInput from './RrScaleInput.vue';
-import type { FacetGroup, Option, ProductRef, QualityResult, QualityRules, Review, ReviewTopic, SubjectRef } from '../types';
+import type { FacetGroup, Option, Photo, ProductRef, QualityResult, QualityRules, Review, ReviewPage, ReviewTopic, SubjectRef } from '../types';
 
 const props = withDefaults(defineProps<{
     subject: SubjectRef;
-    /** The section's review scale (5 or 10, `review_scale`). */
-    scale: number;
+    /** The section's review scale (5 or 10, `review_scale`); defaults to `meta.reviewScale`. */
+    scale?: number;
+    /**
+     * The reviews meta of this subject (the `loaded` event of <RrReviews>, or api.reviews()).
+     * The form then follows the section: extended fields, minimum length, photo and length limits.
+     */
+    meta?: ReviewPage['meta'] | null;
     topics?: ReviewTopic[];
     /** Context facets (config `reviews.facets`, as the reviews meta `facets` serves them): one choice per group. */
     facetOptions?: FacetGroup[];
@@ -20,20 +25,36 @@ const props = withDefaults(defineProps<{
     comparisons?: Option[];
     /** Editor tools for the review text (the review section's `editor_tools`). */
     tools?: string[];
-    /** `review_extended_fields`: pros and cons. */
+    /** `review_extended_fields`: title, pros and cons (default: `meta.extendedFields`, else true). */
     extendedFields?: boolean;
+    /** `review_min_length` (default: `meta.minLength`, else 0). */
+    minLength?: number;
+    /** `reviews.max_photos` (default: `meta.form.maxPhotos`, else 0: no photos). */
+    maxPhotos?: number;
     /** An existing review to edit. */
     review?: Review | null;
     /** Rules for the quality meter; fetched from GET review-quality-rules when absent. */
     qualityRules?: QualityRules | null;
     maxTitle?: number;
     maxPoints?: number;
-}>(), { topics: () => [], facetOptions: () => [], comparisons: () => [], tools: () => ['bold', 'italic', 'underline', 'bullet_list', 'ordered_list'], extendedFields: true, review: null, qualityRules: null, maxTitle: 150, maxPoints: 5 });
+}>(), {
+    scale: undefined, meta: null, topics: () => [], facetOptions: () => [], comparisons: () => [], tools: () => ['bold', 'italic', 'underline', 'bullet_list', 'ordered_list'],
+    extendedFields: undefined, minLength: undefined, maxPhotos: undefined, review: null, qualityRules: null, maxTitle: undefined, maxPoints: undefined,
+});
 
 const emit = defineEmits<{ saved: [payload: { item: Review; message: string | null }]; cancel: [] }>();
 const rr = useRr();
 const { message: live, announce } = useAnnouncer();
 const uid = `rr-review-form-${Math.random().toString(36).slice(2)}`;
+
+// Explicit props win; otherwise the section's values from the reviews meta.
+const scaleMax = computed(() => props.scale ?? props.meta?.reviewScale ?? props.meta?.scaleMax ?? 5);
+const extended = computed(() => props.extendedFields ?? props.meta?.extendedFields ?? true);
+const minimumLength = computed(() => props.minLength ?? props.meta?.minLength ?? 0);
+const photoLimit = computed(() => props.maxPhotos ?? props.meta?.form.maxPhotos ?? 0);
+const titleLimit = computed(() => props.maxTitle ?? props.meta?.form.maxTitleLength ?? 150);
+const pointLimit = computed(() => props.maxPoints ?? props.meta?.form.maxProsCons ?? 5);
+const pointLength = computed(() => props.meta?.form.maxProConLength ?? 200);
 
 const form = reactive({
     rating: props.review?.rating ?? null as number | null,
@@ -44,7 +65,10 @@ const form = reactive({
     topicRatings: Object.fromEntries(props.topics.map((topic) => [String(topic.id), props.review?.topicRatings.find((rating) => rating.topicId === topic.id)?.value ?? null])) as Record<string, number | null>,
     facets: Object.fromEntries(props.review?.facets.map((facet) => [facet.group, facet.value]) ?? []) as Record<string, string | null>,
     comparison: props.review?.comparison ? { subject: props.review.comparison.subject, verdict: props.review.comparison.verdict ?? 'same' } : null as { subject: ProductRef; verdict: string } | null,
+    photos: [...(props.review?.photos ?? [])] as Photo[],
 });
+const uploadingPhotos = ref(false);
+const photoStatus = ref('');
 
 const rules = ref<QualityRules | null>(props.qualityRules);
 const saving = ref(false);
@@ -71,13 +95,48 @@ const quality = computed<QualityResult>(() => evaluateQuality({
     cons: form.cons,
     topicRatings: form.topicRatings,
     topicCount: props.topics.length,
-    extendedFields: props.extendedFields,
+    extendedFields: extended.value,
 }, rules.value) as QualityResult);
 
 function addPoint(list: string[]) {
-    if (list.length < props.maxPoints) {
+    if (list.length < pointLimit.value) {
         list.push('');
     }
+}
+
+/** Uploads chosen photos at once (POST uploads); the review keeps their ids in order. */
+async function addPhotos(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    delete errors.value.photos;
+
+    for (const file of files) {
+        if (form.photos.length >= photoLimit.value) {
+            errors.value = { ...errors.value, photos: rr.tc('form.photos_limit', photoLimit.value) };
+            break;
+        }
+
+        uploadingPhotos.value = true;
+        photoStatus.value = rr.t('form.photo_uploading');
+
+        try {
+            const uploaded = await rr.api.uploadImage(file);
+            form.photos.push({ id: uploaded.id, url: uploaded.url, alt: uploaded.alt ?? '', width: uploaded.width, height: uploaded.height });
+            photoStatus.value = rr.t('form.photo_uploaded');
+            announce(rr.t('form.photo_uploaded'));
+        } catch (failure) {
+            photoStatus.value = '';
+            errors.value = { ...errors.value, photos: uploadErrorMessage(failure, rr.t) };
+        } finally {
+            uploadingPhotos.value = false;
+        }
+    }
+}
+
+function removePhoto(index: number) {
+    form.photos.splice(index, 1);
+    document.getElementById(`${uid}-photos-add`)?.focus();
 }
 
 function removePoint(list: string[], index: number) {
@@ -108,10 +167,11 @@ async function submit(confirmTone = false) {
 
     const payload = {
         rating: form.rating,
-        title: form.title,
+        title: extended.value ? form.title : '',
         body: form.body,
-        pros: props.extendedFields ? form.pros : [],
-        cons: props.extendedFields ? form.cons : [],
+        pros: extended.value ? form.pros : [],
+        cons: extended.value ? form.cons : [],
+        photos: photoLimit.value > 0 ? form.photos.map((photo) => Number(photo.id)) : undefined,
         topicRatings: form.topicRatings,
         facets: props.facetOptions.length ? form.facets : undefined,
         comparison: form.comparison ? { type: form.comparison.subject.type, id: form.comparison.subject.id, verdict: form.comparison.verdict } : null,
@@ -161,7 +221,7 @@ const describedBy = (field: string, help?: string) => [help, errors.value[field]
             <div :id="`${uid}-rating`">
                 <RrScaleInput
                     v-model="form.rating"
-                    :max="scale"
+                    :max="scaleMax"
                     :name="`${uid}-rating`"
                     :legend="rr.t('form.rating')"
                     required
@@ -188,30 +248,47 @@ const describedBy = (field: string, help?: string) => [help, errors.value[field]
                 </div>
             </fieldset>
 
-            <div class="rr-field">
+            <div v-if="extended" class="rr-field">
                 <label :for="`${uid}-title-input`" class="rr-label">{{ rr.t('form.title_label') }}</label>
-                <input :id="`${uid}-title-input`" v-model="form.title" type="text" class="rr-input" :maxlength="maxTitle" :aria-invalid="errors.title ? 'true' : undefined" :aria-describedby="describedBy('title', `${uid}-title-help`)">
-                <p :id="`${uid}-title-help`" class="rr-help">{{ rr.t('form.title_help', { max: maxTitle }) }}</p>
+                <input :id="`${uid}-title-input`" v-model="form.title" type="text" class="rr-input" :maxlength="titleLimit" :aria-invalid="errors.title ? 'true' : undefined" :aria-describedby="describedBy('title', `${uid}-title-help`)">
+                <p :id="`${uid}-title-help`" class="rr-help">{{ rr.t('form.title_help', { max: titleLimit }) }}</p>
                 <p v-if="errors.title" :id="`${uid}-title-error`" class="rr-field-error">{{ errors.title }}</p>
             </div>
 
             <div class="rr-field">
                 <span :id="`${uid}-body-label`" class="rr-label">{{ rr.t('form.body') }}</span>
                 <RrEditor v-model="form.body" :tools="tools" :label="rr.t('form.body')" :described-by="describedBy('body', `${uid}-body-help`)" :invalid="!!errors.body" @submit="submit()" />
-                <p :id="`${uid}-body-help`" class="rr-help">{{ rr.t('form.body_help') }}</p>
+                <p :id="`${uid}-body-help`" class="rr-help">{{ rr.t('form.body_help') }}<template v-if="minimumLength > 0"> {{ rr.tc('form.min_length', minimumLength) }}</template></p>
                 <p v-if="errors.body" :id="`${uid}-body-error`" class="rr-field-error">{{ errors.body }}</p>
             </div>
 
-            <div v-if="extendedFields" class="rr-points-inputs">
+            <div v-if="extended" class="rr-points-inputs">
                 <fieldset v-for="kind in (['pros', 'cons'] as const)" :key="kind" class="rr-fieldset">
                     <legend class="rr-label">{{ rr.t(`form.${kind}`) }}</legend>
                     <div v-for="(_, index) in form[kind]" :key="`${kind}-${index}`" class="rr-input-row">
-                        <input v-model="form[kind][index]" type="text" class="rr-input" maxlength="200" :aria-label="`${rr.t(`form.${kind}`)}: ${rr.t('form.point', { number: index + 1 })}`" :aria-invalid="errors[`${kind}.${index}`] ? 'true' : undefined">
+                        <input v-model="form[kind][index]" type="text" class="rr-input" :maxlength="pointLength" :aria-label="`${rr.t(`form.${kind}`)}: ${rr.t('form.point', { number: index + 1 })}`" :aria-invalid="errors[`${kind}.${index}`] ? 'true' : undefined">
                         <button v-if="form[kind].length > 1 || form[kind][index] !== ''" type="button" class="rr-icon-button" :aria-label="rr.t('form.remove_point', { number: index + 1 })" @click="removePoint(form[kind], index)">×</button>
                     </div>
-                    <button v-if="form[kind].length < maxPoints" type="button" class="rr-button rr-button--small rr-button--ghost" @click="addPoint(form[kind])">{{ rr.t(kind === 'pros' ? 'form.add_pro' : 'form.add_con') }}</button>
+                    <button v-if="form[kind].length < pointLimit" type="button" class="rr-button rr-button--small rr-button--ghost" @click="addPoint(form[kind])">{{ rr.t(kind === 'pros' ? 'form.add_pro' : 'form.add_con') }}</button>
                 </fieldset>
             </div>
+
+            <fieldset v-if="photoLimit > 0" class="rr-fieldset rr-photo-input">
+                <legend class="rr-label">{{ rr.t('form.photos') }}</legend>
+                <p :id="`${uid}-photos-help`" class="rr-help">{{ rr.tc('form.photos_help', photoLimit) }}<template v-if="meta?.form.photosRequireApproval"> {{ rr.t('form.photos_moderated') }}</template></p>
+                <ul v-if="form.photos.length" class="rr-photos rr-photos--input">
+                    <li v-for="(photo, index) in form.photos" :key="photo.id ?? photo.url" class="rr-photo-choice">
+                        <img :src="photo.url" :alt="photo.alt" loading="lazy">
+                        <button type="button" class="rr-button rr-button--small rr-button--ghost" :aria-label="rr.t('form.photo_remove', { number: index + 1 })" @click="removePhoto(index)">×</button>
+                    </li>
+                </ul>
+                <div v-if="form.photos.length < photoLimit" class="rr-field">
+                    <label :for="`${uid}-photos-add`" class="rr-label rr-label--minor">{{ rr.t('form.photos_add') }}</label>
+                    <input :id="`${uid}-photos-add`" type="file" class="rr-input rr-input--file" accept="image/jpeg,image/png,image/webp,image/gif" multiple :disabled="uploadingPhotos" :aria-describedby="describedBy('photos', `${uid}-photos-help`)" @change="addPhotos">
+                </div>
+                <p class="rr-help" role="status">{{ photoStatus }}</p>
+                <p v-if="errors.photos" :id="`${uid}-photos-error`" class="rr-field-error" role="alert">{{ errors.photos }}</p>
+            </fieldset>
 
             <fieldset v-if="facetOptions.length" class="rr-fieldset">
                 <legend class="rr-label">{{ rr.t('form.facets') }}</legend>
