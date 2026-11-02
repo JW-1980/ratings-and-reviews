@@ -13,7 +13,16 @@ Dit document beschrijft wat WelZoLekker (WZL) en NutriCompare (NC) nu hebben aan
 | 1 | Frontend | Eén PHP-pakket met een JSON-API en Blade-componenten (WZL), plus een npm-pakket met Vue 3-componenten (NC). |
 | 2 | Editor en sanitizer | Beide apps gebruiken dezelfde: Tiptap als editor, `symfony/html-sanitizer` op de server, DOMPurify in de browser. |
 | 3 | Pakket | `jw-1980/ratings-and-reviews` in deze repository, met semver-tags. |
-| 4 | Features voor de eerste versie | Nog te kiezen via de beslispagina. |
+| 4 | Features voor de eerste versie | Gekozen via de beslispagina op 2 november 2026; zie [Gekozen features](#gekozen-features). |
+| 5 | Startvolgorde | A: eerst de HIGH- en MEDIUM-bugs repareren en een morph map invoeren in beide apps, daarna het pakket. |
+
+### Gekozen features
+
+Voorwaarde bij alles: **geen AI**. Features die een taalmodel nodig zouden hebben, worden deterministisch gebouwd (regels, woordenlijsten, tellingen) of niet.
+
+- **Versie 1 (20):** TL;DR van lange discussies (zonder AI), zoeken binnen reviews en discussies, prijs op het moment van de review, "Vergeleken met…", kwaliteitsmeter tijdens het schrijven (zonder AI), review-uitnodiging na aankoop, context-facetten, onzekerheidsband, scoreverloop, sorteren op "Controversieel", citeer-selectie, productkaart in de editor, mini-peiling in een reactie, "Nieuw sinds je laatste bezoek", slow mode, vertrouwensniveaus, herformuleer-suggestie (zonder AI), profiel-hovercard, ongedaan maken na plaatsen, "Wil ik proberen".
+- **Later (3):** workflow voor "bron nodig", alt-tekst bij afbeeldingen (zonder AI), openbaar moderatielogboek.
+- **Niet doen (2):** AI-samenvatting van reviews, foto-annotaties.
 
 ## In het kort
 
