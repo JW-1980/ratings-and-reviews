@@ -1,0 +1,122 @@
+<?php
+
+namespace RatingsAndReviews\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+use RatingsAndReviews\Models\Comment;
+use RatingsAndReviews\Support\AuthorProfile;
+use RatingsAndReviews\Support\SectionSettings;
+
+/**
+ * A comment with its replies (when the `replies` relation is set by DiscussionTree).
+ *
+ * @property Comment $resource
+ */
+class CommentResource extends JsonResource
+{
+    /** @var array<int, AuthorProfile> */
+    private array $authors = [];
+
+    /** @var array<int, array<string, int>> */
+    private array $viewerVotes = [];
+
+    private ?int $viewerId = null;
+
+    private bool $viewerModerates = false;
+
+    private ?SectionSettings $settings = null;
+
+    private ?int $topCommentId = null;
+
+    /**
+     * @param  array<int, AuthorProfile>  $authors
+     * @param  array<int, array<string, int>>  $viewerVotes
+     */
+    public function withContext(array $authors, array $viewerVotes, ?int $viewerId, bool $viewerModerates, ?SectionSettings $settings, ?int $topCommentId = null): static
+    {
+        $this->authors = $authors;
+        $this->viewerVotes = $viewerVotes;
+        $this->viewerId = $viewerId;
+        $this->viewerModerates = $viewerModerates;
+        $this->settings = $settings;
+        $this->topCommentId = $topCommentId;
+
+        return $this;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        $comment = $this->resource;
+        $removed = $comment->isRemovedByAuthor();
+        $own = $this->viewerId !== null && $this->viewerId === $comment->user_id;
+        $dimensions = $this->settings?->voteDimensions ?? [];
+
+        $counts = [];
+
+        foreach ($comment->voteCounterColumns() as $dimension => $columns) {
+            if ($this->settings === null || in_array($dimension, array_map(fn ($case) => $case->value, $dimensions), true)) {
+                foreach ($columns as $value => $column) {
+                    $counts[$dimension][$value === 1 ? 'up' : 'down'] = (int) $comment->getAttribute($column);
+                }
+            }
+        }
+
+        return [
+            'id' => $comment->id,
+            'parent_id' => $comment->parent_id,
+            'root_id' => $comment->root_id,
+            'in_reply_to_id' => $comment->in_reply_to_id,
+            'in_reply_to_author' => $comment->in_reply_to_id !== null ? $this->replyTargetAuthor() : null,
+            'depth' => $comment->depth,
+            'status' => $comment->status->value,
+            'author' => $removed ? null : ($this->authors[$comment->user_id] ?? null)?->toArray(),
+            'body_html' => $removed ? '' : $comment->body_html,
+            'is_removed' => $removed,
+            'removed_label' => $removed ? __('ratings-and-reviews::messages.comment_removed_placeholder') : null,
+            'is_edited' => $comment->is_edited,
+            'is_top' => $this->topCommentId === $comment->id,
+            'is_collapsed' => $this->settings?->shouldCollapse($comment->helpful_count, $comment->unhelpful_count) ?? false,
+            'counts' => (object) $counts,
+            'helpful_score' => round($comment->helpful_score, 6),
+            'controversy_score' => round($comment->controversy_score, 6),
+            'viewer_votes' => (object) ($this->viewerVotes[$comment->id] ?? []),
+            'is_own' => $own,
+            'can' => [
+                'edit' => ! $removed && (($own && $this->withinEditWindow()) || $this->viewerModerates),
+                'delete' => ! $removed && ($own || $this->viewerModerates),
+                'reply' => ! $removed,
+            ],
+            'created_at' => $comment->created_at?->toIso8601String(),
+            'edited_at' => $comment->edited_at?->toIso8601String(),
+            'replies' => $comment->relationLoaded('replies')
+                ? $comment->replies->map(fn (Comment $reply): array => (new self($reply))
+                    ->withContext($this->authors, $this->viewerVotes, $this->viewerId, $this->viewerModerates, $this->settings, $this->topCommentId)
+                    ->resolve($request))->values()->all()
+                : [],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function replyTargetAuthor(): ?array
+    {
+        $target = $this->resource->relationLoaded('inReplyTo') ? $this->resource->inReplyTo : null;
+
+        return $target !== null && ! $target->isRemovedByAuthor() ? ($this->authors[$target->user_id] ?? null)?->toArray() : null;
+    }
+
+    private function withinEditWindow(): bool
+    {
+        $created = $this->resource->created_at;
+
+        return $this->settings !== null && $this->settings->enabled && (
+            $this->settings->editWindowMinutes === null
+            || ($created !== null && $created->copy()->addMinutes($this->settings->editWindowMinutes)->isFuture())
+        );
+    }
+}
