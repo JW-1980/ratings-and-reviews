@@ -6,6 +6,7 @@ use RatingsAndReviews\Http\Controllers\Admin\DiscussionController as AdminDiscus
 use RatingsAndReviews\Http\Controllers\Admin\ModerationController;
 use RatingsAndReviews\Http\Controllers\Admin\ReportController as AdminReportController;
 use RatingsAndReviews\Http\Controllers\Admin\SectionController;
+use RatingsAndReviews\Http\Controllers\Admin\StickerController as AdminStickerController;
 use RatingsAndReviews\Http\Controllers\Admin\TopicController;
 use RatingsAndReviews\Http\Controllers\AuthorCardController;
 use RatingsAndReviews\Http\Controllers\CardController;
@@ -20,7 +21,9 @@ use RatingsAndReviews\Http\Controllers\ReviewInvitationController;
 use RatingsAndReviews\Http\Controllers\ReviewQualityRulesController;
 use RatingsAndReviews\Http\Controllers\ReviewVoteController;
 use RatingsAndReviews\Http\Controllers\SearchController;
+use RatingsAndReviews\Http\Controllers\StickerController;
 use RatingsAndReviews\Http\Controllers\ToneCheckController;
+use RatingsAndReviews\Http\Controllers\UploadController;
 use RatingsAndReviews\Http\Controllers\WantToTryController;
 
 /*
@@ -33,6 +36,7 @@ $vote = ThrottleRequests::using('rr-vote');
 $report = ThrottleRequests::using('rr-report');
 $admin = ThrottleRequests::using('rr-admin');
 $lookup = ThrottleRequests::using('rr-lookup');
+$upload = ThrottleRequests::using('rr-upload');
 
 $subject = ['type' => '[A-Za-z0-9_\-.]+', 'id' => '[A-Za-z0-9\-]+'];
 
@@ -48,6 +52,7 @@ Route::post('subjects/{type}/{id}/comments', [CommentController::class, 'store']
 Route::patch('comments/{comment}', [CommentController::class, 'update'])->middleware($write)->name('comments.update');
 Route::delete('comments/{comment}', [CommentController::class, 'destroy'])->middleware($write)->name('comments.destroy');
 Route::get('comments/{comment}/revisions', [CommentController::class, 'revisions'])->name('comments.revisions');
+Route::get('comments/{comment}/replies', [CommentController::class, 'replies'])->name('comments.replies');
 Route::post('comments/{comment}/votes', [CommentVoteController::class, 'store'])->middleware($vote)->name('comments.votes.store');
 Route::post('comments/{comment}/undo', [CommentController::class, 'undo'])->middleware($write)->name('comments.undo');
 
@@ -69,6 +74,10 @@ Route::post('review-invitations/{invitation}/dismiss', [ReviewInvitationControll
 
 Route::post('reports', [ReportController::class, 'store'])->middleware($report)->name('reports.store');
 
+Route::post('uploads', [UploadController::class, 'store'])->middleware($upload)->name('uploads.store');
+Route::get('media/{path}', [UploadController::class, 'show'])->where('path', '[A-Za-z0-9_\-][A-Za-z0-9_\-./]*')->name('media.show');
+Route::get('stickers', [StickerController::class, 'index'])->name('stickers.index');
+
 Route::prefix('admin')
     ->name('admin.')
     ->middleware((array) config('ratings-and-reviews.routes.admin_middleware', []))
@@ -87,6 +96,11 @@ Route::prefix('admin')
 
         Route::get('discussions/{type}/{id}', [AdminDiscussionController::class, 'show'])->where($subject)->name('discussions.show');
         Route::patch('discussions/{type}/{id}', [AdminDiscussionController::class, 'update'])->middleware($admin)->where($subject)->name('discussions.update');
+
+        Route::get('stickers', [AdminStickerController::class, 'index'])->name('stickers.index');
+        Route::post('stickers', [AdminStickerController::class, 'store'])->middleware($admin)->name('stickers.store');
+        Route::patch('stickers/{sticker}', [AdminStickerController::class, 'update'])->middleware($admin)->name('stickers.update');
+        Route::delete('stickers/{sticker}', [AdminStickerController::class, 'destroy'])->middleware($admin)->name('stickers.destroy');
 
         Route::get('moderation', [ModerationController::class, 'index'])->name('moderation.index');
         Route::patch('moderation/{kind}/{id}', [ModerationController::class, 'update'])->middleware($admin)->name('moderation.update');

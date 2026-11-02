@@ -64,7 +64,7 @@ class ReviewController extends Controller
         $sort = ReviewSort::tryFrom((string) $request->query('sort')) ?? ReviewSort::Helpful;
         $ratingFilter = filter_var($request->query('rating'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => $scale]]);
 
-        $query = Review::query()->forSubject($subject)->approved()->with(['topicRatings', 'compared']);
+        $query = Review::query()->forSubject($subject)->approved()->with(['topicRatings', 'compared', 'photos']);
 
         if ($ratingFilter !== false && $ratingFilter !== null) {
             // The rating on the section's scale, as the histogram buckets it.
@@ -84,7 +84,7 @@ class ReviewController extends Controller
         $items = collect($page->items());
 
         $viewerId = $this->userId($viewer);
-        $own = $viewerId === null ? null : Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(['topicRatings', 'compared'])->first();
+        $own = $viewerId === null ? null : Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(['topicRatings', 'compared', 'photos'])->first();
         $profiles = $this->authors->resolve($items->pluck('user_id')->push($own?->user_id)->filter()->map(fn ($id): int => (int) $id)->unique()->values()->all());
         $choices = $this->votes->choicesFor((new Review)->getMorphClass(), $items->pluck('id')->push($own?->id)->filter()->map(fn ($id): int => (int) $id)->all(), $this->identity->voterKey($request, $viewer));
 
@@ -98,6 +98,18 @@ class ReviewController extends Controller
                 'sort' => $sort->value,
                 'sorts' => array_map(fn (ReviewSort $case): array => ['value' => $case->value, 'label' => $case->label()], ReviewSort::cases()),
                 'scale_max' => $scale,
+                'review_scale' => $scale,
+                'review_extended_fields' => $settings->reviewExtendedFields,
+                'review_min_length' => $settings->reviewMinLength,
+                'review_form' => [
+                    'max_body_length' => max(1, (int) config('ratings-and-reviews.reviews.max_body_length', 10000)),
+                    'max_title_length' => (int) config('ratings-and-reviews.reviews.max_title_length', 150),
+                    'max_pros_cons' => (int) config('ratings-and-reviews.reviews.max_pros_cons', 5),
+                    'max_pro_con_length' => (int) config('ratings-and-reviews.reviews.max_pro_con_length', 200),
+                    'max_photos' => max(0, (int) config('ratings-and-reviews.reviews.max_photos', 4)),
+                    'photos_require_approval' => (bool) config('ratings-and-reviews.reviews.photos_require_approval', false),
+                    'requires_approval' => $settings->reviewRequiresApproval,
+                ],
                 'own_review' => $own === null ? null : $present($own),
                 'filters' => ['rating' => $ratingFilter === false ? null : $ratingFilter, 'facets' => (object) $facetFilter],
                 'facets' => $this->facets->options(),
@@ -175,7 +187,7 @@ class ReviewController extends Controller
 
     private function saved(Request $request, Review $review, int $status): JsonResponse
     {
-        $review->load(['topicRatings', 'compared']);
+        $review->load(['topicRatings', 'compared', 'photos']);
         $viewerId = $review->user_id;
         $profile = $this->authors->resolve([$viewerId])[$viewerId] ?? null;
         $subject = $review->reviewable;

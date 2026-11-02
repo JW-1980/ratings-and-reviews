@@ -198,6 +198,53 @@ class CommentController extends Controller
         return new JsonResponse(['data' => RevisionResource::collection($revisions)->resolve($request)]);
     }
 
+    /**
+     * The replies of a thread that the tree cut at `discussions.max_replies_per_page`
+     * (`meta.truncated_threads`): flat, in tree order (shallowest first, then oldest), with
+     * `parent_id` to place them, `cursor` / `next_cursor` to page. `{comment}` is the root of the
+     * thread or any reply in it. Does not move the viewer's read marker.
+     */
+    public function replies(Request $request, string $comment): JsonResponse
+    {
+        $viewer = $this->currentUser($request);
+        $viewerId = $this->userId($viewer);
+        $moderates = $this->moderates($viewer);
+        $model = ctype_digit($comment) ? Comment::query()->find((int) $comment) : null;
+        $root = $model === null ? null : ($model->root_id === null ? $model : Comment::query()->find($model->root_id));
+        $subject = $root?->commentable;
+
+        if ($root === null || ! $subject instanceof Commentable || ! $subject->commentsVisibleTo($viewer)) {
+            throw new NotFoundHttpException;
+        }
+
+        $visible = ($root->status === ContentStatus::Approved && $root->published_at !== null) || ($viewerId !== null && $root->user_id === $viewerId);
+
+        if (! $visible) {
+            throw new NotFoundHttpException;
+        }
+
+        $cursor = $request->query('cursor');
+        $limit = max(1, min(
+            (int) config('ratings-and-reviews.discussions.max_replies_per_page', 400),
+            (int) ($request->query('limit') ?: config('ratings-and-reviews.discussions.replies_per_request', 100)),
+        ));
+        $lastVisit = $viewerId === null ? null : $this->markers->lastReadAt($viewerId, $subject);
+        $page = $this->tree->replies($root, $this->identity->voterKey($request, $viewer), $viewerId, is_string($cursor) ? $cursor : null, $limit, $lastVisit);
+
+        return new JsonResponse([
+            'data' => $page->replies->map(fn (Comment $reply): array => (new CommentResource($reply))
+                ->withContext($page->authors, $page->viewerVotes, $viewerId, $moderates, $page->settings)
+                ->withExtras($page->quotes, $page->pollChoices, $page->newSince)
+                ->resolve($request))->values()->all(),
+            'meta' => [
+                'root_id' => $root->id,
+                'total' => $page->total,
+                'next_cursor' => $page->nextCursor,
+                'has_more' => $page->nextCursor !== null,
+            ],
+        ]);
+    }
+
     private function saved(Request $request, Comment $comment, Authenticatable $user, int $status): JsonResponse
     {
         $comment->load('poll.options');

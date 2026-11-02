@@ -6,8 +6,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Services\ReviewFacets;
 use RatingsAndReviews\Support\AuthorProfile;
+use RatingsAndReviews\Support\ContentStatus;
 
 /**
  * @property Review $resource
@@ -60,6 +62,7 @@ class ReviewResource extends JsonResource
             'facets' => $this->facets(),
             'compared' => $this->compared(),
             'quality_score' => $review->quality_score,
+            'photos' => $this->photos($own),
             'helpful_count' => $review->helpful_count,
             'viewer_votes' => (object) $this->viewerVotes,
             'is_own' => $own,
@@ -67,6 +70,34 @@ class ReviewResource extends JsonResource
             'created_at' => $review->created_at?->toIso8601String(),
             'edited_at' => $review->edited_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * The review's photos (relation `photos` loaded). Photos of a review that is not public
+     * are only shown to its author. `alt` is the uploader's text or, without one, a
+     * description from the review's title.
+     *
+     * @return list<array{id: int, url: string, alt: string, width: int|null, height: int|null}>
+     */
+    private function photos(bool $own): array
+    {
+        $review = $this->resource;
+
+        if (! $review->relationLoaded('photos') || (! $own && $review->status !== ContentStatus::Approved)) {
+            return [];
+        }
+
+        $title = trim((string) $review->title);
+
+        return $review->photos->values()->map(fn (Upload $photo, int $index): array => [
+            'id' => $photo->id,
+            'url' => $photo->url(),
+            'alt' => $photo->alt_text ?? (string) ($title !== ''
+                ? __('ratings-and-reviews::messages.photo_alt', ['number' => $index + 1, 'title' => $title])
+                : __('ratings-and-reviews::messages.photo_alt_untitled', ['number' => $index + 1])),
+            'width' => $photo->width,
+            'height' => $photo->height,
+        ])->all();
     }
 
     /**

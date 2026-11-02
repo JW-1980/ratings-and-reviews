@@ -6,8 +6,9 @@ use Illuminate\Validation\Rule;
 use RatingsAndReviews\Support\Comparison;
 
 /**
- * The shape of a review. The rating's range, the body length and the topic keys depend on
- * the subject's section and are checked by ReviewService.
+ * The shape of a review. The rating's range, the body length, the extended fields and the
+ * topic keys depend on the subject's section and are checked by ReviewService. `photos` are
+ * upload ids; left out of an edit, the current photos stay.
  */
 class StoreReviewRequest extends PackageRequest
 {
@@ -34,6 +35,8 @@ class StoreReviewRequest extends PackageRequest
             'compared_type' => ['nullable', 'string', 'max:64', 'required_with:compared_id,comparison'],
             'compared_id' => ['nullable', 'integer', 'min:1', 'required_with:compared_type,comparison'],
             'comparison' => ['nullable', 'string', Rule::in(Comparison::values()), 'required_with:compared_type,compared_id'],
+            'photos' => ['nullable', 'array', 'max:'.max(1, (int) config('ratings-and-reviews.reviews.max_photos', 4))],
+            'photos.*' => ['integer', 'min:1'],
             'confirm_tone' => ['sometimes', 'boolean'],
         ];
     }
@@ -43,7 +46,7 @@ class StoreReviewRequest extends PackageRequest
      */
     public function reviewData(): array
     {
-        return $this->safe()->only(['rating', 'title', 'body', 'pros', 'cons', 'topic_ratings', 'facets', 'compared_type', 'compared_id', 'comparison'])
+        return $this->safe()->only(['rating', 'title', 'body', 'pros', 'cons', 'topic_ratings', 'facets', 'compared_type', 'compared_id', 'comparison', 'photos'])
             + ['confirm_tone' => $this->boolean('confirm_tone')];
     }
 }

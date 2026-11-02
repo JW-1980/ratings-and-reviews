@@ -43,6 +43,12 @@ use Throwable;
  * the PriceAtReviewResolver (a failing resolver is reported and leaves the price empty).
  * The body is cleaned with the author's trust-level tools; a hostile tone answers 422
  * unless `confirm_tone` is set; submitting completes the author's review invitation.
+ *
+ * Title, pros and cons exist only with the section's `review_extended_fields`; sent without
+ * them they are refused (422) rather than silently dropped. Photos are uploads of the author
+ * (`photos`: ids, at most `reviews.max_photos`); leaving `photos` out of an edit keeps the
+ * current ones. Images in the text and photos are attached to the review on save; with
+ * `reviews.photos_require_approval` a review that gains a photo waits for a moderator.
  */
 class ReviewService
 {
@@ -61,10 +67,11 @@ class ReviewService
         private readonly ReviewFacets $facets,
         private readonly SubjectResolver $subjects,
         private readonly ReviewInvitations $invitations,
+        private readonly Uploads $uploads,
     ) {}
 
     /**
-     * @param  array<string, mixed>  $data  rating, title, body, pros, cons, topic_ratings, facets, compared_type, compared_id, comparison, confirm_tone
+     * @param  array<string, mixed>  $data  rating, title, body, pros, cons, topic_ratings, facets, compared_type, compared_id, comparison, photos, confirm_tone
      *
      * @throws ValidationException
      * @throws ToneNudgeRequired
@@ -75,7 +82,7 @@ class ReviewService
         $this->assertOpen($subject, $settings);
 
         $authorId = (int) $author->getAuthIdentifier();
-        $content = $this->content($settings, $subject, $data, $author);
+        $content = $this->content($settings, $subject, $data, $author, null);
         $this->checkTone($content['tone_text'], (bool) ($data['confirm_tone'] ?? false));
         $verdict = $this->spam->inspect($request, $content['spam_text'], $authorId);
 
@@ -94,7 +101,7 @@ class ReviewService
         ));
         $price = $this->priceNow($subject);
 
-        $hold = $verdict->hold || $risk->hold || $settings->reviewRequiresApproval;
+        $hold = $verdict->hold || $risk->hold || $settings->reviewRequiresApproval || (! empty($content['photo_ids']) && $this->photosNeedApproval());
 
         try {
             [$review, $resubmission, $published] = DB::transaction(function () use ($request, $subject, $authorId, $content, $hold, $risk, $price): array {
@@ -137,6 +144,7 @@ class ReviewService
                 $published = $this->claimPublication($review);
                 $review->save();
                 $this->syncTopicRatings($review, $content['topic_ratings']);
+                $this->syncUploads($review, $content);
                 $this->invitations->complete($authorId, $review->reviewable_type, $review->reviewable_id);
 
                 return [$review, $existing !== null, $published];
@@ -177,7 +185,7 @@ class ReviewService
         $this->assertOpen($subject, $settings);
 
         $authorId = (int) $author->getAuthIdentifier();
-        $content = $this->content($settings, $subject, $data, $author);
+        $content = $this->content($settings, $subject, $data, $author, $review);
         $this->checkTone($content['tone_text'], (bool) ($data['confirm_tone'] ?? false));
         $verdict = $this->spam->inspect($request, $content['spam_text'], $authorId, $review);
 
@@ -196,7 +204,8 @@ class ReviewService
             isEdit: true,
         ));
 
-        $hold = $verdict->hold || $risk->hold || $settings->reviewRequiresApproval;
+        $hold = $verdict->hold || $risk->hold || $settings->reviewRequiresApproval
+            || ($content['photo_ids'] !== null && $this->photosNeedApproval() && array_diff($content['photo_ids'], $review->photos()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all()) !== []);
 
         $published = DB::transaction(function () use ($review, $content, $hold, $risk): bool {
             $locked = Review::query()->whereKey($review->id)->lockForUpdate()->firstOrFail();
@@ -212,6 +221,7 @@ class ReviewService
             $published = $this->claimPublication($review);
             $review->save();
             $this->syncTopicRatings($review, $content['topic_ratings']);
+            $this->syncUploads($review, $content, edit: true);
 
             return $published;
         }, 3);
@@ -226,10 +236,19 @@ class ReviewService
         return $review;
     }
 
-    /** Soft-deletes a review; null moderator: the author removed it. */
+    /**
+     * Soft-deletes a review; null moderator: the author removed it. The author's removal also
+     * deletes its photos and images (files and rows), unless an open report keeps the review
+     * as evidence; a moderator's removal keeps them.
+     */
     public function delete(Review $review, int|string|null $moderatorId = null): void
     {
         $review->delete();
+
+        if ($moderatorId === null && ! $this->uploads->heldAsEvidence($review)) {
+            $this->uploads->purge($review);
+        }
+
         $this->refreshAggregates($review);
         $this->events->dispatch(new ReviewDeleted($review, $moderatorId));
     }
@@ -283,11 +302,11 @@ class ReviewService
      * Validates and cleans the submitted content.
      *
      * @param  array<string, mixed>  $data
-     * @return array{attributes: array<string, mixed>, topic_ratings: array<int, array{value: int, scale_max: int}>, spam_text: string, tone_text: string}
+     * @return array{attributes: array<string, mixed>, topic_ratings: array<int, array{value: int, scale_max: int}>, spam_text: string, tone_text: string, upload_paths: list<string>, photo_ids: list<int>|null}
      *
      * @throws ValidationException
      */
-    private function content(SectionSettings $settings, Model&Reviewable $subject, array $data, Authenticatable $author): array
+    private function content(SectionSettings $settings, Model&Reviewable $subject, array $data, Authenticatable $author, ?Review $target): array
     {
         $authorId = (int) $author->getAuthIdentifier();
         $rating = filter_var($data['rating'] ?? null, FILTER_VALIDATE_INT);
@@ -302,7 +321,7 @@ class ReviewService
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.too_large')]);
         }
 
-        $clean = $this->sanitizer->clean($body, $this->trust->for($author, $settings)->settings, $authorId);
+        $clean = $this->sanitizer->clean($body, $this->trust->for($author, $settings)->settings, $authorId, $target);
         $length = mb_strlen($clean->text);
         $maxLength = max(1, (int) config('ratings-and-reviews.reviews.max_body_length', 10000));
 
@@ -315,9 +334,21 @@ class ReviewService
         }
 
         $extended = $settings->reviewExtendedFields;
-        $title = $extended ? trim(strip_tags((string) ($data['title'] ?? ''))) : '';
-        $pros = $extended ? $this->points($data['pros'] ?? null) : null;
-        $cons = $extended ? $this->points($data['cons'] ?? null) : null;
+        $title = trim(strip_tags((string) ($data['title'] ?? '')));
+        $pros = $this->points($data['pros'] ?? null);
+        $cons = $this->points($data['cons'] ?? null);
+
+        if (! $extended) {
+            $unused = array_filter(['title' => $title !== '', 'pros' => $pros !== null, 'cons' => $cons !== null]);
+
+            if ($unused !== []) {
+                throw ValidationException::withMessages(array_map(fn (): string => (string) __('ratings-and-reviews::messages.extended_fields_off'), $unused));
+            }
+        }
+
+        $photoIds = array_key_exists('photos', $data) && $data['photos'] !== null
+            ? $this->photoIds($data['photos'], $authorId, $target)
+            : null;
         $topicRatings = $this->topics->validatedRatings($subject, $data['topic_ratings'] ?? null);
         $comparison = $this->comparison($subject, $author, $data);
 
@@ -348,7 +379,54 @@ class ReviewService
             'topic_ratings' => $topicRatings,
             'spam_text' => trim($title.' '.$clean->text),
             'tone_text' => trim($title.' '.implode(' ', $pros ?? []).' '.implode(' ', $cons ?? []).' '.$clean->text),
+            'upload_paths' => $clean->uploadPaths,
+            'photo_ids' => $photoIds,
         ];
+    }
+
+    /**
+     * @return list<int>
+     *
+     * @throws ValidationException
+     */
+    private function photoIds(mixed $input, int $authorId, ?Review $target): array
+    {
+        $ids = array_values(array_filter((array) $input, fn (mixed $id): bool => filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false));
+
+        if (count($ids) !== count((array) $input)) {
+            throw ValidationException::withMessages(['photos' => __('ratings-and-reviews::messages.photo_unavailable')]);
+        }
+
+        if ($ids !== [] && max(0, (int) config('ratings-and-reviews.reviews.max_photos', 4)) === 0) {
+            throw ValidationException::withMessages(['photos' => __('ratings-and-reviews::messages.photos_off')]);
+        }
+
+        return $this->uploads->validatePhotos(array_map('intval', $ids), $authorId, $target);
+    }
+
+    private function photosNeedApproval(): bool
+    {
+        return (bool) config('ratings-and-reviews.reviews.photos_require_approval', false);
+    }
+
+    /**
+     * Attaches the images of the text and the photos to the saved review. On an edit, inline
+     * images the text no longer uses are released (reviews keep no revisions), unless an open
+     * report keeps the review as evidence.
+     *
+     * @param  array{upload_paths: list<string>, photo_ids: list<int>|null}  $content
+     */
+    private function syncUploads(Review $review, array $content, bool $edit = false): void
+    {
+        $this->uploads->attachInline($review, $review->user_id, $content['upload_paths']);
+
+        if ($content['photo_ids'] !== null) {
+            $this->uploads->syncPhotos($review, $content['photo_ids'], $content['upload_paths']);
+        }
+
+        if ($edit && ! $this->uploads->heldAsEvidence($review)) {
+            $this->uploads->releaseUnusedInline($review, $content['upload_paths']);
+        }
     }
 
     /**

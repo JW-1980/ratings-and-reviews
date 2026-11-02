@@ -11,6 +11,7 @@ use RatingsAndReviews\Http\Controllers\Controller;
 use RatingsAndReviews\Http\Requests\Admin\ModerateRequest;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Services\DiscussionService;
 use RatingsAndReviews\Services\ReviewService;
 use RatingsAndReviews\Support\Ability;
@@ -34,7 +35,7 @@ class ModerationController extends Controller
         $kind = $request->query('kind', 'reviews') === 'comments' ? 'comments' : 'reviews';
         $status = ContentStatus::tryFrom((string) $request->query('status', 'pending')) ?? ContentStatus::Pending;
 
-        $query = $kind === 'reviews' ? Review::query() : Comment::query();
+        $query = $kind === 'reviews' ? Review::query()->with('photos') : Comment::query();
         $page = $query->where('status', $status->value)->orderBy('created_at')->orderBy('id')->paginate(25)->withQueryString();
         /** @var Collection<int, Review|Comment> $items */
         $items = collect($page->items());
@@ -55,6 +56,8 @@ class ModerationController extends Controller
                 'rating' => $item instanceof Review ? $item->rating : null,
                 'scale_max' => $item instanceof Review ? $item->scale_max : null,
                 'body_html' => $item->body_html,
+                // A moderator sees every photo, also those of a review that is not public.
+                'photos' => $item instanceof Review ? $item->photos->map(fn (Upload $photo): array => ['id' => $photo->id, 'url' => $photo->url(), 'alt' => $photo->alt_text])->values()->all() : [],
                 'flags_count' => $item->flags_count,
                 'created_at' => $item->created_at?->toIso8601String(),
             ])->values()->all(),

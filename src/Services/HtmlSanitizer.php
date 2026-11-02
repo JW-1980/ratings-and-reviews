@@ -2,6 +2,7 @@
 
 namespace RatingsAndReviews\Services;
 
+use Illuminate\Database\Eloquent\Model;
 use RatingsAndReviews\Support\EditorTool;
 use RatingsAndReviews\Support\SanitizedHtml;
 use RatingsAndReviews\Support\SectionSettings;
@@ -49,9 +50,11 @@ class HtmlSanitizer
     }
 
     /**
-     * Cleans editor input for one section. `$authorId` is whose uploads may be shown.
+     * Cleans editor input for one section. `$authorId` is whose uploads may be shown;
+     * `$target` is the review or comment being edited, whose attached uploads stay allowed
+     * (for new content: null, only unattached uploads).
      */
-    public function clean(string $input, SectionSettings $settings, ?int $authorId): SanitizedHtml
+    public function clean(string $input, SectionSettings $settings, ?int $authorId, ?Model $target = null): SanitizedHtml
     {
         $input = $this->fromEditorInput($input);
 
@@ -62,7 +65,7 @@ class HtmlSanitizer
         $uploads = $settings->allowsTool(EditorTool::Image);
         $stickers = $settings->allowsTool(EditorTool::Sticker);
         $allowedSources = ($uploads || $stickers)
-            ? $this->media->allowed($this->imageSources($input), $authorId, $uploads, $stickers)
+            ? $this->media->allowed($this->imageSources($input), $authorId, $uploads, $stickers, $target)
             : [];
 
         $sanitizer = new SymfonyHtmlSanitizer($this->config($settings, $allowedSources));

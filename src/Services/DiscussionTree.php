@@ -6,12 +6,14 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 use RatingsAndReviews\Contracts\AuthorResolver;
 use RatingsAndReviews\Contracts\Commentable;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Poll;
 use RatingsAndReviews\Support\DiscussionPage;
 use RatingsAndReviews\Support\DiscussionSort;
+use RatingsAndReviews\Support\ReplyPage;
 
 /**
  * Loads a discussion page in a fixed number of queries however deep it is: the root count,
@@ -91,6 +93,98 @@ class DiscussionTree
             pollChoices: $this->polls->choicesFor($pollIds, $voterKey),
             newSince: $newSince,
         );
+    }
+
+    /**
+     * The replies of one thread after `$cursor`, for threads that load() cut at the reply cap
+     * ("show more replies"). Only replies the viewer can see under visible parents count: a
+     * reply beneath a hidden or deleted comment is left out with its subtree, as in load().
+     * The cursor is opaque (returned as `next_cursor`); null starts at the first reply.
+     *
+     * @throws ValidationException for a malformed cursor
+     */
+    public function replies(Comment $root, ?string $voterKey, ?int $viewerId, ?string $cursor, int $limit, ?Carbon $newSince = null): ReplyPage
+    {
+        $subject = $root->commentable;
+        $settings = $this->settings->for($root->section);
+        $after = $cursor === null || $cursor === '' ? null : $this->decodeCursor($cursor);
+
+        // Ids only: which replies hang under a visible chain up to the root.
+        $rows = Comment::query()->forSubject($subject)->visibleTo($viewerId)
+            ->where('root_id', $root->id)->whereNotNull('parent_id')
+            ->orderBy('depth')->orderBy('created_at')->orderBy('id')
+            ->get(['id', 'parent_id', 'depth', 'created_at']);
+
+        $reachable = [$root->id => true];
+        $ordered = [];
+
+        foreach ($rows as $row) {
+            if (isset($reachable[(int) $row->parent_id])) {
+                $reachable[$row->id] = true;
+                $ordered[] = [(int) $row->depth, (string) $row->created_at?->format('Y-m-d H:i:s'), (int) $row->id];
+            }
+        }
+
+        $remaining = $after === null ? $ordered : array_values(array_filter($ordered, fn (array $key): bool => $key > $after));
+        $slice = array_slice($remaining, 0, $limit);
+        $hasMore = count($remaining) > count($slice);
+        $ids = array_column($slice, 2);
+
+        $replies = $ids === [] ? new Collection : Comment::query()->whereKey($ids)->get()->sortBy(fn (Comment $comment): int => array_search($comment->id, $ids, true))->values();
+        $replies = new Collection($replies->all());
+        $replies->each(fn (Comment $comment) => $comment->setRelation('commentable', $subject));
+
+        $targetIds = $replies->pluck('in_reply_to_id')->filter()->map(fn (mixed $id): int => (int) $id)->unique()->values()->all();
+        $targets = $targetIds === [] ? collect() : Comment::query()->whereKey($targetIds)->get()->keyBy('id');
+        $replies->each(function (Comment $comment) use ($targets): void {
+            if ($comment->in_reply_to_id !== null && $targets->has($comment->in_reply_to_id)) {
+                $comment->setRelation('inReplyTo', $targets->get($comment->in_reply_to_id));
+            }
+        });
+
+        $quotes = $this->quotedComments($replies->toBase());
+        $userIds = $replies->pluck('user_id')->merge($targets->pluck('user_id'))->merge(array_column($quotes, 'user_id'))
+            ->map(fn (mixed $id): int => (int) $id)->unique()->values()->all();
+        $pollIds = $this->attachPolls($replies->toBase(), $ids);
+        $last = end($slice);
+
+        return new ReplyPage(
+            root: $root,
+            settings: $settings,
+            replies: $replies,
+            total: count($ordered),
+            nextCursor: $hasMore && $last !== false ? $this->encodeCursor($last) : null,
+            viewerVotes: $this->votes->choicesFor((new Comment)->getMorphClass(), $ids, $voterKey),
+            authors: $this->authors->resolve($userIds),
+            quotes: $quotes,
+            pollChoices: $this->polls->choicesFor($pollIds, $voterKey),
+            newSince: $newSince,
+        );
+    }
+
+    /**
+     * @param  array{0: int, 1: string, 2: int}  $key
+     */
+    private function encodeCursor(array $key): string
+    {
+        return rtrim(strtr(base64_encode((string) json_encode($key)), '+/', '-_'), '=');
+    }
+
+    /**
+     * @return array{0: int, 1: string, 2: int}
+     *
+     * @throws ValidationException
+     */
+    private function decodeCursor(string $cursor): array
+    {
+        $decoded = json_decode((string) base64_decode(strtr($cursor, '-_', '+/'), true), true);
+
+        if (! is_array($decoded) || count($decoded) !== 3 || ! is_int($decoded[0] ?? null) || ! is_string($decoded[1] ?? null) || ! is_int($decoded[2] ?? null)
+            || preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $decoded[1]) !== 1) {
+            throw ValidationException::withMessages(['cursor' => __('ratings-and-reviews::messages.cursor_invalid')]);
+        }
+
+        return [$decoded[0], $decoded[1], $decoded[2]];
     }
 
     /**

@@ -79,4 +79,28 @@ class TranslationsTest extends TestCase
             }
         }
     }
+
+    public function test_every_literal_key_used_in_php_and_blade_exists_in_both_languages(): void
+    {
+        $files = [
+            ...new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(__DIR__.'/../../src', \FilesystemIterator::SKIP_DOTS)),
+            ...new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(__DIR__.'/../../resources/views', \FilesystemIterator::SKIP_DOTS)),
+        ];
+        $used = [];
+
+        foreach ($files as $file) {
+            if (str_ends_with((string) $file, '.php')) {
+                preg_match_all("/ratings-and-reviews::((?:messages|ui|enums|validation)(?:\\.[a-z0-9_]+)+)(?=['\"])/", (string) file_get_contents((string) $file), $matches);
+                $used = [...$used, ...$matches[1]];
+            }
+        }
+
+        $used = array_values(array_unique($used));
+        $this->assertGreaterThan(150, count($used));
+
+        foreach (['en', 'nl'] as $locale) {
+            $missing = array_values(array_filter($used, fn (string $key): bool => ! trans()->has('ratings-and-reviews::'.$key, $locale, false)));
+            $this->assertSame([], $missing, "Missing {$locale} lines.");
+        }
+    }
 }

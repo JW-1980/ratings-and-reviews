@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $id
  * @property array<string, string> $name
  * @property string $path
+ * @property string|null $disk set when the package stored the file (admin upload)
  * @property bool $is_active
  * @property int $sort_order
  */
@@ -16,7 +17,7 @@ class Sticker extends Model
 {
     protected $table = 'rr_stickers';
 
-    protected $fillable = ['name', 'path', 'is_active', 'sort_order'];
+    protected $fillable = ['name', 'path', 'disk', 'is_active', 'sort_order'];
 
     protected function casts(): array
     {
@@ -29,6 +30,15 @@ class Sticker extends Model
     public function scopeActive(Builder $query): void
     {
         $query->where('is_active', true);
+    }
+
+    /** The name in the current locale, falling back to the other one (the admin enters both). */
+    public function localizedName(?string $locale = null): string
+    {
+        $locale ??= app()->getLocale();
+        $names = (array) $this->name;
+
+        return (string) ($names[$locale] ?? $names[substr($locale, 0, 2)] ?? reset($names) ?: '');
     }
 
     public function url(): string

@@ -2,6 +2,8 @@
 
 namespace RatingsAndReviews\Services;
 
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use RatingsAndReviews\Models\Sticker;
 use RatingsAndReviews\Models\Upload;
 
@@ -9,14 +11,19 @@ use RatingsAndReviews\Models\Upload;
  * Decides which image sources may appear in user HTML: the author's own uploads and the
  * active stickers. Anything else (remote images, other members' uploads, switched-off
  * stickers) would let an author track readers or embed foreign content.
+ *
+ * An upload belongs to one piece of content: it is allowed while it is not attached yet, or
+ * when it is attached to `$target` (the review or comment being edited). So deleting a
+ * comment can delete its files without breaking another post that reused them.
  */
 class MediaSources
 {
     /**
      * @param  list<string>  $candidates  The `src` values found in the input.
+     * @param  Model|null  $target  The content being edited (its own attached uploads stay allowed).
      * @return array<string, string|null> Allowed src => the rr_uploads path it refers to (null for a sticker).
      */
-    public function allowed(array $candidates, ?int $authorId, bool $uploads, bool $stickers): array
+    public function allowed(array $candidates, ?int $authorId, bool $uploads, bool $stickers, ?Model $target = null): array
     {
         $candidates = array_values(array_unique(array_filter($candidates, fn (string $src): bool => $src !== '')));
 
@@ -27,10 +34,21 @@ class MediaSources
         $allowed = [];
 
         if ($uploads && $authorId !== null) {
-            $paths = $this->pathsUnder($candidates, (string) config('ratings-and-reviews.uploads.url_prefix', '/storage/'));
+            $paths = $this->pathsUnder($candidates, Upload::urlPrefix());
 
             if ($paths !== []) {
-                $owned = Upload::query()->where('user_id', $authorId)->whereIn('path', array_values($paths))->pluck('path')->all();
+                $owned = Upload::query()
+                    ->where('user_id', $authorId)
+                    ->whereIn('path', array_values($paths))
+                    ->where(function (Builder $query) use ($target): void {
+                        $query->whereNull('attached_id');
+
+                        if ($target !== null && $target->exists) {
+                            $query->orWhere(fn (Builder $query) => $query->where('attached_type', $target->getMorphClass())->where('attached_id', $target->getKey()));
+                        }
+                    })
+                    ->pluck('path')
+                    ->all();
 
                 foreach ($paths as $src => $path) {
                     if (in_array($path, $owned, true)) {

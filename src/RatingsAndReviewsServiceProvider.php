@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use RatingsAndReviews\Console\PruneUploadsCommand;
 use RatingsAndReviews\Console\PublishDueCommentsCommand;
 use RatingsAndReviews\Console\SendReviewInvitationsCommand;
 use RatingsAndReviews\Contracts\AbilityResolver;
@@ -125,7 +126,7 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         $this->registerSchedule();
 
         if ($this->app->runningInConsole()) {
-            $this->commands([PublishDueCommentsCommand::class, SendReviewInvitationsCommand::class]);
+            $this->commands([PublishDueCommentsCommand::class, SendReviewInvitationsCommand::class, PruneUploadsCommand::class]);
             $this->publishes([__DIR__.'/../config/ratings-and-reviews.php' => $this->app->configPath('ratings-and-reviews.php')], 'ratings-and-reviews-config');
             $this->publishes([__DIR__.'/../database/migrations' => $this->app->databasePath('migrations')], 'ratings-and-reviews-migrations');
             $this->publishes([__DIR__.'/../lang' => $this->app->langPath('vendor/ratings-and-reviews')], 'ratings-and-reviews-translations');
@@ -138,7 +139,7 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         /** @var RateLimiter $limiter */
         $limiter = $this->app->make(RateLimiter::class);
 
-        foreach (['rr-write', 'rr-vote', 'rr-report', 'rr-admin', 'rr-lookup', ...array_keys((array) config('ratings-and-reviews.rate_limits', []))] as $name) {
+        foreach (['rr-write', 'rr-vote', 'rr-report', 'rr-admin', 'rr-lookup', 'rr-upload', ...array_keys((array) config('ratings-and-reviews.rate_limits', []))] as $name) {
             $limiter->for((string) $name, function (Request $request) use ($name): Limit {
                 $user = $request->user(config('ratings-and-reviews.routes.guard'));
                 $key = $user !== null ? 'u:'.$user->getAuthIdentifier() : 'ip:'.$request->ip();
@@ -150,8 +151,9 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
     }
 
     /**
-     * rr:publish-due every minute (undo window) and rr:send-review-invitations hourly, unless
-     * `schedule.enabled` is false (the host then schedules them itself).
+     * rr:publish-due every minute (undo window), rr:send-review-invitations hourly and
+     * rr:prune-uploads hourly, unless `schedule.enabled` is false (the host then schedules them
+     * itself).
      */
     private function registerSchedule(): void
     {
@@ -162,18 +164,29 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
             $schedule->command('rr:publish-due')->everyMinute()->withoutOverlapping()->name('rr:publish-due');
             $schedule->command('rr:send-review-invitations')->hourly()->withoutOverlapping()->name('rr:send-review-invitations');
+            $schedule->command('rr:prune-uploads')->hourly()->withoutOverlapping()->name('rr:prune-uploads');
         });
     }
 
     private function registerRoutes(): void
     {
-        if (! config('ratings-and-reviews.routes.enabled', true) || ($this->app->routesAreCached())) {
+        if ($this->app->routesAreCached()) {
             return;
         }
 
-        Route::prefix((string) config('ratings-and-reviews.routes.prefix', 'rr'))
-            ->name((string) config('ratings-and-reviews.routes.name', 'rr.'))
-            ->middleware((array) config('ratings-and-reviews.routes.middleware', ['api']))
-            ->group(__DIR__.'/../routes/api.php');
+        if (config('ratings-and-reviews.routes.enabled', true)) {
+            Route::prefix((string) config('ratings-and-reviews.routes.prefix', 'rr'))
+                ->name((string) config('ratings-and-reviews.routes.name', 'rr.'))
+                ->middleware((array) config('ratings-and-reviews.routes.middleware', ['api']))
+                ->group(__DIR__.'/../routes/api.php');
+        }
+
+        // Opt-in form routes for posting without JavaScript (session + CSRF via `web`).
+        if (config('ratings-and-reviews.web_routes.enabled', false)) {
+            Route::prefix((string) config('ratings-and-reviews.web_routes.prefix', 'rr-forms'))
+                ->name((string) config('ratings-and-reviews.web_routes.name', 'rr.web.'))
+                ->middleware((array) config('ratings-and-reviews.web_routes.middleware', ['web']))
+                ->group(__DIR__.'/../routes/web.php');
+        }
     }
 }

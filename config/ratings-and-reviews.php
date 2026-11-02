@@ -39,6 +39,28 @@ return [
         'rr-admin' => 60,
         // Lookups that cost a query per call and can be scripted: search, cards, hovercards, tone check.
         'rr-lookup' => 60,
+        // Image uploads (POST uploads) per member per minute; the daily cap is uploads.daily_quota.
+        'rr-upload' => 10,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Web routes for posting without JavaScript (opt-in)
+    |--------------------------------------------------------------------------
+    |
+    | When enabled the package registers form routes under `prefix` with the
+    | `web` middleware (session, CSRF) plus `middleware`: posting, editing and
+    | deleting reviews and comments, votes, poll votes, undo and reports from
+    | plain HTML forms. They answer with a redirect back (`rr_status` flashed,
+    | validation errors in `$errors`), and the Blade components point their forms
+    | at them automatically. The JSON API is unchanged.
+    |
+    */
+    'web_routes' => [
+        'enabled' => false,
+        'prefix' => 'rr-forms',
+        'name' => 'rr.web.',
+        'middleware' => ['web'],
     ],
 
     /*
@@ -47,7 +69,8 @@ return [
     |--------------------------------------------------------------------------
     |
     | When enabled the package adds to the host's scheduler: rr:publish-due every
-    | minute (comments whose undo window ended) and rr:send-review-invitations hourly.
+    | minute (comments whose undo window ended), rr:send-review-invitations hourly
+    | and rr:prune-uploads hourly (unattached uploads past their grace period).
     |
     */
     'schedule' => [
@@ -117,6 +140,8 @@ return [
     'discussions' => [
         'roots_per_page' => 20,
         'max_replies_per_page' => 400,
+        /** Replies per request of GET comments/{comment}/replies (the rest of a truncated thread). */
+        'replies_per_request' => 100,
         /** Maximum characters of a quoted selection ("quote and reply"). */
         'max_quote_length' => 500,
     ],
@@ -178,6 +203,12 @@ return [
         'max_title_length' => 150,
         'max_body_length' => 10000,
         'priors_cache_seconds' => 21600,
+
+        /** Photos a review can carry (uploads of the author, POST uploads); 0 switches photos off. */
+        'max_photos' => 4,
+
+        /** When true, a review that gains a photo waits for a moderator (status pending): images are not checked by the SpamGuard. */
+        'photos_require_approval' => false,
 
         /*
         | Context facets a reviewer can tick, per group: group => allowed values.
@@ -308,12 +339,55 @@ return [
         'max_images' => 4,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Image uploads (POST uploads) and review photos
+    |--------------------------------------------------------------------------
+    |
+    | visibility `public`: files go to `disk` (default the `public` disk) and are
+    |   served by the host under `url_prefix` (`php artisan storage:link`).
+    | visibility `private`: files go to a non-public disk and the package serves
+    |   them under /{routes.prefix}/media/{path}: to their uploader always, to
+    |   others only while the review or comment they belong to is public.
+    | Limits: `max_kilobytes`, `mime_types`, `min_*`/`max_*` pixel dimensions; a
+    | member uploads at most `daily_quota` images per 24 hours (and `rr-upload`
+    | per minute). `strip_metadata` re-encodes JPEG, PNG and WebP with GD (when
+    | installed) so location data in EXIF is not published. Uploads that were never
+    | attached to a review or comment are removed by rr:prune-uploads after
+    | `prune_after_hours`.
+    |
+    */
     'uploads' => [
         'url_prefix' => '/storage/',
+        'visibility' => 'public',
+        'disk' => 'public',
+        'directory' => 'rr-uploads',
+        'max_kilobytes' => 5120,
+        'mime_types' => ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+        'min_width' => 32,
+        'min_height' => 32,
+        'max_width' => 6000,
+        'max_height' => 6000,
+        'daily_quota' => 50,
+        'max_alt_length' => 255,
+        'strip_metadata' => true,
+        'prune_after_hours' => 24,
+        'prune_batch_size' => 200,
     ],
 
+    /*
+    | Stickers (rr_stickers, managed through admin/stickers with rr.manage-settings).
+    | An uploaded sticker image is stored on `disk` under `directory`; its URL is
+    | `url_prefix` + path. The editor reads the active ones from GET stickers.
+    */
     'stickers' => [
         'url_prefix' => '/storage/',
+        'disk' => 'public',
+        'directory' => 'rr-stickers',
+        'max_kilobytes' => 512,
+        'mime_types' => ['image/png', 'image/webp', 'image/gif', 'image/jpeg'],
+        'max_width' => 1024,
+        'max_height' => 1024,
     ],
 
     /*

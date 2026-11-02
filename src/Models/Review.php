@@ -128,6 +128,16 @@ class Review extends Model implements Moderatable, Votable
     }
 
     /**
+     * The review's photos (rr_uploads with role `photo`), in their order.
+     *
+     * @return MorphMany<Upload, $this>
+     */
+    public function photos(): MorphMany
+    {
+        return $this->morphMany(Upload::class, 'attached')->photos();
+    }
+
+    /**
      * @return MorphMany<Report, $this>
      */
     public function reports(): MorphMany

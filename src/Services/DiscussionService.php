@@ -22,8 +22,6 @@ use RatingsAndReviews\Jobs\PublishScheduledComment;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\CommentRevision;
 use RatingsAndReviews\Models\Poll;
-use RatingsAndReviews\Models\Report;
-use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ContributionContext;
@@ -71,6 +69,7 @@ class DiscussionService
         private readonly DiscussionStates $states,
         private readonly ToneNudge $tone,
         private readonly PollService $polls,
+        private readonly Uploads $uploads,
     ) {}
 
     /**
@@ -149,7 +148,7 @@ class DiscussionService
                 'device_hash' => $this->identity->deviceHash($request),
             ]);
 
-            $this->attachUploads($comment, $clean);
+            $this->uploads->attachInline($comment, $authorId, $clean->uploadPaths);
 
             if ($poll !== null) {
                 $this->polls->create($comment, $poll);
@@ -173,7 +172,8 @@ class DiscussionService
 
     /**
      * The author takes back a comment inside its undo window. It was never public, so it
-     * is removed for good (with its poll); its uploads are released for reuse.
+     * is removed for good (with its poll); its uploads are released for reuse, because the
+     * text returns to the composer (unused ones are pruned by rr:prune-uploads).
      *
      * @throws AccessDeniedHttpException
      * @throws ValidationException when the window has passed
@@ -191,10 +191,7 @@ class DiscussionService
                 throw ValidationException::withMessages(['comment' => __('ratings-and-reviews::messages.undo_expired')]);
             }
 
-            Upload::query()
-                ->where('attached_type', $locked->getMorphClass())
-                ->where('attached_id', $locked->id)
-                ->update(['attached_type' => null, 'attached_id' => null, 'attached_at' => null]);
+            $this->uploads->release($locked);
 
             $locked->forceDelete();
         });
@@ -238,7 +235,7 @@ class DiscussionService
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comment_removed')]);
         }
 
-        $clean = $this->cleanBody($html, $this->trust->for($editor, $settings)->settings, $comment->user_id);
+        $clean = $this->cleanBody($html, $this->trust->for($editor, $settings)->settings, $comment->user_id, $comment);
         $clean = $this->withQuoteReferences($clean, $comment->quoted_comment_id);
 
         if ($clean->html === $comment->body_html) {
@@ -286,7 +283,8 @@ class DiscussionService
                 'counted' => $counted,
             ])->save();
 
-            $this->attachUploads($comment, $clean);
+            // The replaced text stays in the revisions, so its images stay attached.
+            $this->uploads->attachInline($comment, $comment->user_id, $clean->uploadPaths);
 
             return [$revision, $sentBack];
         });
@@ -297,7 +295,8 @@ class DiscussionService
     }
 
     /**
-     * The author deletes their comment.
+     * The author deletes their comment. Its images are deleted with it (files and rows) once
+     * the transaction has committed, unless an open report keeps it as evidence.
      *
      * @throws AccessDeniedHttpException
      */
@@ -307,15 +306,11 @@ class DiscussionService
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.not_yours'));
         }
 
-        [$ids, $placeholder] = DB::transaction(function () use ($comment): array {
+        [$ids, $placeholder, $evidence] = DB::transaction(function () use ($comment): array {
             Comment::query()->whereKey($comment->id)->lockForUpdate()->firstOrFail();
+            $evidence = $this->uploads->heldAsEvidence($comment);
 
             if (Comment::query()->where('parent_id', $comment->id)->exists()) {
-                $evidence = Report::query()->open()
-                    ->where('reportable_type', $comment->getMorphClass())
-                    ->where('reportable_id', $comment->id)
-                    ->exists();
-
                 if ($evidence) {
                     $this->recordRevision($comment, $comment->user_id);
                 } else {
@@ -332,14 +327,18 @@ class DiscussionService
 
                 Poll::query()->where('comment_id', $comment->id)->delete();
 
-                return [[], true];
+                return [[], true, $evidence];
             }
 
             $ids = [$comment->id, ...$this->emptiedPlaceholdersAbove($comment)];
             Comment::query()->whereIn('id', $ids)->update(['deleted_at' => now()]);
 
-            return [$ids, false];
+            return [$ids, false, $evidence];
         });
+
+        if (! $evidence) {
+            $this->uploads->purge($comment);
+        }
 
         $comment->refresh();
         $this->events->dispatch(new CommentDeleted($comment, $ids, $placeholder));
@@ -461,13 +460,13 @@ class DiscussionService
     /**
      * @throws ValidationException
      */
-    private function cleanBody(string $html, SectionSettings $settings, int $authorId): SanitizedHtml
+    private function cleanBody(string $html, SectionSettings $settings, int $authorId, ?Comment $target = null): SanitizedHtml
     {
         if ($this->sanitizer->exceedsInputLimit($html)) {
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.too_large')]);
         }
 
-        $clean = $this->sanitizer->clean($html, $settings, $authorId);
+        $clean = $this->sanitizer->clean($html, $settings, $authorId, $target);
         $length = mb_strlen($clean->text);
 
         if ($length < $settings->minLength && $clean->imageCount === 0) {
@@ -592,19 +591,6 @@ class DiscussionService
             'edited_by' => $editorId,
             'edited_at' => now(),
         ]);
-    }
-
-    private function attachUploads(Comment $comment, SanitizedHtml $clean): void
-    {
-        if ($clean->uploadPaths === []) {
-            return;
-        }
-
-        Upload::query()
-            ->where('user_id', $comment->user_id)
-            ->whereIn('path', $clean->uploadPaths)
-            ->whereNull('attached_id')
-            ->update(['attached_type' => $comment->getMorphClass(), 'attached_id' => $comment->id, 'attached_at' => now()]);
     }
 
     /**
