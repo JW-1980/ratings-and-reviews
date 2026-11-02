@@ -120,4 +120,21 @@ class ReportTest extends TestCase
         $this->actingAs($moderator)->patchJson("/rr/admin/reports/{$open->id}", ['status' => 'dismissed', 'take_down' => true])->assertOk();
         $this->assertSame(ContentStatus::Approved, $comment->fresh()->status, 'A dismissed report never takes content down.');
     }
+
+    public function test_reports_without_a_reporter_are_listed_and_handled(): void
+    {
+        $comment = Comment::factory()->forSubject($this->product())->create();
+        $first = Report::factory()->forSubject($comment)->create(['reporter_id' => null]);
+        $second = Report::factory()->forSubject($comment)->create(['reporter_id' => null]);
+        $moderator = $this->moderator();
+
+        $this->actingAs($moderator)->getJson('/rr/admin/reports')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('data.0.reporter_id', null);
+
+        $this->actingAs($moderator)->patchJson("/rr/admin/reports/{$first->id}", ['status' => 'resolved', 'take_down' => true])->assertOk();
+        $this->assertNull($second->fresh()->reporter_id, 'Two open reports without a reporter do not collide.');
+        $this->assertSame(ContentStatus::Rejected, $comment->fresh()->status);
+    }
 }

@@ -32,7 +32,7 @@ return new class extends Migration
             $table->id();
             $table->string('reportable_type', 64);
             $table->unsignedBigInteger('reportable_id');
-            $table->unsignedBigInteger('reporter_id');
+            $table->unsignedBigInteger('reporter_id')->nullable();
             $table->string('reason', 32);
             $table->text('details')->nullable();
             $table->json('snapshot')->nullable();

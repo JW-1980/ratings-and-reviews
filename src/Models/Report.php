@@ -16,7 +16,7 @@ use RatingsAndReviews\Support\ReportStatus;
  * @property string $reportable_type
  * @property int $reportable_id
  * @property string|null $section the section of the reported item (null: a host item without one)
- * @property int $reporter_id
+ * @property int|null $reporter_id null once the reporter was erased (Services\Erasure)
  * @property string $reason
  * @property string|null $details
  * @property array<string, mixed>|null $snapshot
