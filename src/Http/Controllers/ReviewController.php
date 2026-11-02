@@ -11,6 +11,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use RatingsAndReviews\Contracts\AuthorResolver;
 use RatingsAndReviews\Contracts\CardResolver;
+use RatingsAndReviews\Contracts\OfficialReplyResolver;
 use RatingsAndReviews\Contracts\PriceAtReviewResolver;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Contracts\VoterIdentity;
@@ -30,11 +31,13 @@ use RatingsAndReviews\Services\TrustLevels;
 use RatingsAndReviews\Services\VoteService;
 use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
+use RatingsAndReviews\Support\OfficialReply;
 use RatingsAndReviews\Support\ReviewSort;
 use RatingsAndReviews\Support\SqlDialect;
 use RatingsAndReviews\Support\VoterKeys;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Throwable;
 
 class ReviewController extends Controller
 {
@@ -53,9 +56,9 @@ class ReviewController extends Controller
     ) {}
 
     /**
-     * The reviews of a subject. Filters: `rating` (on the section's scale) and
+     * The reviews of a subject. Filters: `rating` (on the section's scale),
      * `facet[group]=value` (several groups combine with AND; unknown groups or values are
-     * ignored).
+     * ignored) and `with_photos=1` (only reviews with at least one photo).
      */
     public function index(Request $request, string $type, string $id): JsonResponse
     {
@@ -72,6 +75,12 @@ class ReviewController extends Controller
         if ($ratingFilter !== false && $ratingFilter !== null) {
             // The rating on the section's scale, as the histogram buckets it.
             $query->whereRaw('ROUND(1 + (rating - 1) * 1.0 / '.SqlDialect::greatest('scale_max - 1', '1').' * ?) = ?', [$scale - 1, $ratingFilter]);
+        }
+
+        $withPhotos = $request->boolean('with_photos');
+
+        if ($withPhotos) {
+            $query->whereHas('photos');
         }
 
         $facetFilter = $this->facetFilter($request->query('facet'));
@@ -92,7 +101,9 @@ class ReviewController extends Controller
         $profiles = $this->authors->resolve($items->pluck('user_id')->push($own?->user_id)->filter()->map(fn ($id): int => (int) $id)->unique()->values()->all());
         $choices = $this->votes->viewerChoices($items->concat(array_filter([$own]))->unique(fn (Review $review): int => $review->id)->values(), new VoterKeys($this->identity, $request, $viewer));
 
-        $present = fn (Review $review): array => (new ReviewResource($review))
+        $replies = $this->officialReplies($items->concat(array_filter([$own]))->all());
+
+        $present = fn (Review $review): array => $this->resource($review, $replies)
             ->withContext($profiles[$review->user_id] ?? null, $choices[$review->id] ?? [], $viewerId)
             ->resolve($request);
 
@@ -115,7 +126,7 @@ class ReviewController extends Controller
                     'requires_approval' => $settings->reviewRequiresApproval,
                 ],
                 'own_review' => $own === null ? null : $present($own),
-                'filters' => ['rating' => $ratingFilter === false ? null : $ratingFilter, 'facets' => (object) $facetFilter],
+                'filters' => ['rating' => $ratingFilter === false ? null : $ratingFilter, 'facets' => (object) $facetFilter, 'with_photos' => $withPhotos],
                 'facets' => $this->facets->options(),
                 'comparisons' => array_map(fn ($case): array => ['value' => $case->value, 'label' => $case->label()], Comparison::cases()),
                 'editor' => $this->trust->for($viewer, $settings, $subject)->toArray(),
@@ -125,6 +136,7 @@ class ReviewController extends Controller
                     'product_cards' => app(CardResolver::class)->isEnabled(),
                     'tone_check' => $this->tone->isEnabled(),
                     'review_replies' => Review::repliesEnabled(),
+                    'official_replies' => app(OfficialReplyResolver::class)->isEnabled(),
                 ],
                 'review_replies_section' => Review::repliesEnabled() ? (new Review)->commentSectionKey() : null,
                 'accepts_reviews' => $settings->enabled && $subject->acceptsReviews(),
@@ -213,7 +225,7 @@ class ReviewController extends Controller
         ]);
 
         return new JsonResponse([
-            'data' => (new ReviewResource($review))->withContext($profile, [], $viewerId)->resolve($request),
+            'data' => $this->resource($review, $this->officialReplies([$review]))->withContext($profile, [], $viewerId)->resolve($request),
             'quality' => $quality->toArray(),
             'message' => $review->status === ContentStatus::Approved
                 ? __('ratings-and-reviews::messages.review_published')
@@ -259,6 +271,40 @@ class ReviewController extends Controller
         }
 
         return $review;
+    }
+
+    /**
+     * The official replies of these reviews, or null when the host has none (switched off).
+     * A failing resolver is reported and shows no replies rather than breaking the list.
+     *
+     * @param  list<Review>  $reviews
+     * @return array<int, OfficialReply|null>|null
+     */
+    private function officialReplies(array $reviews): ?array
+    {
+        $resolver = app(OfficialReplyResolver::class);
+
+        if (! $resolver->isEnabled()) {
+            return null;
+        }
+
+        try {
+            return array_filter($resolver->repliesFor(array_values($reviews)), fn (mixed $reply): bool => $reply instanceof OfficialReply);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return [];
+        }
+    }
+
+    /**
+     * @param  array<int, OfficialReply|null>|null  $replies
+     */
+    private function resource(Review $review, ?array $replies): ReviewResource
+    {
+        $resource = new ReviewResource($review);
+
+        return $replies === null ? $resource : $resource->withOfficialReply($replies[$review->id] ?? null);
     }
 
     /**

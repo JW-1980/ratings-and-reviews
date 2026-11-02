@@ -17,6 +17,7 @@ use RatingsAndReviews\Contracts\AbilityResolver;
 use RatingsAndReviews\Contracts\AuthorResolver;
 use RatingsAndReviews\Contracts\CardResolver;
 use RatingsAndReviews\Contracts\ContributionCounter;
+use RatingsAndReviews\Contracts\OfficialReplyResolver;
 use RatingsAndReviews\Contracts\PriceAtReviewResolver;
 use RatingsAndReviews\Contracts\RiskSignals;
 use RatingsAndReviews\Contracts\SummaryExtension;
@@ -28,6 +29,7 @@ use RatingsAndReviews\Defaults\DefaultAuthorResolver;
 use RatingsAndReviews\Defaults\DefaultVoterIdentity;
 use RatingsAndReviews\Defaults\GateAbilityResolver;
 use RatingsAndReviews\Defaults\NullCardResolver;
+use RatingsAndReviews\Defaults\NullOfficialReplyResolver;
 use RatingsAndReviews\Defaults\NullPriceAtReviewResolver;
 use RatingsAndReviews\Defaults\NullWantToTryList;
 use RatingsAndReviews\Models\Comment;
@@ -98,6 +100,7 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         CardResolver::class => NullCardResolver::class,
         WantToTryList::class => NullWantToTryList::class,
         ContributionCounter::class => DatabaseContributionCounter::class,
+        OfficialReplyResolver::class => NullOfficialReplyResolver::class,
         SectionSettingsRepository::class => SectionSettingsRepository::class,
     ];
 

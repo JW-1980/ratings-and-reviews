@@ -10,6 +10,7 @@ use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Services\ReviewFacets;
 use RatingsAndReviews\Support\AuthorProfile;
 use RatingsAndReviews\Support\ContentStatus;
+use RatingsAndReviews\Support\OfficialReply;
 
 /**
  * @property Review $resource
@@ -23,6 +24,11 @@ class ReviewResource extends JsonResource
 
     private ?int $viewerId = null;
 
+    /** Whether the host resolves official replies (the key is only present then). */
+    private bool $officialReplies = false;
+
+    private ?OfficialReply $officialReply = null;
+
     /**
      * @param  array<string, int>  $viewerVotes
      */
@@ -31,6 +37,15 @@ class ReviewResource extends JsonResource
         $this->author = $author;
         $this->viewerVotes = $viewerVotes;
         $this->viewerId = $viewerId;
+
+        return $this;
+    }
+
+    /** The official reply (OfficialReplyResolver enabled); null: none for this review. */
+    public function withOfficialReply(?OfficialReply $reply): static
+    {
+        $this->officialReplies = true;
+        $this->officialReply = $reply;
 
         return $this;
     }
@@ -71,7 +86,7 @@ class ReviewResource extends JsonResource
             'can' => ['edit' => $own, 'delete' => $own, 'reply' => Review::repliesEnabled() && $review->acceptsComments()],
             'created_at' => $review->created_at?->toIso8601String(),
             'edited_at' => $review->edited_at?->toIso8601String(),
-        ];
+        ] + ($this->officialReplies ? ['official_reply' => $this->officialReply?->toArray()] : []);
     }
 
     /**
