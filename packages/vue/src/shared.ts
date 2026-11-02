@@ -117,7 +117,7 @@ export interface EditorHandle {
         isEmpty: boolean;
         view: { dom: HTMLElement };
         on(event: string, callback: () => void): void;
-        setEditable(editable: boolean): void;
+        setEditable(editable: boolean, emitUpdate?: boolean): void;
     };
     tools: string[];
     toolbar: EditorToolbarItem[];
@@ -129,7 +129,7 @@ export interface EditorHandle {
     setContent(html: string): boolean;
     insertQuote(quote: { commentId: string | number; text: string }): boolean;
     insertCard(card: { type: string; id: string | number; title?: string; url?: string | null }, range?: { from: number; to: number } | null): boolean;
-    insertSticker(sticker: { id: string | number; name?: string; url: string }): boolean;
+    insertSticker(sticker: { id?: string | number; name?: string; url: string }): boolean;
     insertImage(image: { url: string; alt?: string }): boolean;
     insertText(text: string): boolean;
     setLink(url: string): boolean;

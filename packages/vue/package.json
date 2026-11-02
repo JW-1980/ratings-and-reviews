@@ -45,6 +45,7 @@
         "@tiptap/extension-image": "3.31.4",
         "@tiptap/pm": "3.31.4",
         "@tiptap/starter-kit": "3.31.4",
+        "@types/node": "22.19.1",
         "@vitejs/plugin-vue": "6.0.10",
         "@vue/test-utils": "2.5.1",
         "dompurify": "3.4.17",

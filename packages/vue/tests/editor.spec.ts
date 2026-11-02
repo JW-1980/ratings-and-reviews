@@ -76,9 +76,9 @@ describe('editor built from section settings', () => {
         const editor = make(['product_card']);
         editor.insertText('Probeer #skyr');
 
-        expect(editorModule.cardQueryAt(editor.editor)).toMatchObject({ query: 'skyr' });
+        expect(editorModule.cardQueryAt(editor.editor as never)).toMatchObject({ query: 'skyr' });
         editor.insertText(' ');
-        expect(editorModule.cardQueryAt(editor.editor)).toBeNull();
+        expect(editorModule.cardQueryAt(editor.editor as never)).toBeNull();
     });
 
     it('a quote reply is a blockquote that names the source comment', () => {

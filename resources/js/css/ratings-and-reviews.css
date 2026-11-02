@@ -541,3 +541,19 @@ span.rr-author__name { cursor: default; display: inline-flex; align-items: cente
     .rr-bar__fill, .rr-meter__fill, .rr-split__agree { background: Highlight; }
     .rr-vote[aria-pressed="true"], .rr-chip[aria-pressed="true"], .rr-histogram__row[aria-pressed="true"] { outline: 2px solid Highlight; }
 }
+
+/* ---------- Blade progressive enhancement ---------- */
+
+.rr [hidden], .rr-dialog [hidden], .rr[hidden] { display: none !important; }
+.rr-nojs .rr-js-only, .rr-js .rr-nojs-only { display: none !important; }
+.rr-nojs .rr-vote { cursor: default; }
+a.rr-histogram__row, a.rr-chip, a.rr-button { text-decoration: none; color: inherit; }
+a.rr-button--primary { color: var(--rr-color-primary-contrast); }
+a.rr-button--link { color: var(--rr-color-primary); text-decoration: underline; }
+span.rr-histogram__row { cursor: default; opacity: 0.6; }
+.rr-pagination { display: flex; flex-wrap: wrap; gap: var(--rr-space-2); align-items: center; justify-content: center; }
+.rr-pagination__status { color: var(--rr-color-muted); font-size: var(--rr-font-size-small); }
+.rr-comment__collapsed-wrap > summary { cursor: pointer; list-style: none; min-block-size: var(--rr-target-size); }
+.rr-comment__collapsed-wrap > summary::-webkit-details-marker { display: none; }
+.rr-comment__collapsed-wrap[open] > summary .rr-button { display: none; }
+.rr-editor textarea[hidden] { display: none; }

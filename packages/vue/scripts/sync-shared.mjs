@@ -18,6 +18,6 @@ if (!existsSync(source)) {
 
 rmSync(target, { recursive: true, force: true });
 mkdirSync(target, { recursive: true });
-cpSync(source, target, { recursive: true, filter: (path) => !path.includes(`${source}/blade`) });
+cpSync(source, target, { recursive: true });
 writeFileSync(resolve(target, 'README.md'), 'Generated from resources/js by scripts/sync-shared.mjs. Do not edit; edit resources/js.\n');
 console.log(`[sync-shared] copied ${source} -> ${target}`);

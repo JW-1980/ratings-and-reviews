@@ -215,7 +215,7 @@ watch(() => props.modelValue, (value) => {
         handle.value.setContent(value);
     }
 });
-watch(() => props.disabled, (disabled) => handle.value?.editor.setEditable(!disabled));
+watch(() => props.disabled, (disabled) => handle.value?.editor.setEditable(!disabled, false));
 watch(() => props.invalid, (invalid) => {
     const dom = handle.value?.editor.view.dom;
 

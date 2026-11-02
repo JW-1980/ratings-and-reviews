@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { mount, type ComponentMountingOptions } from '@vue/test-utils';
+import { mount, type VueWrapper } from '@vue/test-utils';
 import { vi } from 'vitest';
 import { createContext, RR_CONTEXT, type RatingsAndReviewsOptions } from '../src/context';
 import type { ApiClient } from '../src/shared';
@@ -17,7 +17,9 @@ export function loadMessages(locale: 'nl' | 'en' = 'en'): Record<string, unknown
 const messages = { en: loadMessages('en'), nl: loadMessages('nl') };
 
 /** An API double: every method is a vi.fn() that rejects unless a test gives it a result. */
-export function fakeApi(overrides: Partial<Record<keyof ApiClient, unknown>> = {}): ApiClient & Record<string, ReturnType<typeof vi.fn>> {
+type Fake = { [K in keyof ApiClient]: ReturnType<typeof vi.fn> & ApiClient[K] };
+
+export function fakeApi(overrides: Partial<Record<keyof ApiClient, unknown>> = {}): Fake {
     const names: Array<keyof ApiClient> = [
         'request', 'ratingSummary', 'reviews', 'createReview', 'updateReview', 'deleteReview', 'voteReview', 'comments', 'createComment',
         'updateComment', 'deleteComment', 'undoComment', 'revisions', 'voteComment', 'votePoll', 'poll', 'digest', 'search', 'report',
@@ -36,7 +38,8 @@ export function context(options: Partial<RatingsAndReviewsOptions> & { api: ApiC
     return createContext({ messages: messages[(options.locale as 'nl' | 'en') ?? 'en'], locale: 'en', isAuthenticated: true, ...options });
 }
 
-export function mountWithRr<T>(component: T, options: ComponentMountingOptions<T> & { rr: Partial<RatingsAndReviewsOptions> & { api: ApiClient } }) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function mountWithRr(component: unknown, options: Record<string, any> & { rr: Partial<RatingsAndReviewsOptions> & { api: ApiClient } }): { ctx: ReturnType<typeof context>; wrapper: VueWrapper<any> } {
     const { rr, ...rest } = options;
     const ctx = context(rr);
 
