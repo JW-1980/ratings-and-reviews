@@ -60,7 +60,7 @@ class ReviewController extends Controller
     {
         $viewer = $this->currentUser($request);
         $subject = $this->visibleSubject($type, $id, $viewer);
-        $settings = $this->settings->for($subject->reviewSection());
+        $settings = $this->settings->for($subject->reviewSectionKey());
         $scale = $settings->reviewScale;
         $sort = ReviewSort::tryFrom((string) $request->query('sort')) ?? ReviewSort::Helpful;
         $ratingFilter = filter_var($request->query('rating'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => $scale]]);
@@ -199,7 +199,7 @@ class ReviewController extends Controller
             'cons' => count($review->cons ?? []),
             'topics_rated' => $review->topicRatings->count(),
             'topics_available' => $subject instanceof Reviewable ? $this->topics->effectiveFor($subject)->count() : 0,
-            'extended_fields' => $subject instanceof Reviewable && $this->settings->for($subject->reviewSection())->reviewExtendedFields,
+            'extended_fields' => $subject instanceof Reviewable && $this->settings->for($subject->reviewSectionKey())->reviewExtendedFields,
         ]);
 
         return new JsonResponse([

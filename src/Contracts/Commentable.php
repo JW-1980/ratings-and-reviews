@@ -11,7 +11,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 interface Commentable
 {
     /** The section whose settings apply (depth, editor tools, vote dimensions, …). */
-    public function commentSection(): string;
+    public function commentSectionKey(): string;
 
     /** Whether new comments and edits by authors are accepted right now. */
     public function acceptsComments(): bool;

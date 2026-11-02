@@ -7,26 +7,30 @@ use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Support\ContentStatus;
 
 /**
- * Relations for a host model implementing Commentable.
+ * Relations for a host model implementing Commentable. They are prefixed with `rr` so they
+ * never clash with a host's own `comments()` relation; the package itself never calls them
+ * (it queries rr_comments by morph type and id).
  */
 trait HasComments
 {
     /**
+     * Every package comment on the model, in any status.
+     *
      * @return MorphMany<Comment, $this>
      */
-    public function comments(): MorphMany
+    public function rrComments(): MorphMany
     {
         return $this->morphMany(Comment::class, 'commentable');
     }
 
     /**
-     * The public comments: approved and published (a comment inside its undo window is
-     * approved but not yet published).
+     * The public comments: approved, published (a comment inside its undo window is approved
+     * but not yet published) and not withheld for an erasure request.
      *
      * @return MorphMany<Comment, $this>
      */
-    public function approvedComments(): MorphMany
+    public function rrApprovedComments(): MorphMany
     {
-        return $this->comments()->where('status', ContentStatus::Approved->value)->whereNotNull('published_at');
+        return $this->rrComments()->where('status', ContentStatus::Approved->value)->whereNotNull('published_at');
     }
 }

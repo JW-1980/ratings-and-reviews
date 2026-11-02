@@ -78,7 +78,7 @@ class ReviewService
      */
     public function submit(Request $request, Authenticatable $author, Model&Reviewable $subject, array $data): Review
     {
-        $settings = $this->settings->for($subject->reviewSection());
+        $settings = $this->settings->for($subject->reviewSectionKey());
         $this->assertOpen($subject, $settings);
 
         $authorId = (int) $author->getAuthIdentifier();
@@ -181,7 +181,7 @@ class ReviewService
             throw ValidationException::withMessages(['review' => __('ratings-and-reviews::messages.reviews_closed')]);
         }
 
-        $settings = $this->settings->for($subject->reviewSection());
+        $settings = $this->settings->for($subject->reviewSectionKey());
         $this->assertOpen($subject, $settings);
 
         $authorId = (int) $author->getAuthIdentifier();

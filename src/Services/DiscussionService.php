@@ -80,7 +80,7 @@ class DiscussionService
      */
     public function post(Request $request, Authenticatable $author, Model&Commentable $subject, string $html, ?int $parentId = null, array $options = []): Comment
     {
-        $settings = $this->settings->for($subject->commentSection());
+        $settings = $this->settings->for($subject->commentSectionKey());
 
         if (! $settings->enabled || ! $subject->acceptsComments()) {
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comments_closed')]);

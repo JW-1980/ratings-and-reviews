@@ -9,14 +9,16 @@ use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Support\ContentStatus;
 
 /**
- * Relations for a host model implementing Reviewable.
+ * Relations for a host model implementing Reviewable. They are prefixed with `rr` so they
+ * never clash with a host's own `reviews()` relation; the package itself never calls them
+ * (it queries rr_reviews by morph type and id).
  */
 trait HasReviews
 {
     /**
      * @return MorphMany<Review, $this>
      */
-    public function reviews(): MorphMany
+    public function rrReviews(): MorphMany
     {
         return $this->morphMany(Review::class, 'reviewable');
     }
@@ -24,15 +26,15 @@ trait HasReviews
     /**
      * @return MorphMany<Review, $this>
      */
-    public function approvedReviews(): MorphMany
+    public function rrApprovedReviews(): MorphMany
     {
-        return $this->reviews()->where('status', ContentStatus::Approved->value);
+        return $this->rrReviews()->where('status', ContentStatus::Approved->value);
     }
 
     /**
      * @return MorphOne<RatingAggregate, $this>
      */
-    public function ratingAggregate(): MorphOne
+    public function rrRatingAggregate(): MorphOne
     {
         return $this->morphOne(RatingAggregate::class, 'reviewable');
     }

@@ -36,7 +36,7 @@ class DiscussionDigest
      */
     public function for(Model&Commentable $subject): array
     {
-        $settings = $this->settings->for($subject->commentSection());
+        $settings = $this->settings->for($subject->commentSectionKey());
         $threshold = $settings->digestThreshold;
         $base = Comment::query()->forSubject($subject)->published()->withContent()->where('counted', true);
         $total = (clone $base)->count();

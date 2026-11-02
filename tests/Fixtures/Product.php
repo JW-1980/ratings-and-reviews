@@ -41,7 +41,7 @@ class Product extends Model implements Commentable, Reviewable
         return ['category_path' => 'array', 'is_open' => 'boolean', 'is_hidden' => 'boolean'];
     }
 
-    public function reviewSection(): string
+    public function reviewSectionKey(): string
     {
         return $this->section;
     }
@@ -76,7 +76,7 @@ class Product extends Model implements Commentable, Reviewable
         return array_values($this->category_path ?? []);
     }
 
-    public function commentSection(): string
+    public function commentSectionKey(): string
     {
         return $this->section;
     }

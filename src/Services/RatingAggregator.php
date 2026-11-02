@@ -118,7 +118,7 @@ class RatingAggregator
      */
     public function summary(Model&Reviewable $subject): array
     {
-        $settings = $this->settings->for($subject->reviewSection());
+        $settings = $this->settings->for($subject->reviewSectionKey());
         $aggregate = RatingAggregate::query()
             ->where('reviewable_type', $subject->getMorphClass())
             ->where('reviewable_id', $subject->getKey())

@@ -51,7 +51,7 @@ class DiscussionController extends Controller
      */
     private function present(Model&Commentable $subject, ?DiscussionState $state): array
     {
-        $settings = $this->settings->for($subject->commentSection());
+        $settings = $this->settings->for($subject->commentSectionKey());
 
         return [
             'subject' => ['type' => $subject->getMorphClass(), 'id' => $subject->getKey()],

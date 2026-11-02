@@ -46,7 +46,7 @@ class DiscussionTree
 
     public function load(Model&Commentable $subject, ?string $voterKey, ?DiscussionSort $sort = null, int $page = 1, ?int $viewerId = null, ?Carbon $newSince = null): DiscussionPage
     {
-        $settings = $this->settings->for($subject->commentSection());
+        $settings = $this->settings->for($subject->commentSectionKey());
         $sort ??= $settings->defaultSort;
         $page = max(1, $page);
         $perPage = max(1, (int) config('ratings-and-reviews.discussions.roots_per_page', 20));

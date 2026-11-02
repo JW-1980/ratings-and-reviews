@@ -12,7 +12,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 interface Reviewable
 {
     /** The section whose settings apply to reviews of this subject (scale, extended fields, …). */
-    public function reviewSection(): string;
+    public function reviewSectionKey(): string;
 
     /** Whether new reviews and edits are accepted right now. */
     public function acceptsReviews(): bool;

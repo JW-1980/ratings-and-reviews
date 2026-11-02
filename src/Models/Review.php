@@ -176,7 +176,7 @@ class Review extends Model implements Moderatable, Votable
     {
         $subject = $this->reviewable;
 
-        return $subject instanceof Reviewable ? $subject->reviewSection() : null;
+        return $subject instanceof Reviewable ? $subject->reviewSectionKey() : null;
     }
 
     public function votableAuthorId(): ?int
