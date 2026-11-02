@@ -3,6 +3,7 @@
 namespace RatingsAndReviews\Contracts;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 
 /**
@@ -11,8 +12,13 @@ use Illuminate\Http\Request;
  */
 interface VoterIdentity
 {
-    /** The voter key, or null when this guest cannot be identified. */
-    public function voterKey(Request $request, ?Authenticatable $user): ?string;
+    /**
+     * The voter key, or null when this guest cannot be identified. `$votable` is the item
+     * voted on (a Review, Comment or Poll), so a host can decide the voice per item; it is
+     * also passed when the package reads the viewer's own votes on a page (once per item).
+     * Null only for callers outside the package that ask without an item.
+     */
+    public function voterKey(Request $request, ?Authenticatable $user, ?Model $votable = null): ?string;
 
     /** Hash of the client's network (IPv4 address or IPv6 prefix). */
     public function networkHash(Request $request): ?string;

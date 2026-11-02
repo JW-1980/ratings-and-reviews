@@ -21,6 +21,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property string|null $device_hash
  * @property bool $counted
  * @property string|null $uncounted_reason
+ * @property array<string, mixed>|null $meta host data from the RiskSignals verdict
  */
 class Vote extends Model
 {
@@ -28,7 +29,7 @@ class Vote extends Model
 
     protected $fillable = [
         'votable_type', 'votable_id', 'dimension', 'value', 'user_id', 'voter_key', 'network_hash', 'device_hash',
-        'counted', 'uncounted_reason',
+        'counted', 'uncounted_reason', 'meta',
     ];
 
     protected $hidden = ['voter_key', 'network_hash', 'device_hash'];
@@ -41,6 +42,7 @@ class Vote extends Model
             'value' => 'integer',
             'user_id' => 'integer',
             'counted' => 'boolean',
+            'meta' => 'array',
         ];
     }
 

@@ -3,6 +3,7 @@
 namespace RatingsAndReviews\Defaults;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use RatingsAndReviews\Contracts\VoterIdentity;
 
@@ -13,7 +14,7 @@ use RatingsAndReviews\Contracts\VoterIdentity;
  */
 class DefaultVoterIdentity implements VoterIdentity
 {
-    public function voterKey(Request $request, ?Authenticatable $user): ?string
+    public function voterKey(Request $request, ?Authenticatable $user, ?Model $votable = null): ?string
     {
         if ($user !== null) {
             return 'u:'.$user->getAuthIdentifier();

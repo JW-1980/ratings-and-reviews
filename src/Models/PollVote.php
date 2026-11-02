@@ -17,18 +17,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $device_hash
  * @property bool $counted
  * @property string|null $uncounted_reason
+ * @property array<string, mixed>|null $meta host data from the RiskSignals verdict
  */
 class PollVote extends Model
 {
     protected $table = 'rr_poll_votes';
 
-    protected $fillable = ['poll_id', 'option_id', 'user_id', 'voter_key', 'network_hash', 'device_hash', 'counted', 'uncounted_reason'];
+    protected $fillable = ['poll_id', 'option_id', 'user_id', 'voter_key', 'network_hash', 'device_hash', 'counted', 'uncounted_reason', 'meta'];
 
     protected $hidden = ['voter_key', 'network_hash', 'device_hash'];
 
     protected function casts(): array
     {
-        return ['poll_id' => 'integer', 'option_id' => 'integer', 'user_id' => 'integer', 'counted' => 'boolean'];
+        return ['poll_id' => 'integer', 'option_id' => 'integer', 'user_id' => 'integer', 'counted' => 'boolean', 'meta' => 'array'];
     }
 
     /**

@@ -14,6 +14,7 @@ use RatingsAndReviews\Models\Poll;
 use RatingsAndReviews\Models\PollOption;
 use RatingsAndReviews\Models\PollVote;
 use RatingsAndReviews\Support\PollVoteContext;
+use RatingsAndReviews\Support\VoterKeys;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 use Throwable;
 
@@ -162,7 +163,7 @@ class PollService
             throw ValidationException::withMessages(['option_id' => __('ratings-and-reviews::messages.poll_option_unknown')]);
         }
 
-        $voterKey = $this->identity->voterKey($request, $user);
+        $voterKey = $this->identity->voterKey($request, $user, $poll);
 
         if ($voterKey === null) {
             throw ValidationException::withMessages(['option_id' => __('ratings-and-reviews::messages.voter_unknown')]);
@@ -198,6 +199,7 @@ class PollService
                 'device_hash' => $deviceHash,
                 'counted' => $verdict->counted,
                 'uncounted_reason' => $verdict->counted ? null : $verdict->uncountedReason,
+                'meta' => $verdict->meta === null ? null : json_encode($verdict->meta, JSON_THROW_ON_ERROR),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -233,6 +235,27 @@ class PollService
 
         return PollVote::query()->whereIn('poll_id', $pollIds)->where('voter_key', $voterKey)
             ->pluck('option_id', 'poll_id')->map(fn (mixed $id): int => (int) $id)->all();
+    }
+
+    /**
+     * The option the viewer chose per poll, with the viewer's key per poll: [poll id => option id].
+     *
+     * @param  iterable<Poll>  $polls
+     * @return array<int, int>
+     */
+    public function viewerChoices(iterable $polls, ?VoterKeys $keys): array
+    {
+        if ($keys === null) {
+            return [];
+        }
+
+        $choices = [];
+
+        foreach ($keys->group($polls) as $key => $group) {
+            $choices += $this->choicesFor(array_map(fn (Poll $poll): int => (int) $poll->id, $group), $key);
+        }
+
+        return $choices;
     }
 
     /**

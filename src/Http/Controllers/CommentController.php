@@ -25,6 +25,7 @@ use RatingsAndReviews\Services\ToneNudge;
 use RatingsAndReviews\Services\TrustLevels;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\DiscussionSort;
+use RatingsAndReviews\Support\VoterKeys;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -57,7 +58,7 @@ class CommentController extends Controller
         $moderates = $this->moderates($viewer, $subject);
 
         $lastVisit = $viewerId === null ? null : $this->markers->lastReadAt($viewerId, $subject);
-        $discussion = $this->tree->load($subject, $this->identity->voterKey($request, $viewer), $sort, $page, $viewerId, $lastVisit);
+        $discussion = $this->tree->load($subject, new VoterKeys($this->identity, $request, $viewer), $sort, $page, $viewerId, $lastVisit);
         $newSince = $viewerId === null ? null : $this->markers->newSince($subject, $lastVisit, $viewerId);
 
         if ($viewerId !== null && $request->query('mark_read', '1') !== '0') {
@@ -231,7 +232,7 @@ class CommentController extends Controller
         ));
         $lastVisit = $viewerId === null ? null : $this->markers->lastReadAt($viewerId, $subject);
         $afterId = filter_var($request->query('after'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $page = $this->tree->replies($root, $this->identity->voterKey($request, $viewer), $viewerId, is_string($cursor) ? $cursor : null, $limit, $lastVisit, $afterId === false ? null : $afterId);
+        $page = $this->tree->replies($root, new VoterKeys($this->identity, $request, $viewer), $viewerId, is_string($cursor) ? $cursor : null, $limit, $lastVisit, $afterId === false ? null : $afterId);
 
         return new JsonResponse([
             'data' => $page->replies->map(fn (Comment $reply): array => (new CommentResource($reply))

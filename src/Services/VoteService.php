@@ -17,6 +17,7 @@ use RatingsAndReviews\Models\Vote;
 use RatingsAndReviews\Support\VoteContext;
 use RatingsAndReviews\Support\VoteDimension;
 use RatingsAndReviews\Support\VoteResult;
+use RatingsAndReviews\Support\VoterKeys;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 
@@ -75,7 +76,7 @@ class VoteService
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.vote_own'));
         }
 
-        $voterKey = $this->identity->voterKey($request, $user);
+        $voterKey = $this->identity->voterKey($request, $user, $votable);
 
         if ($voterKey === null) {
             throw ValidationException::withMessages(['dimension' => __('ratings-and-reviews::messages.voter_unknown')]);
@@ -123,6 +124,7 @@ class VoteService
                 'device_hash' => $deviceHash,
                 'counted' => $verdict->counted,
                 'uncounted_reason' => $verdict->counted ? null : $verdict->uncountedReason,
+                'meta' => $verdict->meta === null ? null : json_encode($verdict->meta, JSON_THROW_ON_ERROR),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -204,6 +206,28 @@ class VoteService
             ->each(function (Vote $vote) use (&$choices): void {
                 $choices[$vote->votable_id][$vote->dimension->value] = $vote->value;
             });
+
+        return $choices;
+    }
+
+    /**
+     * The viewer's values on these items, with the viewer's key per item:
+     * [id => [dimension => value]]. All items must be of one morph type.
+     *
+     * @param  iterable<Model>  $items
+     * @return array<int, array<string, int>>
+     */
+    public function viewerChoices(iterable $items, ?VoterKeys $keys): array
+    {
+        if ($keys === null) {
+            return [];
+        }
+
+        $choices = [];
+
+        foreach ($keys->group($items) as $key => $group) {
+            $choices += $this->choicesFor($group[0]->getMorphClass(), array_map(fn (Model $item): int => (int) $item->getKey(), $group), $key);
+        }
 
         return $choices;
     }

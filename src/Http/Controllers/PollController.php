@@ -11,6 +11,7 @@ use RatingsAndReviews\Http\Requests\PollVoteRequest;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Poll;
 use RatingsAndReviews\Services\PollService;
+use RatingsAndReviews\Support\VoterKeys;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class PollController extends Controller
@@ -24,7 +25,7 @@ class PollController extends Controller
     {
         $viewer = $this->currentUser($request);
         $model = $this->visiblePoll($poll, $viewer);
-        $choice = $this->polls->choicesFor([$model->id], $this->identity->voterKey($request, $viewer))[$model->id] ?? null;
+        $choice = $this->polls->viewerChoices([$model], new VoterKeys($this->identity, $request, $viewer))[$model->id] ?? null;
 
         return new JsonResponse(['data' => PollService::present($model->load('options'), $choice)]);
     }

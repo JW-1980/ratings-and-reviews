@@ -14,6 +14,7 @@ use RatingsAndReviews\Models\Poll;
 use RatingsAndReviews\Support\DiscussionPage;
 use RatingsAndReviews\Support\DiscussionSort;
 use RatingsAndReviews\Support\ReplyPage;
+use RatingsAndReviews\Support\VoterKeys;
 
 /**
  * Loads a discussion page in a fixed number of queries however deep it is: the root count,
@@ -44,7 +45,7 @@ class DiscussionTree
         private readonly PollService $polls,
     ) {}
 
-    public function load(Model&Commentable $subject, ?string $voterKey, ?DiscussionSort $sort = null, int $page = 1, ?int $viewerId = null, ?Carbon $newSince = null): DiscussionPage
+    public function load(Model&Commentable $subject, ?VoterKeys $voterKeys, ?DiscussionSort $sort = null, int $page = 1, ?int $viewerId = null, ?Carbon $newSince = null): DiscussionPage
     {
         $settings = $this->settings->for($subject->commentSectionKey());
         $sort ??= $settings->defaultSort;
@@ -76,7 +77,7 @@ class DiscussionTree
         $ids = $all->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
         $quotes = $this->quotedComments($all);
         $userIds = $all->pluck('user_id')->merge(array_column($quotes, 'user_id'))->map(fn (mixed $id): int => (int) $id)->unique()->values()->all();
-        $pollIds = $this->attachPolls($all, $ids);
+        $polls = $this->attachPolls($all, $ids);
 
         return new DiscussionPage(
             settings: $settings,
@@ -85,12 +86,12 @@ class DiscussionTree
             page: $page,
             perPage: $perPage,
             sort: $sort,
-            viewerVotes: $this->votes->choicesFor((new Comment)->getMorphClass(), $ids, $voterKey),
+            viewerVotes: $this->votes->viewerChoices($all, $voterKeys),
             authors: $this->authors->resolve($userIds),
             topCommentId: $this->topComment($all, $settings->highlightTopComment, $settings->topCommentMinVotes),
             truncatedThreads: $truncated,
             quotes: $quotes,
-            pollChoices: $this->polls->choicesFor($pollIds, $voterKey),
+            pollChoices: $this->polls->viewerChoices($polls, $voterKeys),
             newSince: $newSince,
         );
     }
@@ -106,7 +107,7 @@ class DiscussionTree
      *
      * @throws ValidationException for a malformed cursor or a reply from another thread
      */
-    public function replies(Comment $root, ?string $voterKey, ?int $viewerId, ?string $cursor, int $limit, ?Carbon $newSince = null, ?int $afterId = null): ReplyPage
+    public function replies(Comment $root, ?VoterKeys $voterKeys, ?int $viewerId, ?string $cursor, int $limit, ?Carbon $newSince = null, ?int $afterId = null): ReplyPage
     {
         $subject = $root->commentable;
         $settings = $this->settings->for($root->section);
@@ -158,7 +159,7 @@ class DiscussionTree
         $quotes = $this->quotedComments($replies->toBase());
         $userIds = $replies->pluck('user_id')->merge($targets->pluck('user_id'))->merge(array_column($quotes, 'user_id'))
             ->map(fn (mixed $id): int => (int) $id)->unique()->values()->all();
-        $pollIds = $this->attachPolls($replies->toBase(), $ids);
+        $polls = $this->attachPolls($replies->toBase(), $ids);
         $last = end($slice);
 
         return new ReplyPage(
@@ -167,10 +168,10 @@ class DiscussionTree
             replies: $replies,
             total: count($ordered),
             nextCursor: $hasMore && $last !== false ? $this->encodeCursor($last) : null,
-            viewerVotes: $this->votes->choicesFor((new Comment)->getMorphClass(), $ids, $voterKey),
+            viewerVotes: $this->votes->viewerChoices($replies, $voterKeys),
             authors: $this->authors->resolve($userIds),
             quotes: $quotes,
-            pollChoices: $this->polls->choicesFor($pollIds, $voterKey),
+            pollChoices: $this->polls->viewerChoices($polls, $voterKeys),
             newSince: $newSince,
         );
     }
@@ -305,7 +306,7 @@ class DiscussionTree
      *
      * @param  \Illuminate\Support\Collection<int, Comment>  $comments
      * @param  list<int>  $ids
-     * @return list<int> poll ids
+     * @return list<Poll>
      */
     private function attachPolls(\Illuminate\Support\Collection $comments, array $ids): array
     {
@@ -317,7 +318,7 @@ class DiscussionTree
 
         $comments->each(fn (Comment $comment) => $comment->setRelation('poll', $polls->get($comment->id)));
 
-        return $polls->pluck('id')->map(fn (mixed $id): int => (int) $id)->values()->all();
+        return $polls->values()->all();
     }
 
     /**

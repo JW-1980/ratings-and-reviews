@@ -32,6 +32,7 @@ use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ReviewSort;
 use RatingsAndReviews\Support\SqlDialect;
+use RatingsAndReviews\Support\VoterKeys;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -87,7 +88,7 @@ class ReviewController extends Controller
         $viewerId = $this->userId($viewer);
         $own = $viewerId === null ? null : Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(['topicRatings', 'compared', 'photos'])->first();
         $profiles = $this->authors->resolve($items->pluck('user_id')->push($own?->user_id)->filter()->map(fn ($id): int => (int) $id)->unique()->values()->all());
-        $choices = $this->votes->choicesFor((new Review)->getMorphClass(), $items->pluck('id')->push($own?->id)->filter()->map(fn ($id): int => (int) $id)->all(), $this->identity->voterKey($request, $viewer));
+        $choices = $this->votes->viewerChoices($items->concat(array_filter([$own]))->unique(fn (Review $review): int => $review->id)->values(), new VoterKeys($this->identity, $request, $viewer));
 
         $present = fn (Review $review): array => (new ReviewResource($review))
             ->withContext($profiles[$review->user_id] ?? null, $choices[$review->id] ?? [], $viewerId)
