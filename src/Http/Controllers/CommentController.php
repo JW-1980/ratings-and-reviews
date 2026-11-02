@@ -16,9 +16,13 @@ use RatingsAndReviews\Http\Resources\CommentResource;
 use RatingsAndReviews\Http\Resources\RevisionResource;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Services\DiscussionService;
+use RatingsAndReviews\Services\DiscussionStates;
 use RatingsAndReviews\Services\DiscussionTree;
+use RatingsAndReviews\Services\ReadMarkers;
 use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Services\SubjectResolver;
+use RatingsAndReviews\Services\ToneNudge;
+use RatingsAndReviews\Services\TrustLevels;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\DiscussionSort;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -33,22 +37,41 @@ class CommentController extends Controller
         private readonly AuthorResolver $authors,
         private readonly VoterIdentity $identity,
         private readonly SectionSettingsRepository $settings,
+        private readonly ReadMarkers $markers,
+        private readonly DiscussionStates $states,
+        private readonly TrustLevels $trust,
+        private readonly ToneNudge $tone,
     ) {}
 
+    /**
+     * The discussion tree. For a member it also reads and moves their read marker ("new
+     * since your last visit"; `mark_read=0` reads without moving it).
+     */
     public function index(Request $request, string $type, string $id): JsonResponse
     {
         $viewer = $this->currentUser($request);
         $subject = $this->visibleSubject($type, $id, $viewer);
         $sort = DiscussionSort::tryFrom((string) $request->query('sort'));
         $page = max(1, (int) $request->query('page', 1));
-
-        $discussion = $this->tree->load($subject, $this->identity->voterKey($request, $viewer), $sort, $page);
         $viewerId = $this->userId($viewer);
         $moderates = $this->moderates($viewer);
+
+        $lastVisit = $viewerId === null ? null : $this->markers->lastReadAt($viewerId, $subject);
+        $discussion = $this->tree->load($subject, $this->identity->voterKey($request, $viewer), $sort, $page, $viewerId, $lastVisit);
+        $newSince = $viewerId === null ? null : $this->markers->newSince($subject, $lastVisit, $viewerId);
+
+        if ($viewerId !== null && $request->query('mark_read', '1') !== '0') {
+            $this->markers->touch($viewerId, $subject);
+        }
+
+        $state = $this->states->find($subject);
+        $locked = $state?->locked_at !== null;
+        $trust = $this->trust->for($viewer, $discussion->settings);
 
         return new JsonResponse([
             'data' => $discussion->roots->map(fn (Comment $comment): array => (new CommentResource($comment))
                 ->withContext($discussion->authors, $discussion->viewerVotes, $viewerId, $moderates, $discussion->settings, $discussion->topCommentId)
+                ->withExtras($discussion->quotes, $discussion->pollChoices, $discussion->newSince)
                 ->resolve($request))->values()->all(),
             'meta' => [
                 'total' => $discussion->total,
@@ -59,15 +82,35 @@ class CommentController extends Controller
                 'sorts' => array_map(fn (DiscussionSort $case): array => ['value' => $case->value, 'label' => $case->label()], DiscussionSort::cases()),
                 'top_comment_id' => $discussion->topCommentId,
                 'truncated_threads' => (object) $discussion->truncatedThreads,
-                'accepts_comments' => $discussion->settings->enabled && $subject->acceptsComments(),
+                'accepts_comments' => $discussion->settings->enabled && $subject->acceptsComments() && (! $locked || $moderates),
                 'settings' => [
                     'max_depth' => $discussion->settings->maxDepth,
-                    'editor_tools' => $discussion->settings->toolKeys(),
+                    'editor_tools' => $trust->settings->toolKeys(),
                     'vote_dimensions' => array_map(fn ($dimension): string => $dimension->value, $discussion->settings->voteDimensions),
                     'guest_votes' => $discussion->settings->guestVotes,
                     'min_length' => $discussion->settings->minLength,
                     'max_length' => $discussion->settings->maxLength,
                     'edit_window_minutes' => $discussion->settings->editWindowMinutes,
+                    'undo_window_seconds' => $discussion->settings->undoWindowSeconds,
+                    'max_quote_length' => max(1, (int) config('ratings-and-reviews.discussions.max_quote_length', 500)),
+                    'tone_check' => $this->tone->isEnabled(),
+                    'polls' => [
+                        'enabled' => (bool) config('ratings-and-reviews.polls.enabled', true),
+                        'min_options' => max(2, (int) config('ratings-and-reviews.polls.min_options', 2)),
+                        'max_options' => max(2, (int) config('ratings-and-reviews.polls.max_options', 4)),
+                    ],
+                ],
+                'trust' => $trust->toArray(),
+                'discussion' => [
+                    'locked' => $locked,
+                    'slow_mode_seconds' => $this->states->effectiveSlowMode($subject, $discussion->settings, $state),
+                    'seconds_until_next_post' => $viewerId === null || $moderates ? 0 : $this->states->secondsUntilNextPost($subject, $discussion->settings, $viewerId, $state),
+                ],
+                'new_since' => [
+                    'last_visit_at' => $lastVisit?->toIso8601String(),
+                    'count' => $newSince['count'] ?? 0,
+                    'first_new_id' => $newSince['first_id'] ?? null,
+                    'first_new_root_id' => $newSince['first_root_id'] ?? null,
                 ],
             ],
         ]);
@@ -79,9 +122,29 @@ class CommentController extends Controller
         $subject = $this->visibleSubject($type, $id, $user);
         $parentId = $request->validated('parent_id');
 
-        $comment = $this->discussions->post($request, $user, $subject, (string) $request->validated('body'), $parentId === null ? null : (int) $parentId);
+        $comment = $this->discussions->post($request, $user, $subject, (string) $request->validated('body'), $parentId === null ? null : (int) $parentId, [
+            'quoted_comment_id' => $request->validated('quoted_comment_id'),
+            'quote_text' => $request->validated('quote_text'),
+            'poll' => $request->validated('poll'),
+            'confirm_tone' => $request->boolean('confirm_tone'),
+        ]);
 
         return $this->saved($request, $comment, $user, 201);
+    }
+
+    /** The author takes back a comment inside its undo window. */
+    public function undo(Request $request, string $comment): Response
+    {
+        $user = $this->requireUser($request);
+        $model = ctype_digit($comment) ? Comment::query()->find((int) $comment) : null;
+
+        if ($model === null || $model->user_id !== $this->userId($user)) {
+            throw new NotFoundHttpException;
+        }
+
+        $this->discussions->undo($model, $user);
+
+        return new Response('', 204);
     }
 
     public function update(UpdateCommentRequest $request, string $comment): JsonResponse
@@ -94,7 +157,7 @@ class CommentController extends Controller
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.not_yours'));
         }
 
-        $model = $this->discussions->edit($request, $model, (string) $request->validated('body'), $user, asModerator: ! $own);
+        $model = $this->discussions->edit($request, $model, (string) $request->validated('body'), $user, asModerator: ! $own, confirmTone: $request->boolean('confirm_tone'));
 
         return $this->saved($request, $model, $user, 200);
     }
@@ -137,16 +200,22 @@ class CommentController extends Controller
 
     private function saved(Request $request, Comment $comment, Authenticatable $user, int $status): JsonResponse
     {
-        $profiles = $this->authors->resolve([$comment->user_id]);
+        $comment->load('poll.options');
+        $quoted = $comment->quoted_comment_id === null ? null : Comment::query()->find($comment->quoted_comment_id);
+        $profiles = $this->authors->resolve(array_values(array_filter([$comment->user_id, $quoted?->user_id])));
         $settings = $this->settings->for($comment->section);
+        $quotes = $quoted === null ? [] : [$quoted->id => ['user_id' => $quoted->user_id, 'root_id' => $quoted->root_id ?? $quoted->id, 'available' => $quoted->isPubliclyVisible()]];
 
         return new JsonResponse([
             'data' => (new CommentResource($comment))
                 ->withContext($profiles, [], $this->userId($user), $this->moderates($user), $settings)
+                ->withExtras($quotes, [], null)
                 ->resolve($request),
-            'message' => $comment->status === ContentStatus::Approved
-                ? __('ratings-and-reviews::messages.comment_published')
-                : __('ratings-and-reviews::messages.comment_pending'),
+            'message' => match ($comment->visibility()) {
+                'public' => __('ratings-and-reviews::messages.comment_published'),
+                'scheduled' => trans_choice('ratings-and-reviews::messages.comment_scheduled', $settings->undoWindowSeconds, ['seconds' => $settings->undoWindowSeconds]),
+                default => __('ratings-and-reviews::messages.comment_pending'),
+            },
         ], $status);
     }
 
@@ -177,7 +246,7 @@ class CommentController extends Controller
             throw new NotFoundHttpException;
         }
 
-        if ($comment->status !== ContentStatus::Approved && $comment->user_id !== $this->userId($user) && ! $moderates) {
+        if (($comment->status !== ContentStatus::Approved || $comment->published_at === null) && $comment->user_id !== $this->userId($user) && ! $moderates) {
             throw new NotFoundHttpException;
         }
 

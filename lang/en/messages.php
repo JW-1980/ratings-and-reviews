@@ -46,4 +46,54 @@ return [
     'topic_parent_invalid' => 'A topic can only replace a topic of the same scope from a broader category.',
 
     'settings_saved' => 'The settings have been saved.',
+
+    'comment_scheduled' => 'Your comment will be posted in :seconds second. You can still undo it.|Your comment will be posted in :seconds seconds. You can still undo it.',
+    'undo_expired' => 'This comment can no longer be undone.',
+    'discussion_locked' => 'This discussion is locked. No new comments can be posted.',
+    'discussion_saved' => 'The discussion settings have been saved.',
+    'slow_mode' => 'Slow mode is on in this discussion. You can post again in :seconds second.|Slow mode is on in this discussion. You can post again in :seconds seconds.',
+    'trust_locked' => 'This becomes available after :count approved contribution.|This becomes available after :count approved contributions.',
+
+    'quote_unavailable' => 'The quoted comment is not available in this discussion.',
+    'quote_required' => 'Select the text you want to quote.',
+    'quote_too_long' => 'A quote can be at most :max characters.',
+    'quote_mismatch' => 'The quote must be text from the quoted comment.',
+
+    'poll_disabled' => 'Polls are not available here.',
+    'poll_question' => 'Write a question of at most :max characters.',
+    'poll_option_length' => 'An option can be at most :max characters.',
+    'poll_option_duplicate' => 'Every option must be different.',
+    'poll_options_count' => 'Give between :min and :max options.',
+    'poll_closes_at' => 'The closing date must be in the future and within :days days.',
+    'poll_unavailable' => 'This poll is not available.',
+    'poll_closed' => 'This poll is closed.',
+    'poll_option_unknown' => 'Choose one of the options of this poll.',
+
+    'tone_nudge' => 'This may come across as hostile. Would you like to put it differently? You can also post it as it is.',
+
+    'quality_hints' => [
+        'length' => 'Tell a bit more: what did you notice?',
+        'pros' => 'Add a pro.',
+        'cons' => 'Add a con, even a small one.',
+        'usage' => 'Mention how you used it.',
+        'topics' => 'Rate the topics as well.',
+        'concrete' => 'Be concrete: an amount, a price or a time helps others.',
+    ],
+    'quality_levels' => [
+        'weak' => 'Weak',
+        'fair' => 'Fair',
+        'good' => 'Good',
+        'strong' => 'Strong',
+    ],
+
+    'facet_invalid' => 'Choose one of the listed options.',
+    'comparison_invalid' => 'Choose better, worse or about the same.',
+    'compared_unavailable' => 'The item you compare with is not available.',
+    'compared_self' => 'Compare with something else than the item you are reviewing.',
+
+    'search_too_short' => 'Search for at least one word of :min or more characters.',
+
+    'want_to_try_source' => 'The review this came from is not available.',
+    'want_to_try_added' => 'Added to your list.',
+    'want_to_try_exists' => 'This is already on your list.',
 ];

@@ -46,4 +46,54 @@ return [
     'topic_parent_invalid' => 'Een onderwerp kan alleen een onderwerp uit dezelfde scope en een bredere categorie vervangen.',
 
     'settings_saved' => 'De instellingen zijn opgeslagen.',
+
+    'comment_scheduled' => 'Je reactie wordt over :seconds seconde geplaatst. Je kunt het nog ongedaan maken.|Je reactie wordt over :seconds seconden geplaatst. Je kunt het nog ongedaan maken.',
+    'undo_expired' => 'Deze reactie kan niet meer ongedaan worden gemaakt.',
+    'discussion_locked' => 'Deze discussie is gesloten. Er kunnen geen nieuwe reacties worden geplaatst.',
+    'discussion_saved' => 'De instellingen van de discussie zijn opgeslagen.',
+    'slow_mode' => 'In deze discussie staat de slow mode aan. Je kunt over :seconds seconde weer reageren.|In deze discussie staat de slow mode aan. Je kunt over :seconds seconden weer reageren.',
+    'trust_locked' => 'Dit komt beschikbaar na :count goedgekeurde bijdrage.|Dit komt beschikbaar na :count goedgekeurde bijdragen.',
+
+    'quote_unavailable' => 'De geciteerde reactie is niet beschikbaar in deze discussie.',
+    'quote_required' => 'Selecteer de tekst die je wilt citeren.',
+    'quote_too_long' => 'Een citaat mag maximaal :max tekens lang zijn.',
+    'quote_mismatch' => 'Het citaat moet tekst uit de geciteerde reactie zijn.',
+
+    'poll_disabled' => 'Peilingen zijn hier niet beschikbaar.',
+    'poll_question' => 'Schrijf een vraag van maximaal :max tekens.',
+    'poll_option_length' => 'Een optie mag maximaal :max tekens lang zijn.',
+    'poll_option_duplicate' => 'Elke optie moet anders zijn.',
+    'poll_options_count' => 'Geef tussen :min en :max opties.',
+    'poll_closes_at' => 'De sluitingsdatum moet in de toekomst liggen en binnen :days dagen.',
+    'poll_unavailable' => 'Deze peiling is niet beschikbaar.',
+    'poll_closed' => 'Deze peiling is gesloten.',
+    'poll_option_unknown' => 'Kies een van de opties van deze peiling.',
+
+    'tone_nudge' => 'Dit kan vijandig overkomen. Wil je het anders verwoorden? Je kunt het ook zo plaatsen.',
+
+    'quality_hints' => [
+        'length' => 'Vertel wat meer: wat viel je op?',
+        'pros' => 'Voeg een pluspunt toe.',
+        'cons' => 'Voeg een minpunt toe, ook al is het klein.',
+        'usage' => 'Noem hoe je het gebruikt hebt.',
+        'topics' => 'Geef ook de onderwerpen een score.',
+        'concrete' => 'Wees concreet: een hoeveelheid, prijs of tijd helpt anderen.',
+    ],
+    'quality_levels' => [
+        'weak' => 'Zwak',
+        'fair' => 'Redelijk',
+        'good' => 'Goed',
+        'strong' => 'Sterk',
+    ],
+
+    'facet_invalid' => 'Kies een van de genoemde opties.',
+    'comparison_invalid' => 'Kies beter, slechter of ongeveer hetzelfde.',
+    'compared_unavailable' => 'Het item waarmee je vergelijkt is niet beschikbaar.',
+    'compared_self' => 'Vergelijk met iets anders dan het item dat je beoordeelt.',
+
+    'search_too_short' => 'Zoek op minstens één woord van :min of meer tekens.',
+
+    'want_to_try_source' => 'De review waar dit vandaan komt is niet beschikbaar.',
+    'want_to_try_added' => 'Op je lijst gezet.',
+    'want_to_try_exists' => 'Dit staat al op je lijst.',
 ];

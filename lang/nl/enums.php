@@ -59,4 +59,16 @@ return [
         'worse' => 'Slechter',
         'same' => 'Ongeveer gelijk',
     ],
+    'facet' => [
+        'purchase' => [
+            'label' => 'Aankoop',
+            'first_time' => 'Eerste keer gekocht',
+            'regular' => 'Vaste koper',
+        ],
+        'deal' => [
+            'label' => 'Prijs',
+            'on_offer' => 'In de aanbieding gekocht',
+            'regular_price' => 'Voor de normale prijs gekocht',
+        ],
+    ],
 ];

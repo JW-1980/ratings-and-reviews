@@ -39,6 +39,28 @@ class SubjectResolver
     }
 
     /**
+     * Like resolve(), for a subject that implements at least one of the contracts.
+     *
+     * @param  list<class-string>  $contracts
+     *
+     * @throws NotFoundHttpException
+     */
+    public function resolveAny(string $type, string $id, array $contracts): Model
+    {
+        $class = Relation::getMorphedModel($type);
+        $fits = $class !== null && is_subclass_of($class, Model::class)
+            && array_filter($contracts, fn (string $contract): bool => is_subclass_of($class, $contract)) !== [];
+
+        $subject = $fits ? $class::query()->find($id) : null;
+
+        if (! $subject instanceof Model) {
+            throw new NotFoundHttpException;
+        }
+
+        return $subject;
+    }
+
+    /**
      * The model class of a morph alias implementing the contract, or null.
      *
      * @return class-string<Model>|null

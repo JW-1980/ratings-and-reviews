@@ -4,17 +4,21 @@ namespace RatingsAndReviews;
 
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use RatingsAndReviews\Console\PublishDueCommentsCommand;
+use RatingsAndReviews\Console\SendReviewInvitationsCommand;
 use RatingsAndReviews\Contracts\AbilityResolver;
 use RatingsAndReviews\Contracts\AuthorResolver;
 use RatingsAndReviews\Contracts\CardResolver;
 use RatingsAndReviews\Contracts\ContributionCounter;
 use RatingsAndReviews\Contracts\PriceAtReviewResolver;
 use RatingsAndReviews\Contracts\RiskSignals;
+use RatingsAndReviews\Contracts\SummaryExtension;
 use RatingsAndReviews\Contracts\VoterIdentity;
 use RatingsAndReviews\Contracts\WantToTryList;
 use RatingsAndReviews\Defaults\AllowAllRiskSignals;
@@ -42,7 +46,12 @@ use RatingsAndReviews\Models\SectionSetting;
 use RatingsAndReviews\Models\Sticker;
 use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Models\Vote;
+use RatingsAndReviews\Services\RatingAggregator;
 use RatingsAndReviews\Services\SectionSettingsRepository;
+use RatingsAndReviews\Summary\ComparisonSummary;
+use RatingsAndReviews\Summary\FacetSummary;
+use RatingsAndReviews\Summary\ScoreTrend;
+use RatingsAndReviews\Summary\UncertaintyBand;
 
 class RatingsAndReviewsServiceProvider extends ServiceProvider
 {
@@ -89,9 +98,18 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         SectionSettingsRepository::class => SectionSettingsRepository::class,
     ];
 
+    /**
+     * The summary keys the package adds itself; a host tags its own SummaryExtension with
+     * RatingAggregator::EXTENSION_TAG as well.
+     *
+     * @var list<class-string<SummaryExtension>>
+     */
+    public const SUMMARY_EXTENSIONS = [UncertaintyBand::class, ScoreTrend::class, FacetSummary::class, ComparisonSummary::class];
+
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/ratings-and-reviews.php', 'ratings-and-reviews');
+        $this->app->tag(self::SUMMARY_EXTENSIONS, RatingAggregator::EXTENSION_TAG);
     }
 
     public function boot(): void
@@ -104,8 +122,10 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
 
         $this->registerRateLimiters();
         $this->registerRoutes();
+        $this->registerSchedule();
 
         if ($this->app->runningInConsole()) {
+            $this->commands([PublishDueCommentsCommand::class, SendReviewInvitationsCommand::class]);
             $this->publishes([__DIR__.'/../config/ratings-and-reviews.php' => $this->app->configPath('ratings-and-reviews.php')], 'ratings-and-reviews-config');
             $this->publishes([__DIR__.'/../database/migrations' => $this->app->databasePath('migrations')], 'ratings-and-reviews-migrations');
             $this->publishes([__DIR__.'/../lang' => $this->app->langPath('vendor/ratings-and-reviews')], 'ratings-and-reviews-translations');
@@ -118,7 +138,7 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         /** @var RateLimiter $limiter */
         $limiter = $this->app->make(RateLimiter::class);
 
-        foreach (['rr-write', 'rr-vote', 'rr-report', 'rr-admin', ...array_keys((array) config('ratings-and-reviews.rate_limits', []))] as $name) {
+        foreach (['rr-write', 'rr-vote', 'rr-report', 'rr-admin', 'rr-lookup', ...array_keys((array) config('ratings-and-reviews.rate_limits', []))] as $name) {
             $limiter->for((string) $name, function (Request $request) use ($name): Limit {
                 $user = $request->user(config('ratings-and-reviews.routes.guard'));
                 $key = $user !== null ? 'u:'.$user->getAuthIdentifier() : 'ip:'.$request->ip();
@@ -127,6 +147,22 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
                 return Limit::perMinute(max(1, $perMinute))->by($name.'|'.$key);
             });
         }
+    }
+
+    /**
+     * rr:publish-due every minute (undo window) and rr:send-review-invitations hourly, unless
+     * `schedule.enabled` is false (the host then schedules them itself).
+     */
+    private function registerSchedule(): void
+    {
+        if (! config('ratings-and-reviews.schedule.enabled', true)) {
+            return;
+        }
+
+        $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
+            $schedule->command('rr:publish-due')->everyMinute()->withoutOverlapping()->name('rr:publish-due');
+            $schedule->command('rr:send-review-invitations')->hourly()->withoutOverlapping()->name('rr:send-review-invitations');
+        });
     }
 
     private function registerRoutes(): void

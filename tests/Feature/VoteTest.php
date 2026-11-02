@@ -13,6 +13,7 @@ use RatingsAndReviews\Models\Vote;
 use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ContributionContext;
+use RatingsAndReviews\Support\PollVoteContext;
 use RatingsAndReviews\Support\RiskVerdict;
 use RatingsAndReviews\Support\VoteContext;
 use RatingsAndReviews\Tests\TestCase;
@@ -152,6 +153,11 @@ class VoteTest extends TestCase
                 return (clone $context->existingVotes)->where('counted', true)->exists()
                     ? RiskVerdict::uncounted('network_cap')
                     : RiskVerdict::counts();
+            }
+
+            public function forPollVote(PollVoteContext $context): RiskVerdict
+            {
+                return RiskVerdict::counts();
             }
 
             public function forContribution(ContributionContext $context): RiskVerdict

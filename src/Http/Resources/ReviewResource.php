@@ -4,7 +4,9 @@ namespace RatingsAndReviews\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Services\ReviewFacets;
 use RatingsAndReviews\Support\AuthorProfile;
 
 /**
@@ -54,13 +56,62 @@ class ReviewResource extends JsonResource
             'topic_ratings' => $review->relationLoaded('topicRatings')
                 ? $review->topicRatings->map(fn ($rating): array => ['topic_id' => $rating->topic_id, 'value' => $rating->value, 'scale_max' => $rating->scale_max])->values()->all()
                 : [],
-            'price' => $review->price_cents === null ? null : ['cents' => $review->price_cents, 'currency' => $review->price_currency],
+            'price' => $review->price_cents === null ? null : ['cents' => $review->price_cents, 'currency' => $review->price_currency, 'at' => $review->created_at?->toIso8601String()],
+            'facets' => $this->facets(),
+            'compared' => $this->compared(),
+            'quality_score' => $review->quality_score,
             'helpful_count' => $review->helpful_count,
             'viewer_votes' => (object) $this->viewerVotes,
             'is_own' => $own,
             'can' => ['edit' => $own, 'delete' => $own],
             'created_at' => $review->created_at?->toIso8601String(),
             'edited_at' => $review->edited_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return list<array{group: string, value: string, label: string}>
+     */
+    private function facets(): array
+    {
+        $facets = app(ReviewFacets::class);
+        $list = [];
+
+        foreach ((array) ($this->resource->facets ?? []) as $group => $value) {
+            if (is_string($group) && is_string($value)) {
+                $list[] = ['group' => $group, 'value' => $value, 'label' => $facets->label($group, $value)];
+            }
+        }
+
+        return $list;
+    }
+
+    /**
+     * "Compared with…", when the alternative still exists and is public.
+     *
+     * @return array{type: string, id: int, title: string, url: string|null, comparison: string, comparison_label: string}|null
+     */
+    private function compared(): ?array
+    {
+        $review = $this->resource;
+
+        if ($review->compared_type === null || $review->compared_id === null || $review->comparison === null) {
+            return null;
+        }
+
+        $compared = $review->relationLoaded('compared') ? $review->compared : null;
+
+        if (! $compared instanceof Reviewable || ! $compared->reviewsVisibleTo(null)) {
+            return null;
+        }
+
+        return [
+            'type' => $review->compared_type,
+            'id' => $review->compared_id,
+            'title' => $compared->reviewSubjectTitle(),
+            'url' => $compared->reviewSubjectUrl(),
+            'comparison' => $review->comparison->value,
+            'comparison_label' => $review->comparison->label(),
         ];
     }
 }

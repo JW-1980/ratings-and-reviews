@@ -102,6 +102,16 @@ class Review extends Model implements Moderatable, Votable
     }
 
     /**
+     * The alternative named in "compared with…" (a Reviewable host model).
+     *
+     * @return MorphTo<Model, $this>
+     */
+    public function compared(): MorphTo
+    {
+        return $this->morphTo('compared', 'compared_type', 'compared_id');
+    }
+
+    /**
      * @return HasMany<ReviewTopicRating, $this>
      */
     public function topicRatings(): HasMany

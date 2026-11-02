@@ -7,14 +7,15 @@ use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Review;
 
 /**
- * Default: approved reviews plus approved comments (placeholders of removed comments excluded)
- * in the package tables.
+ * Default: approved, counted reviews plus published, counted comments in the package tables.
+ * Placeholders of removed comments and contributions RiskSignals marked uncounted are left
+ * out, so they cannot unlock trust levels.
  */
 class DatabaseContributionCounter implements ContributionCounter
 {
     public function approvedContributions(int $userId): int
     {
-        return Review::query()->approved()->where('user_id', $userId)->count()
-            + Comment::query()->approved()->where('user_id', $userId)->whereNull('author_removed_at')->count();
+        return Review::query()->approved()->where('counted', true)->where('user_id', $userId)->count()
+            + Comment::query()->published()->where('counted', true)->where('user_id', $userId)->whereNull('author_removed_at')->count();
     }
 }

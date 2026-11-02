@@ -81,6 +81,16 @@ final readonly class SectionSettings
         );
     }
 
+    /**
+     * A copy with other values for some keys (as in toArray()), normalised again.
+     *
+     * @param  array<string, mixed>  $values
+     */
+    public function with(array $values): self
+    {
+        return self::fromArray($this->section, array_replace($this->toArray(), $values));
+    }
+
     public function allowsTool(EditorTool $tool): bool
     {
         return in_array($tool, $this->editorTools, true);

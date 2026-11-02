@@ -4,12 +4,19 @@ namespace RatingsAndReviews\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Carbon;
 use RatingsAndReviews\Models\Comment;
+use RatingsAndReviews\Models\Poll;
+use RatingsAndReviews\Services\PollService;
 use RatingsAndReviews\Support\AuthorProfile;
 use RatingsAndReviews\Support\SectionSettings;
 
 /**
  * A comment with its replies (when the `replies` relation is set by DiscussionTree).
+ *
+ * `visibility` is `public`, `pending` (awaiting a moderator) or `scheduled` (inside the
+ * undo window, `publish_at` says until when); only the author is shown the last two.
+ * `is_new` marks comments by others published after the viewer's previous visit.
  *
  * @property Comment $resource
  */
@@ -29,6 +36,14 @@ class CommentResource extends JsonResource
 
     private ?int $topCommentId = null;
 
+    /** @var array<int, array{user_id: int, root_id: int, available: bool}> */
+    private array $quotes = [];
+
+    /** @var array<int, int> */
+    private array $pollChoices = [];
+
+    private ?Carbon $newSince = null;
+
     /**
      * @param  array<int, AuthorProfile>  $authors
      * @param  array<int, array<string, int>>  $viewerVotes
@@ -41,6 +56,19 @@ class CommentResource extends JsonResource
         $this->viewerModerates = $viewerModerates;
         $this->settings = $settings;
         $this->topCommentId = $topCommentId;
+
+        return $this;
+    }
+
+    /**
+     * @param  array<int, array{user_id: int, root_id: int, available: bool}>  $quotes
+     * @param  array<int, int>  $pollChoices
+     */
+    public function withExtras(array $quotes, array $pollChoices, ?Carbon $newSince): static
+    {
+        $this->quotes = $quotes;
+        $this->pollChoices = $pollChoices;
+        $this->newSince = $newSince;
 
         return $this;
     }
@@ -73,10 +101,18 @@ class CommentResource extends JsonResource
             'in_reply_to_author' => $comment->in_reply_to_id !== null ? $this->replyTargetAuthor() : null,
             'depth' => $comment->depth,
             'status' => $comment->status->value,
+            'visibility' => $comment->visibility(),
+            'publish_at' => $comment->published_at === null ? $comment->publish_at?->toIso8601String() : null,
+            'published_at' => $comment->published_at?->toIso8601String(),
+            'is_new' => ! $own && $this->newSince !== null && $comment->published_at !== null && $comment->published_at->gt($this->newSince),
             'author' => $removed ? null : ($this->authors[$comment->user_id] ?? null)?->toArray(),
             'body_html' => $removed ? '' : $comment->body_html,
             'is_removed' => $removed,
             'removed_label' => $removed ? __('ratings-and-reviews::messages.comment_removed_placeholder') : null,
+            'quote' => $removed || $comment->quoted_comment_id === null ? null : $this->quote(),
+            'poll' => ! $removed && $comment->relationLoaded('poll') && $comment->poll instanceof Poll
+                ? PollService::present($comment->poll, $this->pollChoices[$comment->poll->id] ?? null)
+                : null,
             'is_edited' => $comment->is_edited,
             'is_top' => $this->topCommentId === $comment->id,
             'is_collapsed' => $this->settings?->shouldCollapse($comment->helpful_count, $comment->unhelpful_count) ?? false,
@@ -88,15 +124,34 @@ class CommentResource extends JsonResource
             'can' => [
                 'edit' => ! $removed && (($own && $this->withinEditWindow()) || $this->viewerModerates),
                 'delete' => ! $removed && ($own || $this->viewerModerates),
-                'reply' => ! $removed,
+                'reply' => ! $removed && $comment->isPubliclyVisible(),
+                'undo' => $own && $comment->isUndoable(),
             ],
             'created_at' => $comment->created_at?->toIso8601String(),
             'edited_at' => $comment->edited_at?->toIso8601String(),
             'replies' => $comment->relationLoaded('replies')
                 ? $comment->replies->map(fn (Comment $reply): array => (new self($reply))
                     ->withContext($this->authors, $this->viewerVotes, $this->viewerId, $this->viewerModerates, $this->settings, $this->topCommentId)
+                    ->withExtras($this->quotes, $this->pollChoices, $this->newSince)
                     ->resolve($request))->values()->all()
                 : [],
+        ];
+    }
+
+    /**
+     * @return array{comment_id: int, root_id: int|null, text: string|null, author: array<string, mixed>|null, available: bool}
+     */
+    private function quote(): array
+    {
+        $comment = $this->resource;
+        $quoted = $this->quotes[(int) $comment->quoted_comment_id] ?? null;
+
+        return [
+            'comment_id' => (int) $comment->quoted_comment_id,
+            'root_id' => $quoted['root_id'] ?? null,
+            'text' => $comment->quote_text,
+            'author' => $quoted !== null && $quoted['available'] ? ($this->authors[$quoted['user_id']] ?? null)?->toArray() : null,
+            'available' => $quoted['available'] ?? false,
         ];
     }
 

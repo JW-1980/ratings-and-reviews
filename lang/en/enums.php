@@ -59,4 +59,16 @@ return [
         'worse' => 'Worse',
         'same' => 'About the same',
     ],
+    'facet' => [
+        'purchase' => [
+            'label' => 'Purchase',
+            'first_time' => 'Bought for the first time',
+            'regular' => 'Regular buyer',
+        ],
+        'deal' => [
+            'label' => 'Price',
+            'on_offer' => 'Bought on offer',
+            'regular_price' => 'Bought at the regular price',
+        ],
+    ],
 ];

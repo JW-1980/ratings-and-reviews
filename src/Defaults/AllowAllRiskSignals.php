@@ -4,6 +4,7 @@ namespace RatingsAndReviews\Defaults;
 
 use RatingsAndReviews\Contracts\RiskSignals;
 use RatingsAndReviews\Support\ContributionContext;
+use RatingsAndReviews\Support\PollVoteContext;
 use RatingsAndReviews\Support\RiskVerdict;
 use RatingsAndReviews\Support\VoteContext;
 
@@ -13,6 +14,11 @@ use RatingsAndReviews\Support\VoteContext;
 class AllowAllRiskSignals implements RiskSignals
 {
     public function forVote(VoteContext $context): RiskVerdict
+    {
+        return RiskVerdict::counts();
+    }
+
+    public function forPollVote(PollVoteContext $context): RiskVerdict
     {
         return RiskVerdict::counts();
     }

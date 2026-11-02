@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -32,6 +33,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property int $depth
  * @property int $user_id
  * @property ContentStatus $status
+ * @property bool $counted
  * @property string $body_html
  * @property string $body_text
  * @property int|null $quoted_comment_id
@@ -68,7 +70,7 @@ class Comment extends Model implements Moderatable, Votable
 
     protected $fillable = [
         'commentable_type', 'commentable_id', 'section', 'parent_id', 'root_id', 'in_reply_to_id', 'depth', 'user_id',
-        'status', 'body_html', 'body_text', 'quoted_comment_id', 'quote_text', 'agree_count', 'disagree_count',
+        'status', 'counted', 'body_html', 'body_text', 'quoted_comment_id', 'quote_text', 'agree_count', 'disagree_count',
         'helpful_count', 'unhelpful_count', 'needs_source_count', 'controversy_score', 'flags_count', 'is_edited',
         'edited_at', 'author_removed_at', 'held_as_evidence', 'publish_at', 'published_at', 'ip_hash', 'network_hash',
         'device_hash',
@@ -86,6 +88,7 @@ class Comment extends Model implements Moderatable, Votable
             'depth' => 'integer',
             'user_id' => 'integer',
             'status' => ContentStatus::class,
+            'counted' => 'boolean',
             'quoted_comment_id' => 'integer',
             'agree_count' => 'integer',
             'disagree_count' => 'integer',
@@ -137,6 +140,22 @@ class Comment extends Model implements Moderatable, Votable
     }
 
     /**
+     * @return BelongsTo<Comment, $this>
+     */
+    public function quotedComment(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'quoted_comment_id');
+    }
+
+    /**
+     * @return HasOne<Poll, $this>
+     */
+    public function poll(): HasOne
+    {
+        return $this->hasOne(Poll::class);
+    }
+
+    /**
      * @return HasMany<CommentRevision, $this>
      */
     public function revisions(): HasMany
@@ -169,11 +188,71 @@ class Comment extends Model implements Moderatable, Votable
     }
 
     /**
+     * Approved and published: what everyone sees. A comment inside its undo window is
+     * approved but not yet published.
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopePublished(Builder $query): void
+    {
+        $query->where('status', ContentStatus::Approved->value)->whereNotNull('published_at');
+    }
+
+    /**
+     * What this viewer sees: the published comments, plus their own comments that are
+     * pending moderation or still inside the undo window (shown to them, marked as such).
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopeVisibleTo(Builder $query, ?int $viewerId): void
+    {
+        $query->where(function (Builder $query) use ($viewerId): void {
+            $query->where(fn (Builder $public) => $public->where('status', ContentStatus::Approved->value)->whereNotNull('published_at'));
+
+            if ($viewerId !== null) {
+                $query->orWhere(fn (Builder $own) => $own->where('user_id', $viewerId)
+                    ->whereIn('status', [ContentStatus::Approved->value, ContentStatus::Pending->value])
+                    ->whereNull('published_at'));
+            }
+        });
+    }
+
+    /**
      * @param  Builder<Comment>  $query
      */
     public function scopeForSubject(Builder $query, Model $subject): void
     {
         $query->where('commentable_type', $subject->getMorphClass())->where('commentable_id', $subject->getKey());
+    }
+
+    /** Whether it is approved but waiting for its undo window to end. */
+    public function isScheduled(): bool
+    {
+        return $this->status === ContentStatus::Approved && $this->published_at === null;
+    }
+
+    /** Whether the author can still take it back: unpublished and inside the undo window. */
+    public function isUndoable(): bool
+    {
+        return $this->published_at === null
+            && $this->publish_at !== null
+            && $this->publish_at->isFuture()
+            && in_array($this->status, [ContentStatus::Approved, ContentStatus::Pending], true)
+            && ! $this->trashed();
+    }
+
+    /**
+     * How the viewer sees it: `public`, `pending` (awaiting a moderator) or `scheduled`
+     * (inside the undo window). Only the author is shown the last two.
+     */
+    public function visibility(): string
+    {
+        return match (true) {
+            $this->status === ContentStatus::Pending => 'pending',
+            $this->isScheduled() => 'scheduled',
+            $this->status === ContentStatus::Approved => 'public',
+            default => 'hidden',
+        };
     }
 
     /** Whether the author removed the text and only a placeholder holds the replies' place. */
@@ -216,7 +295,7 @@ class Comment extends Model implements Moderatable, Votable
 
     public function acceptsVotes(): bool
     {
-        return $this->status === ContentStatus::Approved && ! $this->trashed() && ! $this->isRemovedByAuthor();
+        return $this->isPubliclyVisible();
     }
 
     public function voteCounterColumns(): array
@@ -245,7 +324,7 @@ class Comment extends Model implements Moderatable, Votable
 
     public function isPubliclyVisible(): bool
     {
-        return $this->status === ContentStatus::Approved && ! $this->trashed() && ! $this->isRemovedByAuthor();
+        return $this->status === ContentStatus::Approved && $this->published_at !== null && ! $this->trashed() && ! $this->isRemovedByAuthor();
     }
 
     public function moderationSnapshot(): array

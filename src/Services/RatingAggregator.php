@@ -40,6 +40,7 @@ class RatingAggregator
         private readonly RatingTopicCatalog $topics,
         private readonly Container $container,
         private readonly Dispatcher $events,
+        private readonly ReviewFacets $facets,
     ) {}
 
     public function refresh(Model&Reviewable $subject): RatingAggregate
@@ -96,6 +97,9 @@ class RatingAggregator
                 'normalized_sum_squares' => $squares,
                 'histogram' => $histogram,
                 'topics' => $topics,
+                'facet_counts' => $this->facetCounts($reviews),
+                'monthly' => $this->monthly($reviews),
+                'comparisons' => $this->comparisons($reviews),
                 'last_review_at' => $latest,
                 'computed_at' => now(),
             ],
@@ -187,6 +191,96 @@ class RatingAggregator
     public function display(float $normalized, int $scale): float
     {
         return round(1 + max(0.0, min(1.0, $normalized)) * ($scale - 1), 2);
+    }
+
+    /**
+     * Counted reviews per facet group and value: [group => [value => count]].
+     *
+     * @param  Builder<Review>  $reviews
+     * @return array<string, array<string, int>>
+     */
+    private function facetCounts(Builder $reviews): array
+    {
+        $counts = [];
+
+        foreach (array_keys($this->facets->groups()) as $group) {
+            // $group matches ^[a-z][a-z0-9_]*$ (ReviewFacets), so the JSON path is safe; it is bound anyway.
+            $rows = (clone $reviews)->toBase()
+                ->whereNotNull('facets')
+                ->selectRaw('JSON_UNQUOTE(JSON_EXTRACT(facets, ?)) as facet_value, COUNT(*) as total', ['$."'.$group.'"'])
+                ->groupBy('facet_value')
+                ->get();
+
+            foreach ($rows as $row) {
+                if (is_string($row->facet_value) && $row->facet_value !== '' && $row->facet_value !== 'null') {
+                    $counts[$group][$row->facet_value] = (int) $row->total;
+                }
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Counted reviews per calendar month of writing: [YYYY-MM => [count, sum (normalised)]].
+     *
+     * @param  Builder<Review>  $reviews
+     * @return array<string, array{count: int, sum: float}>
+     */
+    private function monthly(Builder $reviews): array
+    {
+        $months = [];
+
+        $rows = (clone $reviews)->toBase()
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, scale_max, rating, COUNT(*) as total")
+            ->groupBy('month', 'scale_max', 'rating')
+            ->get();
+
+        foreach ($rows as $row) {
+            $month = (string) $row->month;
+            $months[$month] ??= ['count' => 0, 'sum' => 0.0];
+            $months[$month]['count'] += (int) $row->total;
+            $months[$month]['sum'] += Review::normalize((int) $row->rating, (int) $row->scale_max) * (int) $row->total;
+        }
+
+        ksort($months);
+
+        return $months;
+    }
+
+    /**
+     * "Compared with…" per alternative: how many counted reviews found the subject better,
+     * worse or the same, most compared first (at most 50).
+     *
+     * @param  Builder<Review>  $reviews
+     * @return list<array{type: string, id: int, better: int, worse: int, same: int, total: int}>
+     */
+    private function comparisons(Builder $reviews): array
+    {
+        $alternatives = [];
+
+        $rows = (clone $reviews)->toBase()
+            ->whereNotNull('compared_type')
+            ->whereNotNull('compared_id')
+            ->whereNotNull('comparison')
+            ->selectRaw('compared_type, compared_id, comparison, COUNT(*) as total')
+            ->groupBy('compared_type', 'compared_id', 'comparison')
+            ->get();
+
+        foreach ($rows as $row) {
+            $key = $row->compared_type.':'.$row->compared_id;
+            $alternatives[$key] ??= ['type' => (string) $row->compared_type, 'id' => (int) $row->compared_id, 'better' => 0, 'worse' => 0, 'same' => 0, 'total' => 0];
+
+            if (in_array($row->comparison, ['better', 'worse', 'same'], true)) {
+                $alternatives[$key][$row->comparison] += (int) $row->total;
+                $alternatives[$key]['total'] += (int) $row->total;
+            }
+        }
+
+        $list = array_values($alternatives);
+        usort($list, fn (array $a, array $b): int => [$b['total'], $b['worse'], $a['type'], $a['id']] <=> [$a['total'], $a['worse'], $b['type'], $b['id']]);
+
+        return array_slice($list, 0, 50);
     }
 
     /**

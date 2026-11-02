@@ -6,8 +6,10 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use RatingsAndReviews\Contracts\AbilityResolver;
 use RatingsAndReviews\Contracts\Commentable;
 use RatingsAndReviews\Contracts\RiskSignals;
 use RatingsAndReviews\Contracts\VoterIdentity;
@@ -15,14 +17,19 @@ use RatingsAndReviews\Events\CommentDeleted;
 use RatingsAndReviews\Events\CommentEdited;
 use RatingsAndReviews\Events\CommentModerated;
 use RatingsAndReviews\Events\CommentPosted;
+use RatingsAndReviews\Exceptions\ToneNudgeRequired;
+use RatingsAndReviews\Jobs\PublishScheduledComment;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\CommentRevision;
+use RatingsAndReviews\Models\Poll;
 use RatingsAndReviews\Models\Report;
 use RatingsAndReviews\Models\Upload;
+use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ContributionContext;
 use RatingsAndReviews\Support\SanitizedHtml;
 use RatingsAndReviews\Support\SectionSettings;
+use RatingsAndReviews\Support\TrustProfile;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /**
@@ -36,6 +43,19 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
  * as a placeholder (text gone, `author_removed_at` set) and the replies keep their place; a
  * placeholder left without replies is removed with the last of them. A moderator removes
  * the comment with its whole subtree.
+ *
+ * Posting also applies, in this order: trust levels (locked tools are stripped, deep replies
+ * flattened, polls refused), the quote ("quote and reply": an exact substring of a public
+ * comment in the same discussion), the poll definition, the rephrase nudge (422 unless
+ * `confirm_tone`), the SpamGuard, RiskSignals, and inside the transaction the lock and slow
+ * mode of the discussion. Moderators are exempt from trust levels, slow mode and locks.
+ *
+ * Undo window: with the section's `undo_window_seconds` above 0 a new comment gets
+ * `publish_at` = now + window and no `published_at`; only its author sees it and can undo
+ * it. CommentPublisher publishes it when the window ends and only then fires CommentPosted.
+ *
+ * Counted: the RiskSignals verdict is stored in `counted`. An uncounted comment is shown
+ * as usual but is not a contribution (ContributionCounter, digest totals, top comment).
  */
 class DiscussionService
 {
@@ -46,12 +66,20 @@ class DiscussionService
         private readonly RiskSignals $risk,
         private readonly VoterIdentity $identity,
         private readonly Dispatcher $events,
+        private readonly AbilityResolver $abilities,
+        private readonly TrustLevels $trust,
+        private readonly DiscussionStates $states,
+        private readonly ToneNudge $tone,
+        private readonly PollService $polls,
     ) {}
 
     /**
+     * @param  array{quoted_comment_id?: int|null, quote_text?: string|null, poll?: array<string, mixed>|null, confirm_tone?: bool}  $options
+     *
      * @throws ValidationException
+     * @throws ToneNudgeRequired
      */
-    public function post(Request $request, Authenticatable $author, Model&Commentable $subject, string $html, ?int $parentId = null): Comment
+    public function post(Request $request, Authenticatable $author, Model&Commentable $subject, string $html, ?int $parentId = null, array $options = []): Comment
     {
         $settings = $this->settings->for($subject->commentSection());
 
@@ -60,8 +88,20 @@ class DiscussionService
         }
 
         $authorId = (int) $author->getAuthIdentifier();
-        $placement = $this->placement($subject, $settings, $parentId);
-        $clean = $this->cleanBody($html, $settings, $authorId);
+        $moderator = $this->abilities->allows($author, Ability::MODERATE);
+
+        if (! $moderator && $this->states->isLocked($subject)) {
+            throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.discussion_locked')]);
+        }
+
+        $trust = $this->trust->for($author, $settings);
+        $placement = $this->placement($subject, $trust->settings, $parentId);
+        $clean = $this->cleanBody($html, $trust->settings, $authorId);
+        $quote = $this->quote($subject, $options['quoted_comment_id'] ?? null, $options['quote_text'] ?? null);
+        $clean = $this->withQuoteReferences($clean, $quote['id'] ?? null);
+        $poll = $this->pollDefinition($options['poll'] ?? null, $trust);
+
+        $this->checkTone([$clean->text, $poll['question'] ?? '', ...($poll['options'] ?? [])], (bool) ($options['confirm_tone'] ?? false));
 
         $verdict = $this->spam->inspect($request, $clean->text, $authorId);
 
@@ -80,8 +120,13 @@ class DiscussionService
         ));
 
         $status = $verdict->hold || $risk->hold ? ContentStatus::Pending : ContentStatus::Approved;
+        $publishAt = $settings->undoWindowSeconds > 0 ? now()->addSeconds($settings->undoWindowSeconds) : null;
 
-        $comment = DB::transaction(function () use ($request, $subject, $settings, $authorId, $placement, $clean, $status): Comment {
+        $comment = DB::transaction(function () use ($request, $subject, $settings, $authorId, $moderator, $placement, $clean, $status, $risk, $quote, $poll, $publishAt): Comment {
+            if (! $moderator && ($this->states->isLocked($subject) || $this->states->effectiveSlowMode($subject, $settings) > 0)) {
+                $this->states->assertMayPost($subject, $settings, $authorId);
+            }
+
             $comment = Comment::query()->create([
                 'commentable_type' => $subject->getMorphClass(),
                 'commentable_id' => $subject->getKey(),
@@ -92,9 +137,13 @@ class DiscussionService
                 'depth' => $placement['depth'],
                 'user_id' => $authorId,
                 'status' => $status,
+                'counted' => $risk->counted,
                 'body_html' => $clean->html,
                 'body_text' => $clean->text,
-                'published_at' => $status === ContentStatus::Approved ? now() : null,
+                'quoted_comment_id' => $quote['id'] ?? null,
+                'quote_text' => $quote['text'] ?? null,
+                'publish_at' => $publishAt,
+                'published_at' => $status === ContentStatus::Approved && $publishAt === null ? now() : null,
                 'ip_hash' => $this->identity->ipHash($request),
                 'network_hash' => $this->identity->networkHash($request),
                 'device_hash' => $this->identity->deviceHash($request),
@@ -102,18 +151,54 @@ class DiscussionService
 
             $this->attachUploads($comment, $clean);
 
+            if ($poll !== null) {
+                $this->polls->create($comment, $poll);
+            }
+
             return $comment;
         });
 
         // Load the database defaults and the generated helpful_score.
         $comment->refresh();
         $comment->setRelation('commentable', $subject);
+        $this->trust->forget($authorId);
 
-        if ($status === ContentStatus::Approved) {
+        if ($comment->status === ContentStatus::Approved && $comment->published_at !== null) {
             $this->events->dispatch(new CommentPosted($comment));
+        } elseif ($comment->publish_at !== null) {
+            PublishScheduledComment::dispatch($comment->id)->delay($comment->publish_at);
         }
 
         return $comment;
+    }
+
+    /**
+     * The author takes back a comment inside its undo window. It was never public, so it
+     * is removed for good (with its poll); its uploads are released for reuse.
+     *
+     * @throws AccessDeniedHttpException
+     * @throws ValidationException when the window has passed
+     */
+    public function undo(Comment $comment, Authenticatable $author): void
+    {
+        if ((int) $author->getAuthIdentifier() !== $comment->user_id) {
+            throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.not_yours'));
+        }
+
+        DB::transaction(function () use ($comment): void {
+            $locked = Comment::query()->whereKey($comment->id)->lockForUpdate()->first();
+
+            if ($locked === null || ! $locked->isUndoable()) {
+                throw ValidationException::withMessages(['comment' => __('ratings-and-reviews::messages.undo_expired')]);
+            }
+
+            Upload::query()
+                ->where('attached_type', $locked->getMorphClass())
+                ->where('attached_id', $locked->id)
+                ->update(['attached_type' => null, 'attached_id' => null, 'attached_at' => null]);
+
+            $locked->forceDelete();
+        });
     }
 
     /**
@@ -126,7 +211,7 @@ class DiscussionService
      * @throws ValidationException
      * @throws AccessDeniedHttpException
      */
-    public function edit(Request $request, Comment $comment, string $html, Authenticatable $editor, bool $asModerator = false): Comment
+    public function edit(Request $request, Comment $comment, string $html, Authenticatable $editor, bool $asModerator = false, bool $confirmTone = false): Comment
     {
         $editorId = (int) $editor->getAuthIdentifier();
         $subject = $comment->commentable;
@@ -141,6 +226,10 @@ class DiscussionService
                 throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comments_closed')]);
             }
 
+            if ($subject instanceof Model && ! $this->abilities->allows($editor, Ability::MODERATE) && $this->states->isLocked($subject)) {
+                throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.discussion_locked')]);
+            }
+
             if (! $this->withinEditWindow($comment, $settings)) {
                 throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.edit_window_closed')]);
             }
@@ -150,15 +239,19 @@ class DiscussionService
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comment_removed')]);
         }
 
-        $clean = $this->cleanBody($html, $settings, $comment->user_id);
+        $clean = $this->cleanBody($html, $this->trust->for($editor, $settings)->settings, $comment->user_id);
+        $clean = $this->withQuoteReferences($clean, $comment->quoted_comment_id);
 
         if ($clean->html === $comment->body_html) {
             return $comment;
         }
 
         $hold = false;
+        $counted = $comment->counted;
 
         if (! $asModerator) {
+            $this->checkTone([$clean->text], $confirmTone);
+
             $verdict = $this->spam->inspect($request, $clean->text, $comment->user_id, $comment);
 
             if ($verdict->refuse) {
@@ -177,9 +270,10 @@ class DiscussionService
             )) : null;
 
             $hold = $verdict->hold || ($risk?->hold ?? false);
+            $counted = $risk?->counted ?? $counted;
         }
 
-        [$revision, $sentBack] = DB::transaction(function () use ($comment, $clean, $editorId, $hold): array {
+        [$revision, $sentBack] = DB::transaction(function () use ($comment, $clean, $editorId, $hold, $counted): array {
             $locked = Comment::query()->whereKey($comment->id)->lockForUpdate()->firstOrFail();
             $revision = $this->recordRevision($locked, $editorId);
             $sentBack = $hold && $locked->status === ContentStatus::Approved;
@@ -190,6 +284,7 @@ class DiscussionService
                 'is_edited' => true,
                 'edited_at' => now(),
                 'status' => $sentBack ? ContentStatus::Pending : $locked->status,
+                'counted' => $counted,
             ])->save();
 
             $this->attachUploads($comment, $clean);
@@ -231,9 +326,12 @@ class DiscussionService
                 $comment->forceFill([
                     'body_html' => '',
                     'body_text' => '',
+                    'quote_text' => null,
                     'author_removed_at' => now(),
                     'held_as_evidence' => $evidence,
                 ])->save();
+
+                Poll::query()->where('comment_id', $comment->id)->delete();
 
                 return [[], true];
             }
@@ -279,7 +377,9 @@ class DiscussionService
                 return [$previous, false];
             }
 
-            $published = $status === ContentStatus::Approved && $locked->published_at === null;
+            // Inside its undo window the publisher publishes it when the window ends.
+            $published = $status === ContentStatus::Approved && $locked->published_at === null
+                && ($locked->publish_at === null || ! $locked->publish_at->isFuture());
             $comment->forceFill([
                 'status' => $status,
                 'published_at' => $published ? now() : $locked->published_at,
@@ -380,6 +480,105 @@ class DiscussionService
         }
 
         return $clean;
+    }
+
+    /**
+     * Validates "quote and reply": the quoted comment must be public in the same discussion
+     * and the quote an exact substring of its plain text (whitespace collapsed).
+     *
+     * @return array{id: int, text: string}|null
+     *
+     * @throws ValidationException
+     */
+    public function quote(Model $subject, mixed $quotedId, mixed $quoteText): ?array
+    {
+        $text = is_string($quoteText) ? trim((string) preg_replace('/\s+/u', ' ', $quoteText)) : '';
+        $id = filter_var($quotedId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+        if ($id === false && $text === '' && ($quotedId === null || $quotedId === '')) {
+            return null;
+        }
+
+        if ($id === false) {
+            throw ValidationException::withMessages(['quoted_comment_id' => __('ratings-and-reviews::messages.quote_unavailable')]);
+        }
+
+        if ($text === '') {
+            throw ValidationException::withMessages(['quote_text' => __('ratings-and-reviews::messages.quote_required')]);
+        }
+
+        $max = max(1, (int) config('ratings-and-reviews.discussions.max_quote_length', 500));
+
+        if (mb_strlen($text) > $max) {
+            throw ValidationException::withMessages(['quote_text' => __('ratings-and-reviews::messages.quote_too_long', ['max' => $max])]);
+        }
+
+        $quoted = Comment::query()->forSubject($subject)->find($id);
+
+        if ($quoted === null || ! $quoted->isPubliclyVisible()) {
+            throw ValidationException::withMessages(['quoted_comment_id' => __('ratings-and-reviews::messages.quote_unavailable')]);
+        }
+
+        if (! str_contains($quoted->body_text, $text)) {
+            throw ValidationException::withMessages(['quote_text' => __('ratings-and-reviews::messages.quote_mismatch')]);
+        }
+
+        return ['id' => $quoted->id, 'text' => $text];
+    }
+
+    /**
+     * Keeps `data-rr-quote` only when it names the validated quoted comment, so a body
+     * cannot claim to quote a comment it did not.
+     */
+    private function withQuoteReferences(SanitizedHtml $clean, ?int $quotedId): SanitizedHtml
+    {
+        if (! str_contains($clean->html, 'data-rr-quote')) {
+            return $clean;
+        }
+
+        $html = (string) preg_replace_callback(
+            '/\sdata-rr-quote="([^"]*)"/',
+            fn (array $match): string => $quotedId !== null && $match[1] === (string) $quotedId ? $match[0] : '',
+            $clean->html,
+        );
+
+        return new SanitizedHtml($html, $clean->text, $clean->imageCount, $clean->droppedImages, $clean->uploadPaths);
+    }
+
+    /**
+     * @return array{question: string, options: list<string>, closes_at: Carbon|null}|null
+     *
+     * @throws ValidationException
+     */
+    private function pollDefinition(mixed $input, TrustProfile $trust): ?array
+    {
+        if ($input === null || $input === []) {
+            return null;
+        }
+
+        if (! $trust->allows(TrustProfile::POLL)) {
+            throw ValidationException::withMessages(['poll' => trans_choice('ratings-and-reviews::messages.trust_locked', $trust->locked[TrustProfile::POLL], ['count' => $trust->locked[TrustProfile::POLL]])]);
+        }
+
+        return $this->polls->definition($input);
+    }
+
+    /**
+     * @param  list<string>  $texts
+     *
+     * @throws ToneNudgeRequired
+     */
+    private function checkTone(array $texts, bool $confirmed): void
+    {
+        if ($confirmed) {
+            return;
+        }
+
+        $suggestion = $this->tone->check(implode("\n", $texts));
+
+        if ($suggestion !== null) {
+            throw new ToneNudgeRequired($suggestion);
+        }
     }
 
     private function recordRevision(Comment $comment, int $editorId): CommentRevision

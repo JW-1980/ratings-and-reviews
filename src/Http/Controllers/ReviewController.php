@@ -10,16 +10,25 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use RatingsAndReviews\Contracts\AuthorResolver;
+use RatingsAndReviews\Contracts\CardResolver;
+use RatingsAndReviews\Contracts\PriceAtReviewResolver;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Contracts\VoterIdentity;
+use RatingsAndReviews\Contracts\WantToTryList;
 use RatingsAndReviews\Http\Requests\StoreReviewRequest;
 use RatingsAndReviews\Http\Requests\UpdateReviewRequest;
 use RatingsAndReviews\Http\Resources\ReviewResource;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Services\RatingTopicCatalog;
+use RatingsAndReviews\Services\ReviewFacets;
+use RatingsAndReviews\Services\ReviewQualityMeter;
 use RatingsAndReviews\Services\ReviewService;
 use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Services\SubjectResolver;
+use RatingsAndReviews\Services\ToneNudge;
+use RatingsAndReviews\Services\TrustLevels;
 use RatingsAndReviews\Services\VoteService;
+use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ReviewSort;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -34,21 +43,38 @@ class ReviewController extends Controller
         private readonly AuthorResolver $authors,
         private readonly VoterIdentity $identity,
         private readonly SectionSettingsRepository $settings,
+        private readonly ReviewFacets $facets,
+        private readonly ReviewQualityMeter $quality,
+        private readonly RatingTopicCatalog $topics,
+        private readonly TrustLevels $trust,
+        private readonly ToneNudge $tone,
     ) {}
 
+    /**
+     * The reviews of a subject. Filters: `rating` (on the section's scale) and
+     * `facet[group]=value` (several groups combine with AND; unknown groups or values are
+     * ignored).
+     */
     public function index(Request $request, string $type, string $id): JsonResponse
     {
         $viewer = $this->currentUser($request);
         $subject = $this->visibleSubject($type, $id, $viewer);
-        $scale = $this->settings->for($subject->reviewSection())->reviewScale;
+        $settings = $this->settings->for($subject->reviewSection());
+        $scale = $settings->reviewScale;
         $sort = ReviewSort::tryFrom((string) $request->query('sort')) ?? ReviewSort::Helpful;
         $ratingFilter = filter_var($request->query('rating'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => $scale]]);
 
-        $query = Review::query()->forSubject($subject)->approved()->with('topicRatings');
+        $query = Review::query()->forSubject($subject)->approved()->with(['topicRatings', 'compared']);
 
         if ($ratingFilter !== false && $ratingFilter !== null) {
             // The rating on the section's scale, as the histogram buckets it.
             $query->whereRaw('ROUND(1 + (rating - 1) / GREATEST(scale_max - 1, 1) * ?) = ?', [$scale - 1, $ratingFilter]);
+        }
+
+        $facetFilter = $this->facetFilter($request->query('facet'));
+
+        foreach ($facetFilter as $group => $value) {
+            $query->where('facets->'.$group, $value);
         }
 
         $this->sort($query, $sort);
@@ -58,7 +84,7 @@ class ReviewController extends Controller
         $items = collect($page->items());
 
         $viewerId = $this->userId($viewer);
-        $own = $viewerId === null ? null : Review::query()->forSubject($subject)->where('user_id', $viewerId)->with('topicRatings')->first();
+        $own = $viewerId === null ? null : Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(['topicRatings', 'compared'])->first();
         $profiles = $this->authors->resolve($items->pluck('user_id')->push($own?->user_id)->filter()->map(fn ($id): int => (int) $id)->unique()->values()->all());
         $choices = $this->votes->choicesFor((new Review)->getMorphClass(), $items->pluck('id')->push($own?->id)->filter()->map(fn ($id): int => (int) $id)->all(), $this->identity->voterKey($request, $viewer));
 
@@ -73,8 +99,38 @@ class ReviewController extends Controller
                 'sorts' => array_map(fn (ReviewSort $case): array => ['value' => $case->value, 'label' => $case->label()], ReviewSort::cases()),
                 'scale_max' => $scale,
                 'own_review' => $own === null ? null : $present($own),
+                'filters' => ['rating' => $ratingFilter === false ? null : $ratingFilter, 'facets' => (object) $facetFilter],
+                'facets' => $this->facets->options(),
+                'comparisons' => array_map(fn ($case): array => ['value' => $case->value, 'label' => $case->label()], Comparison::cases()),
+                'editor' => $this->trust->for($viewer, $settings)->toArray(),
+                'features' => [
+                    'price_at_review' => app(PriceAtReviewResolver::class)->isEnabled(),
+                    'want_to_try' => app(WantToTryList::class)->isEnabled(),
+                    'product_cards' => app(CardResolver::class)->isEnabled(),
+                    'tone_check' => $this->tone->isEnabled(),
+                ],
+                'accepts_reviews' => $settings->enabled && $subject->acceptsReviews(),
             ],
         ]);
+    }
+
+    /**
+     * @return array<string, string> validated group => value
+     */
+    private function facetFilter(mixed $input): array
+    {
+        $groups = $this->facets->groups();
+        $filter = [];
+
+        foreach (is_array($input) ? $input : [] as $group => $value) {
+            if (is_string($group) && is_string($value) && in_array($value, $groups[$group] ?? [], true)) {
+                $filter[$group] = $value;
+            }
+        }
+
+        ksort($filter);
+
+        return $filter;
     }
 
     public function store(StoreReviewRequest $request, string $type, string $id): JsonResponse
@@ -119,12 +175,23 @@ class ReviewController extends Controller
 
     private function saved(Request $request, Review $review, int $status): JsonResponse
     {
-        $review->load('topicRatings');
+        $review->load(['topicRatings', 'compared']);
         $viewerId = $review->user_id;
         $profile = $this->authors->resolve([$viewerId])[$viewerId] ?? null;
+        $subject = $review->reviewable;
+
+        $quality = $this->quality->assess([
+            'text' => $review->body_text,
+            'pros' => count($review->pros ?? []),
+            'cons' => count($review->cons ?? []),
+            'topics_rated' => $review->topicRatings->count(),
+            'topics_available' => $subject instanceof Reviewable ? $this->topics->effectiveFor($subject)->count() : 0,
+            'extended_fields' => $subject instanceof Reviewable && $this->settings->for($subject->reviewSection())->reviewExtendedFields,
+        ]);
 
         return new JsonResponse([
             'data' => (new ReviewResource($review))->withContext($profile, [], $viewerId)->resolve($request),
+            'quality' => $quality->toArray(),
             'message' => $review->status === ContentStatus::Approved
                 ? __('ratings-and-reviews::messages.review_published')
                 : __('ratings-and-reviews::messages.review_pending'),

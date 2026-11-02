@@ -9,6 +9,6 @@ class UpdateCommentRequest extends PackageRequest
      */
     public function rules(): array
     {
-        return ['body' => ['required', 'string']];
+        return ['body' => ['required', 'string'], 'confirm_tone' => ['sometimes', 'boolean']];
     }
 }
