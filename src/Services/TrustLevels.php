@@ -22,14 +22,11 @@ use RatingsAndReviews\Support\TrustProfile;
  * - `poll` refuses a poll attached to a comment.
  *
  * Moderators are exempt. The product card tool is also removed while the host has no
- * CardResolver. The count is asked once per member and request, and only when a threshold
- * above 0 applies.
+ * CardResolver. The count is only asked when a threshold above 0 applies; it is not
+ * memoised, because this service can live longer than one request (long-running workers).
  */
 class TrustLevels
 {
-    /** @var array<int, int> */
-    private array $counted = [];
-
     public function __construct(
         private readonly ContributionCounter $counter,
         private readonly AbilityResolver $abilities,
@@ -50,7 +47,7 @@ class TrustLevels
         $locked = [];
 
         if (! $exempt && $thresholds !== []) {
-            $contributions = $user === null ? 0 : $this->contributions((int) $user->getAuthIdentifier());
+            $contributions = $user === null ? 0 : $this->counter->approvedContributions((int) $user->getAuthIdentifier());
 
             foreach ($thresholds as $key => $required) {
                 if ($contributions < $required) {
@@ -67,15 +64,5 @@ class TrustLevels
         }
 
         return new TrustProfile($effective, $contributions, $locked, $exempt);
-    }
-
-    public function forget(int $userId): void
-    {
-        unset($this->counted[$userId]);
-    }
-
-    private function contributions(int $userId): int
-    {
-        return $this->counted[$userId] ??= $this->counter->approvedContributions($userId);
     }
 }

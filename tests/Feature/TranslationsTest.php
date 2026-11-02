@@ -2,6 +2,9 @@
 
 namespace RatingsAndReviews\Tests\Feature;
 
+use RatingsAndReviews\Services\ReviewFacets;
+use RatingsAndReviews\Services\ReviewQualityMeter;
+use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\DiscussionSort;
 use RatingsAndReviews\Support\EditorTool;
@@ -54,5 +57,26 @@ class TranslationsTest extends TestCase
 
         $this->app->setLocale('nl');
         $this->assertSame('Bron nodig', VoteDimension::NeedsSource->label());
+    }
+
+    public function test_every_configured_facet_quality_rule_and_comparison_has_a_label_in_both_languages(): void
+    {
+        foreach (['en', 'nl'] as $locale) {
+            $this->app->setLocale($locale);
+
+            foreach ($this->app->make(ReviewFacets::class)->groups() as $group => $values) {
+                foreach (['label', ...$values] as $key) {
+                    $this->assertTrue(trans()->has("ratings-and-reviews::enums.facet.{$group}.{$key}"), "Facet {$group}.{$key} has no {$locale} label.");
+                }
+            }
+
+            foreach ($this->app->make(ReviewQualityMeter::class)->configuredRules() as $rule) {
+                $this->assertTrue(trans()->has('ratings-and-reviews::messages.quality_hints.'.$rule['key']), "Quality rule {$rule['key']} has no {$locale} hint.");
+            }
+
+            foreach (Comparison::cases() as $case) {
+                $this->assertStringNotContainsString('ratings-and-reviews::', $case->label());
+            }
+        }
     }
 }

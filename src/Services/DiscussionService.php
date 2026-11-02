@@ -161,7 +161,6 @@ class DiscussionService
         // Load the database defaults and the generated helpful_score.
         $comment->refresh();
         $comment->setRelation('commentable', $subject);
-        $this->trust->forget($authorId);
 
         if ($comment->status === ContentStatus::Approved && $comment->published_at !== null) {
             $this->events->dispatch(new CommentPosted($comment));

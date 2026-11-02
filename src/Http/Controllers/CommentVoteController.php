@@ -16,7 +16,7 @@ class CommentVoteController extends Controller
     public function store(VoteRequest $request, string $comment): JsonResponse
     {
         $viewer = $this->currentUser($request);
-        $model = ctype_digit($comment) ? Comment::query()->approved()->find((int) $comment) : null;
+        $model = ctype_digit($comment) ? Comment::query()->published()->find((int) $comment) : null;
         $subject = $model?->commentable;
 
         if ($model === null || ! $subject instanceof Commentable || ! $subject->commentsVisibleTo($viewer)) {

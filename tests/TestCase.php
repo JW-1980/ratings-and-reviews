@@ -4,9 +4,12 @@ namespace RatingsAndReviews\Tests;
 
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\Gate;
 use Orchestra\Testbench\TestCase as Orchestra;
+use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\RatingsAndReviewsServiceProvider;
+use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Tests\Fixtures\Article;
 use RatingsAndReviews\Tests\Fixtures\Product;
@@ -32,9 +35,17 @@ abstract class TestCase extends Orchestra
         $this->configurePackageEnvironment($app);
     }
 
+    /**
+     * The fixture tables join the one migrate:fresh that RefreshDatabase runs. Loading them
+     * again in every later test would make Testbench migrate and roll them back per test; that
+     * rollback is DDL, which commits the test transaction implicitly (and, in a test that
+     * swaps the `db` instance, waits forever on the test's own metadata lock).
+     */
     protected function defineDatabaseMigrations(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/database/migrations');
+        if (! RefreshDatabaseState::$migrated) {
+            $this->loadMigrationsFrom(__DIR__.'/database/migrations');
+        }
     }
 
     protected function setUp(): void
@@ -67,5 +78,21 @@ abstract class TestCase extends Orchestra
     protected function product(array $attributes = []): Product
     {
         return Product::query()->create($attributes + ['name' => 'Oat drink']);
+    }
+
+    /** Overrides config keys of a section and drops its cached settings. */
+    protected function configureSection(string $section, array $values): void
+    {
+        foreach ($values as $key => $value) {
+            config(["ratings-and-reviews.sections.{$section}.{$key}" => $value]);
+        }
+
+        $this->app->make(SectionSettingsRepository::class)->forget($section);
+    }
+
+    /** A published comment on the product. */
+    protected function commentOn(Product $product, array $attributes = []): Comment
+    {
+        return Comment::factory()->forSubject($product)->create($attributes);
     }
 }

@@ -20,10 +20,13 @@ trait HasComments
     }
 
     /**
+     * The public comments: approved and published (a comment inside its undo window is
+     * approved but not yet published).
+     *
      * @return MorphMany<Comment, $this>
      */
     public function approvedComments(): MorphMany
     {
-        return $this->comments()->where('status', ContentStatus::Approved->value);
+        return $this->comments()->where('status', ContentStatus::Approved->value)->whereNotNull('published_at');
     }
 }

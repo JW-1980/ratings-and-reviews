@@ -164,3 +164,15 @@ Er gebeurt eerst fase A per app (bugs en morph map). Daarna:
 2. Contracts binden in een ServiceProvider van de host (`RiskSignals` en `VoterIdentity` via `device-id`).
 3. Data migreren met idempotente commands (`rr:import-wzl`, `rr:import-nc`) die de bestaande tabellen kopiëren naar `rr_`-tabellen, met verificatie van de aantallen voor en na. De bestaande tabellen blijven staan tot de eigenaar besluit ze op te ruimen.
 4. Views en pagina's per subject omzetten naar de pakketcomponenten.
+
+## Afwijkingen bij de bouw van versie 1 (2 november 2026)
+
+- **`RiskSignals::forPollVote(PollVoteContext)`** is toegevoegd: een peilingstem is geen `Votable` en past niet in `VoteContext`. Ook een peilingstem wordt nooit geweigerd, alleen niet meegeteld.
+- **`rr_comments.counted`** is toegevoegd (migratie `000006`). Een reactie met `counted=false` is zichtbaar, maar telt niet als bijdrage (`ContributionCounter`, vertrouwensniveaus, TL;DR, topreactie). Een bewerking door de auteur beoordeelt dit opnieuw.
+- **`rr_rating_aggregates`** kreeg `facet_counts`, `monthly` en `comparisons`, zodat facetten, scoreverloop en "Vergeleken met…" in de job worden berekend en niet bij elke request.
+- **Zichtbaar = goedgekeurd én gepubliceerd** (`published_at`). Een reactie in het venster om ongedaan te maken is alleen voor de auteur zichtbaar, net als de eigen reacties die op moderatie wachten (`visibility`: `scheduled` of `pending`).
+- **Onzekerheidsband:** het 95%-interval gebruikt Student's t voor n − 1 vrijheidsgraden (vanaf 121: 1,96), zodat de band bij weinig reviews niet te smal is. Onder 2 reviews is er geen marge.
+- **TL;DR:** "per standpunt" betekent netto eens (eens − oneens > 0) en netto oneens; een reactie staat nooit in beide lijsten. `digest_threshold = 0` zet de TL;DR uit.
+- **Vertrouwensniveau `deep_reply`** weigert niet, maar plaatst diepere antwoorden op niveau 1 (met `in_reply_to_id`), zoals de bestaande platslaan-regel.
+- **"Controversieel"** is er alleen voor reacties: stemmen op reviews zijn eenzijdig (alleen "nuttig").
+- **Zoeken** heeft een throttle (`rr-lookup`), net als hovercards, productkaarten en de toon-check.

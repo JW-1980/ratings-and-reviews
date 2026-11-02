@@ -16,7 +16,9 @@ use RatingsAndReviews\Support\SectionSettings;
  *
  * Slow mode is checked inside the posting transaction after the discussion's state row is
  * locked (SELECT … FOR UPDATE), so two posts of the same member arriving together are
- * serialised and the second sees the first.
+ * serialised. The member's last comment is then read with a locking read too: under
+ * REPEATABLE READ a plain read would use the transaction's earlier snapshot and miss the
+ * comment the other transaction just committed.
  */
 class DiscussionStates
 {
@@ -87,7 +89,7 @@ class DiscussionStates
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.discussion_locked')]);
         }
 
-        $remaining = $this->secondsUntilNextPost($subject, $settings, $authorId, $state);
+        $remaining = $this->secondsUntilNextPost($subject, $settings, $authorId, $state, locking: true);
 
         if ($remaining > 0) {
             throw ValidationException::withMessages(['body' => trans_choice('ratings-and-reviews::messages.slow_mode', $remaining, ['seconds' => $remaining])]);
@@ -95,7 +97,7 @@ class DiscussionStates
     }
 
     /** Seconds before this member may post again in this discussion (0: now). */
-    public function secondsUntilNextPost(Model $subject, SectionSettings $settings, int $authorId, ?DiscussionState $state = null): int
+    public function secondsUntilNextPost(Model $subject, SectionSettings $settings, int $authorId, ?DiscussionState $state = null, bool $locking = false): int
     {
         $interval = $this->effectiveSlowMode($subject, $settings, $state);
 
@@ -106,6 +108,7 @@ class DiscussionStates
         $last = Comment::query()->withTrashed()
             ->forSubject($subject)
             ->where('user_id', $authorId)
+            ->when($locking, fn ($query) => $query->sharedLock())
             ->max('created_at');
 
         if ($last === null) {
