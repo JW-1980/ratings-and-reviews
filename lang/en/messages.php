@@ -16,6 +16,8 @@ return [
     'comments_closed' => 'Comments cannot be posted here at the moment.',
     'comment_removed' => 'A removed comment can no longer be edited.',
     'comment_removed_placeholder' => 'Comment removed by its author',
+    'comment_withheld_placeholder' => 'This comment is temporarily hidden',
+    'comment_erased_placeholder' => 'Comment removed',
     'edit_window_closed' => 'The time for editing this comment has passed.',
     'parent_unavailable' => 'You cannot reply to a hidden or removed comment.',
     'comment_published' => 'Your comment has been posted.',

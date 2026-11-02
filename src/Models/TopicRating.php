@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Carbon;
+use RatingsAndReviews\Models\Scopes\ExcludeErasureWithheld;
 
 /**
  * A member's score for one rating topic of a subject, given without a review (see
@@ -23,6 +24,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $uncounted_reason
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property Carbon|null $erasure_withheld_at set while the member's erasure request is pending (hidden everywhere)
  */
 class TopicRating extends Model
 {
@@ -30,7 +32,7 @@ class TopicRating extends Model
 
     protected $fillable = [
         'reviewable_type', 'reviewable_id', 'user_id', 'topic_id', 'value', 'scale_max', 'counted', 'uncounted_reason',
-        'ip_hash', 'network_hash', 'device_hash', 'created_at', 'updated_at',
+        'ip_hash', 'network_hash', 'device_hash', 'created_at', 'updated_at', 'erasure_withheld_at',
     ];
 
     protected $hidden = ['ip_hash', 'network_hash', 'device_hash'];
@@ -44,7 +46,13 @@ class TopicRating extends Model
             'value' => 'integer',
             'scale_max' => 'integer',
             'counted' => 'boolean',
+            'erasure_withheld_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new ExcludeErasureWithheld);
     }
 
     /**

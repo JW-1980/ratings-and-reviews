@@ -32,7 +32,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property int|null $root_id
  * @property int|null $in_reply_to_id
  * @property int $depth
- * @property int $user_id
+ * @property int|null $user_id null on a placeholder left by an erasure (Services\Erasure::purge)
  * @property ContentStatus $status
  * @property bool $counted
  * @property string $body_html
@@ -59,6 +59,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
+ * @property Carbon|null $erasure_withheld_at set while the author's erasure request is pending
  */
 class Comment extends Model implements Moderatable, Votable
 {
@@ -74,7 +75,7 @@ class Comment extends Model implements Moderatable, Votable
         'status', 'counted', 'body_html', 'body_text', 'quoted_comment_id', 'quote_text', 'agree_count', 'disagree_count',
         'helpful_count', 'unhelpful_count', 'needs_source_count', 'controversy_score', 'flags_count', 'is_edited',
         'edited_at', 'author_removed_at', 'held_as_evidence', 'publish_at', 'published_at', 'ip_hash', 'network_hash',
-        'device_hash',
+        'device_hash', 'erasure_withheld_at',
     ];
 
     protected $hidden = ['ip_hash', 'network_hash', 'device_hash'];
@@ -105,6 +106,7 @@ class Comment extends Model implements Moderatable, Votable
             'held_as_evidence' => 'boolean',
             'publish_at' => 'datetime',
             'published_at' => 'datetime',
+            'erasure_withheld_at' => 'datetime',
         ];
     }
 
@@ -226,7 +228,23 @@ class Comment extends Model implements Moderatable, Votable
      */
     public function scopeWithContent(Builder $query): void
     {
-        $query->whereNull('author_removed_at');
+        $query->whereNull($query->qualifyColumn('author_removed_at'))->whereNull($query->qualifyColumn('erasure_withheld_at'));
+    }
+
+    /**
+     * Leaves out comments withheld for an erasure request that hold no replies: a withheld
+     * comment with replies stays in the tree as a placeholder, so the replies keep their place.
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopeWithoutWithheldLeaves(Builder $query): void
+    {
+        $table = $this->getTable();
+
+        $query->where(fn (Builder $where) => $where->whereNull($table.'.erasure_withheld_at')
+            ->orWhereExists(fn ($children) => $children->selectRaw('1')->from($table.' as rr_children')
+                ->whereColumn('rr_children.parent_id', $table.'.id')
+                ->whereNull('rr_children.deleted_at')));
     }
 
     /**
@@ -271,6 +289,18 @@ class Comment extends Model implements Moderatable, Votable
     public function isRemovedByAuthor(): bool
     {
         return $this->author_removed_at !== null;
+    }
+
+    /** Whether it is withheld for its author's pending erasure request. */
+    public function isErasureWithheld(): bool
+    {
+        return $this->erasure_withheld_at !== null;
+    }
+
+    /** Whether readers see a placeholder instead of the text (removed by the author, or withheld). */
+    public function isPlaceholder(): bool
+    {
+        return $this->isRemovedByAuthor() || $this->isErasureWithheld();
     }
 
     /** Wilson lower bound of the helpfulness votes, the same formula as the stored helpful_score column. */
@@ -360,7 +390,7 @@ class Comment extends Model implements Moderatable, Votable
 
     public function isPubliclyVisible(): bool
     {
-        return $this->status === ContentStatus::Approved && $this->published_at !== null && ! $this->trashed() && ! $this->isRemovedByAuthor();
+        return $this->status === ContentStatus::Approved && $this->published_at !== null && ! $this->trashed() && ! $this->isPlaceholder();
     }
 
     public function moderationSnapshot(): array

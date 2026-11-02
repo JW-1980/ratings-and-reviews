@@ -270,6 +270,26 @@ class Uploads
      *
      * @param  Collection<int, Upload>  $uploads
      */
+    /**
+     * Erasure: deletes every upload of the user (files and rows) except those attached to
+     * the items in `$keep` (content kept as evidence), and returns how many went. A file
+     * that cannot be deleted keeps its row, detached, so rr:prune-uploads retries it.
+     *
+     * @param  list<array{0: string, 1: int}>  $keep  [morph type, id] of attached content to keep
+     */
+    public function purgeForUser(int $userId, array $keep = []): int
+    {
+        $uploads = Upload::query()->where('user_id', $userId)->get()
+            ->reject(fn (Upload $upload): bool => $upload->attached_id !== null && in_array([(string) $upload->attached_type, (int) $upload->attached_id], $keep, true));
+
+        $deleted = $this->deleteUploads($uploads);
+
+        Upload::query()->whereKey($uploads->modelKeys())
+            ->update(['attached_type' => null, 'attached_id' => null, 'attached_at' => null, 'role' => null, 'position' => 0, 'created_at' => now()->subYears(10)]);
+
+        return $deleted;
+    }
+
     private function deleteUploads(Collection $uploads): int
     {
         $deleted = 0;

@@ -31,6 +31,6 @@ trait HasComments
      */
     public function rrApprovedComments(): MorphMany
     {
-        return $this->rrComments()->where('status', ContentStatus::Approved->value)->whereNotNull('published_at');
+        return $this->rrComments()->where('status', ContentStatus::Approved->value)->whereNotNull('published_at')->whereNull('erasure_withheld_at');
     }
 }

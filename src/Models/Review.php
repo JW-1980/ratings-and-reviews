@@ -15,6 +15,7 @@ use RatingsAndReviews\Contracts\Moderatable;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Contracts\Votable;
 use RatingsAndReviews\Database\Factories\ReviewFactory;
+use RatingsAndReviews\Models\Scopes\ExcludeErasureWithheld;
 use RatingsAndReviews\Services\ReviewService;
 use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
@@ -52,6 +53,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
+ * @property Carbon|null $erasure_withheld_at set while the author's erasure request is pending (hidden everywhere)
  */
 class Review extends Model implements Moderatable, Votable
 {
@@ -66,7 +68,7 @@ class Review extends Model implements Moderatable, Votable
         'reviewable_type', 'reviewable_id', 'user_id', 'section', 'status', 'rating', 'scale_max', 'title', 'body_html', 'body_text',
         'pros', 'cons', 'facets', 'price_cents', 'price_currency', 'compared_type', 'compared_id', 'comparison',
         'quality_score', 'helpful_count', 'flags_count', 'ip_hash', 'network_hash', 'device_hash', 'counted',
-        'approved_at', 'edited_at',
+        'approved_at', 'edited_at', 'erasure_withheld_at',
     ];
 
     protected $hidden = ['ip_hash', 'network_hash', 'device_hash'];
@@ -91,7 +93,23 @@ class Review extends Model implements Moderatable, Votable
             'counted' => 'boolean',
             'approved_at' => 'datetime',
             'edited_at' => 'datetime',
+            'erasure_withheld_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new ExcludeErasureWithheld);
+    }
+
+    /**
+     * Includes reviews withheld for a pending erasure request.
+     *
+     * @param  Builder<Review>  $query
+     */
+    public function scopeWithErasureWithheld(Builder $query): void
+    {
+        $query->withoutGlobalScope(ExcludeErasureWithheld::class);
     }
 
     /**
@@ -187,7 +205,7 @@ class Review extends Model implements Moderatable, Votable
 
     public function acceptsVotes(): bool
     {
-        return $this->status === ContentStatus::Approved && ! $this->trashed();
+        return $this->isPubliclyVisible();
     }
 
     public function voteCounterColumns(): array
@@ -212,7 +230,7 @@ class Review extends Model implements Moderatable, Votable
 
     public function isPubliclyVisible(): bool
     {
-        return $this->status === ContentStatus::Approved && ! $this->trashed();
+        return $this->status === ContentStatus::Approved && ! $this->trashed() && $this->erasure_withheld_at === null;
     }
 
     public function moderationSnapshot(): array

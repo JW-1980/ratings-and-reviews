@@ -16,6 +16,8 @@ return [
     'comments_closed' => 'Je kunt hier op dit moment niet reageren.',
     'comment_removed' => 'Een verwijderde reactie kan niet meer worden bewerkt.',
     'comment_removed_placeholder' => 'Reactie verwijderd door de schrijver',
+    'comment_withheld_placeholder' => 'Deze reactie is tijdelijk verborgen',
+    'comment_erased_placeholder' => 'Reactie verwijderd',
     'edit_window_closed' => 'De tijd om deze reactie te bewerken is voorbij.',
     'parent_unavailable' => 'Je kunt niet reageren op een verborgen of verwijderde reactie.',
     'comment_published' => 'Je reactie is geplaatst.',

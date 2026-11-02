@@ -42,4 +42,22 @@ class UpgradeMigrationsTest extends CommittedTestCase
         $this->runMigration('2026_11_02_000010_make_rr_reports_reporter_id_nullable.php');
         $this->assertTrue($this->nullable('rr_reports', 'reporter_id'), 'Running it again changes nothing.');
     }
+
+    public function test_comment_user_id_becomes_nullable_on_an_upgraded_database(): void
+    {
+        $this->assertTrue($this->nullable('rr_comments', 'user_id'), 'Fresh installs are nullable.');
+
+        DB::statement('ALTER TABLE rr_comments MODIFY user_id BIGINT UNSIGNED NOT NULL');
+        Schema::table('rr_topic_ratings', fn ($table) => $table->dropIndex('rr_topic_ratings_erasure_index'));
+        Schema::table('rr_comments', fn ($table) => $table->dropIndex('rr_comments_erasure_index'));
+        Schema::table('rr_reviews', fn ($table) => $table->dropIndex('rr_reviews_erasure_index'));
+        foreach (['rr_reviews', 'rr_comments', 'rr_topic_ratings'] as $table) {
+            Schema::table($table, fn ($blueprint) => $blueprint->dropColumn('erasure_withheld_at'));
+        }
+
+        $this->runMigration('2026_11_02_000012_add_erasure_columns.php');
+
+        $this->assertTrue($this->nullable('rr_comments', 'user_id'));
+        $this->assertTrue($this->nullable('rr_reviews', 'erasure_withheld_at'));
+    }
 }

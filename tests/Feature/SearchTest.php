@@ -4,6 +4,7 @@ namespace RatingsAndReviews\Tests\Feature;
 
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Services\Erasure;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Tests\CommittedTestCase;
 
@@ -105,5 +106,22 @@ class SearchTest extends CommittedTestCase
 
         $this->getJson($this->url($product->id, 'haver').'&in=reviews')->assertJsonPath('meta.total_reviews', 1)->assertJsonPath('meta.total_comments', 0);
         $this->getJson($this->url($product->id, 'haver').'&in=comments')->assertJsonPath('meta.total_reviews', 0)->assertJsonPath('meta.total_comments', 1);
+    }
+
+    public function test_content_withheld_for_an_erasure_request_is_not_found(): void
+    {
+        $product = $this->product();
+        $leaver = $this->user();
+        Review::factory()->forSubject($product)->create(['user_id' => $leaver->id, 'body_text' => 'Haverdrank zonder suiker']);
+        Comment::factory()->forSubject($product)->create(['user_id' => $leaver->id, 'body_text' => 'Haverdrank is prima']);
+        $visible = Comment::factory()->forSubject($product)->create(['body_text' => 'Haverdrank smaakt mij goed']);
+
+        app(Erasure::class)->withhold($leaver->id);
+
+        $this->getJson($this->url($product->id, 'haverdrank'))
+            ->assertOk()
+            ->assertJsonPath('meta.total_reviews', 0)
+            ->assertJsonPath('meta.total_comments', 1)
+            ->assertJsonPath('data.comments.0.id', $visible->id);
     }
 }

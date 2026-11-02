@@ -11,6 +11,7 @@ use RatingsAndReviews\Jobs\RefreshRatingAggregates;
 use RatingsAndReviews\Models\RatingTopic;
 use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Models\ReviewTopicRating;
+use RatingsAndReviews\Models\TopicRating;
 
 /**
  * The star-rating topics per scope and category, and the topics a subject is rated on.
@@ -271,12 +272,15 @@ class RatingTopicCatalog
 
     private function refreshSubjectsRatedOn(int $topicId): void
     {
-        Review::query()
+        $subjects = Review::query()->withErasureWithheld()
             ->whereIn('id', ReviewTopicRating::query()->where('topic_id', $topicId)->select('review_id'))
-            ->select(['reviewable_type', 'reviewable_id'])
-            ->distinct()
-            ->get()
-            ->each(fn (Review $review) => RefreshRatingAggregates::dispatch($review->reviewable_type, (string) $review->reviewable_id));
+            ->toBase()->distinct()->get(['reviewable_type', 'reviewable_id'])
+            ->concat(TopicRating::query()->withoutGlobalScopes()->where('topic_id', $topicId)->toBase()->distinct()->get(['reviewable_type', 'reviewable_id']))
+            ->unique(fn (object $row): string => $row->reviewable_type.':'.$row->reviewable_id);
+
+        foreach ($subjects as $row) {
+            RefreshRatingAggregates::dispatch((string) $row->reviewable_type, (string) $row->reviewable_id);
+        }
     }
 
     private function attempts(): int

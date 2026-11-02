@@ -43,7 +43,8 @@ class ModerationController extends Controller
         $user = $this->requireAbility($request, Ability::MODERATE, ModerationScope::inbox($scopeKind));
         $status = ContentStatus::tryFrom((string) $request->query('status', 'pending')) ?? ContentStatus::Pending;
 
-        $query = $kind === 'reviews' ? Review::query()->with('photos') : Comment::query();
+        // Withheld for an erasure request: out of the inbox too (reviews by their global scope).
+        $query = $kind === 'reviews' ? Review::query()->with('photos') : Comment::query()->whereNull('erasure_withheld_at');
         $query->where('status', $status->value);
         $sections = $this->allowedSections($user, $scopeKind, (clone $query)->distinct()->pluck('section')->all());
         $this->whereSectionIn($query, $sections);

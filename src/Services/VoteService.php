@@ -147,7 +147,7 @@ class VoteService
     public function recount(Model&Votable $votable): array
     {
         return DB::transaction(function () use ($votable): array {
-            $votable->newQuery()->whereKey($votable->getKey())->lockForUpdate()->first([$votable->getKeyName()]);
+            $votable->newQueryWithoutScopes()->whereKey($votable->getKey())->lockForUpdate()->first([$votable->getKeyName()]);
 
             $counters = [];
 
@@ -177,7 +177,8 @@ class VoteService
             }
 
             $update = $counters + $votable->derivedVoteColumns($counters);
-            $votable->newQuery()->whereKey($votable->getKey())->toBase()->update($update);
+            // Without scopes: a soft-deleted or withheld item is recounted as well (erasure).
+            $votable->newQueryWithoutScopes()->whereKey($votable->getKey())->toBase()->update($update);
             $votable->forceFill($update)->syncOriginal();
 
             return $counters;

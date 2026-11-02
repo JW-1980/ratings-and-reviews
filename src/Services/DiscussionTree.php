@@ -52,7 +52,7 @@ class DiscussionTree
         $page = max(1, $page);
         $perPage = max(1, (int) config('ratings-and-reviews.discussions.roots_per_page', 20));
 
-        $rootQuery = Comment::query()->forSubject($subject)->published()->whereNull('parent_id');
+        $rootQuery = Comment::query()->forSubject($subject)->published()->withoutWithheldLeaves()->whereNull('parent_id');
         $total = (clone $rootQuery)->count();
 
         $roots = $this->sorted($rootQuery, $sort)
@@ -124,7 +124,7 @@ class DiscussionTree
         }
 
         // Ids only: which replies hang under a visible chain up to the root.
-        $rows = Comment::query()->forSubject($subject)->visibleTo($viewerId)
+        $rows = Comment::query()->forSubject($subject)->visibleTo($viewerId)->withoutWithheldLeaves()
             ->where('root_id', $root->id)->whereNotNull('parent_id')
             ->orderBy('depth')->orderBy('created_at')->orderBy('id')
             ->get(['id', 'parent_id', 'depth', 'created_at']);
@@ -226,7 +226,7 @@ class DiscussionTree
         }
 
         $limit = max(1, (int) config('ratings-and-reviews.discussions.max_replies_per_page', 400));
-        $replyQuery = Comment::query()->forSubject($subject)->visibleTo($viewerId)->whereIn('root_id', $roots->modelKeys())->whereNotNull('parent_id');
+        $replyQuery = Comment::query()->forSubject($subject)->visibleTo($viewerId)->withoutWithheldLeaves()->whereIn('root_id', $roots->modelKeys())->whereNotNull('parent_id');
 
         $replies = (clone $replyQuery)
             ->orderBy('depth')
@@ -278,7 +278,7 @@ class DiscussionTree
      * The comments quoted on this page, in one query (none when nothing is quoted).
      *
      * @param  \Illuminate\Support\Collection<int, Comment>  $comments
-     * @return array<int, array{user_id: int, root_id: int, available: bool}>
+     * @return array<int, array{user_id: int|null, root_id: int, available: bool, withheld: bool}>
      */
     private function quotedComments(\Illuminate\Support\Collection $comments): array
     {
@@ -295,6 +295,7 @@ class DiscussionTree
                 'user_id' => $quoted->user_id,
                 'root_id' => $quoted->root_id ?? $quoted->id,
                 'available' => $quoted->isPubliclyVisible(),
+                'withheld' => $quoted->isErasureWithheld(),
             ];
         }
 

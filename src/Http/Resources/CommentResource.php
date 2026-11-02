@@ -36,7 +36,7 @@ class CommentResource extends JsonResource
 
     private ?int $topCommentId = null;
 
-    /** @var array<int, array{user_id: int, root_id: int, available: bool}> */
+    /** @var array<int, array{user_id: int|null, root_id: int, available: bool, withheld?: bool}> */
     private array $quotes = [];
 
     /** @var array<int, int> */
@@ -61,7 +61,7 @@ class CommentResource extends JsonResource
     }
 
     /**
-     * @param  array<int, array{user_id: int, root_id: int, available: bool}>  $quotes
+     * @param  array<int, array{user_id: int|null, root_id: int, available: bool, withheld?: bool}>  $quotes
      * @param  array<int, int>  $pollChoices
      */
     public function withExtras(array $quotes, array $pollChoices, ?Carbon $newSince): static
@@ -79,7 +79,7 @@ class CommentResource extends JsonResource
     public function toArray(Request $request): array
     {
         $comment = $this->resource;
-        $removed = $comment->isRemovedByAuthor();
+        $removed = $comment->isPlaceholder();
         $own = $this->viewerId !== null && $this->viewerId === $comment->user_id;
         $dimensions = $this->settings?->voteDimensions ?? [];
 
@@ -105,10 +105,15 @@ class CommentResource extends JsonResource
             'publish_at' => $comment->published_at === null ? $comment->publish_at?->toIso8601String() : null,
             'published_at' => $comment->published_at?->toIso8601String(),
             'is_new' => ! $own && $this->newSince !== null && $comment->published_at !== null && $comment->published_at->gt($this->newSince),
-            'author' => $removed ? null : ($this->authors[$comment->user_id] ?? null)?->toArray(),
+            'author' => $removed || $comment->user_id === null ? null : ($this->authors[$comment->user_id] ?? null)?->toArray(),
             'body_html' => $removed ? '' : $comment->body_html,
             'is_removed' => $removed,
-            'removed_label' => $removed ? __('ratings-and-reviews::messages.comment_removed_placeholder') : null,
+            'removed_label' => match (true) {
+                $comment->isRemovedByAuthor() && $comment->user_id === null => __('ratings-and-reviews::messages.comment_erased_placeholder'),
+                $comment->isRemovedByAuthor() => __('ratings-and-reviews::messages.comment_removed_placeholder'),
+                $comment->isErasureWithheld() => __('ratings-and-reviews::messages.comment_withheld_placeholder'),
+                default => null,
+            },
             'quote' => $removed || $comment->quoted_comment_id === null ? null : $this->quote(),
             'poll' => ! $removed && $comment->relationLoaded('poll') && $comment->poll instanceof Poll
                 ? PollService::present($comment->poll, $this->pollChoices[$comment->poll->id] ?? null)
@@ -149,8 +154,9 @@ class CommentResource extends JsonResource
         return [
             'comment_id' => (int) $comment->quoted_comment_id,
             'root_id' => $quoted['root_id'] ?? null,
-            'text' => $comment->quote_text,
-            'author' => $quoted !== null && $quoted['available'] ? ($this->authors[$quoted['user_id']] ?? null)?->toArray() : null,
+            // The quoted words are the quoted author's: hidden while their erasure request is pending.
+            'text' => ($quoted['withheld'] ?? false) ? null : $comment->quote_text,
+            'author' => $quoted !== null && $quoted['available'] && $quoted['user_id'] !== null ? ($this->authors[$quoted['user_id']] ?? null)?->toArray() : null,
             'available' => $quoted['available'] ?? false,
         ];
     }
@@ -162,7 +168,7 @@ class CommentResource extends JsonResource
     {
         $target = $this->resource->relationLoaded('inReplyTo') ? $this->resource->inReplyTo : null;
 
-        return $target !== null && ! $target->isRemovedByAuthor() ? ($this->authors[$target->user_id] ?? null)?->toArray() : null;
+        return $target !== null && ! $target->isPlaceholder() && $target->user_id !== null ? ($this->authors[$target->user_id] ?? null)?->toArray() : null;
     }
 
     private function withinEditWindow(): bool

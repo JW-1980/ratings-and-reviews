@@ -32,7 +32,7 @@ return new class extends Migration
             $table->foreignId('root_id')->nullable()->constrained('rr_comments')->cascadeOnDelete();
             $table->foreignId('in_reply_to_id')->nullable()->constrained('rr_comments')->nullOnDelete();
             $table->unsignedTinyInteger('depth')->default(0);
-            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('user_id')->nullable();
             $table->string('status', 16)->default('pending');
 
             $table->mediumText('body_html');
