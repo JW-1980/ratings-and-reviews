@@ -48,6 +48,9 @@ packages/vue/                    npm-pakket @jw-1980/ratings-and-reviews-vue (Nu
 | `CardResolver` | Optioneel. Rendert een **productkaart** in de editor voor `type:id`. Geeft titel, URL, afbeelding, prijs en score terug. |
 | `WantToTryList` | Optioneel. Zet een subject op de lijst van de gebruiker ("Wil ik proberen"). |
 | `ContributionCounter` | Telt goedgekeurde bijdragen per gebruiker, voor **vertrouwensniveaus**. Standaard: tellen in de pakkettabellen. |
+| `BlockList` | Optioneel. Blokkades tussen leden (`isBlocked`, `blockedWith`); geen antwoorden, citaten of stemmen over een blokkade heen. |
+| `AttributionResolver` | Optioneel. Identiteiten waarmee een lid mag plaatsen (merk, winkel, keten); `attribution` op reacties en reviews. |
+| Subject-interfaces | Optioneel op het host-model: `ParticipationRules`, `ScopedModeration`, `HasDiscussionOwner`, `HasDiscussionContext`, `SyncsCommentCount`, `HidesBlockedMembers` (zie de vierde ronde). |
 
 Elk optioneel contract heeft een standaardbinding die de feature uitschakelt. De UI verbergt de feature dan.
 
@@ -89,6 +92,10 @@ Elk optioneel contract heeft een standaardbinding die de feature uitschakelt. De
 - `rr_review_invitations`: `user_id`, `reviewable_type`/`_id`, `source`, `due_at`, `sent_at`, `completed_at`, `dismissed_at`, unique (user, reviewable).
 - `rr_uploads`: `user_id`, `disk`, `path`, `mime_type`, `size`, `width`, `height`, `alt_text` (nullable), `attached_type`/`_id`, `attached_at`, `role` (`inline` of `photo`), `position`. Wordt opgeruimd door `rr:prune-uploads`.
 - `rr_stickers`: `name` (json), `path`, `disk` (gezet als het pakket het bestand opsloeg), `is_active`, `sort_order`.
+- `rr_review_questions`: `scope`, `category_key` (nullable), `key`, `type` (scale, choice, multi), `label`/`low_label`/`high_label` (json nl/en), `options` (json), `is_required`, `is_active`, `sort_order`; unique (scope, category_key, key), voor een null-categorie in de service bewaakt.
+- `rr_review_answers`: `review_id`, `question_id`, `option_key` ('' bij een schaal), `value` (bij een schaal); unique (review, question, option_key).
+- `rr_review_follow_ups`: `review_id` (uniek), `user_id`, `rating`, `scale_max`, `initial_rating`, `initial_scale_max`, `body_text`.
+- Sinds de vierde ronde ook: `rr_comments.attribution`, `pinned_at`, `pinned_by`; `rr_reviews.attribution`, `follow_up_invited_at`; `rr_rating_aggregates.question_counts`, `follow_up_stats`.
 
 ## Services
 
@@ -217,4 +224,60 @@ Deze ronde corrigeert bevindingen uit de review vóór de merge naar `main`. Gee
 - **Aggregatenjob.** `RefreshRatingAggregates` blijft unique tot de start (`ShouldBeUniqueUntilProcessing`), zodat een review die tijdens de run binnenkomt een volgende job plant in plaats van verloren te gaan; de job herhaalt bij een gelijktijdig unique-conflict.
 - **Onderwerpscores.** `TopicRatings::rate()` lockt de bestaande rij en herhaalt één keer bij een unique-conflict, zodat twee eerste scores voor dezelfde gebruiker en topic geen 500 geven.
 - **Frontend.** De Vue-quote-reply geeft de selectie nu door aan de reply-composer (niet aan de hoofdcomposer), gasten stemmen niet optimistisch in een peiling, de undo-toast krijgt focus, de dialog heeft `aria-describedby`, en de client-sanitizer weigert protocol-relatieve en buiten-de-prefix paden. Het npm-pakket bouwt `dist/` bij `npm pack` (`prepack`) en is publiek publiceerbaar.
+
+## Vierde ronde: de oude review- en reactiesystemen vervangen (3 november 2026)
+
+Besluit van de eigenaar (3 november 2026): de oude review- en reactiesystemen van WelZoLekker en NutriCompare verdwijnen (ze staan nog niet in productie). Het forum van NutriCompare blijft en wordt niet gemigreerd; de reacties op posts wel. Het pakket dekt daarom wat die systemen deden. Breaking changes waren toegestaan (v0.1 is niet uitgebracht); alle wijzigingen zijn uitbreidingen, behalve de constructors van een paar services (alleen relevant voor wie ze zelf bouwt) en `CommentPosted`, dat een tweede argument `recipients` kreeg (standaard `[]`).
+
+### Beslissingen en afwijkingen
+
+- **Optionele interfaces in plaats van verplichte methoden.** `Commentable` en `Reviewable` bleven ongewijzigd, zodat bestaande subjects blijven werken. De haken staan in kleine optionele interfaces (`ParticipationRules`, `ScopedModeration`, `HasDiscussionOwner`, `HasDiscussionContext`, `SyncsCommentCount`, `HidesBlockedMembers`) die `Services\Participation` op één plek leest. Dezelfde antwoorden gelden voor reacties, reviews, vervolgen en onderwerpscores van het subject. De package-`Review` (subject van reacties op reviews) geeft ze door aan zijn eigen subject; zijn auteur is eigenaar van de draad en de pagina van het subject de context.
+- **Deelname.** `canParticipate()` geldt voor nieuwe bijdragen (reactie, antwoord, review, vervolg, onderwerpscore), niet voor het bewerken van een bestaande, zoals bij WelZoLekker. `holdsContributionFrom()` false slaat de SpamGuard-hold, een RiskSignals-hold, `review_requires_approval` en `photos_require_approval` over; een harde weigering (honeypot, geblokkeerde zin, duplicaat) en `counted` blijven. Bij onderwerpscores (zonder moderatiewachtrij) betekent een gedwongen hold "telt niet mee" (`uncounted_reason` `held_by_subject`).
+- **Moderators per subject** worden met OF bij `rr.moderate` opgeteld (`Participation::mayModerate()`, ook in `requireAbility()` van de form requests). Ze gelden voor items van hun subject; de lijsten `admin/moderation` en `admin/reports` blijven bij de `AbilityResolver`, omdat een lijst niet per rij gevraagd kan worden (zelfde reden als `ModerationScope`).
+- **Notificaties** blijven bij de host. `CommentPosted::$recipients` noemt wie bericht moet krijgen (de schrijver van de reactie waarop geantwoord wordt, anders de eigenaar), zonder de auteur zelf en zonder iemand met een blokkade, zoals WelZoLekker het deed.
+- **Teller van de host.** De bestaande events dekken posten, publiceren na het undo-venster, modereren, terugsturen na een bewerking en verwijderen; wissen (withhold, restore, purge) had geen event per subject. `SyncsCommentCount` wordt daarom door een pakketlistener op die events en direct door `Erasure` aangeroepen, na de commit, met het aantal gepubliceerde reacties met inhoud. Een fout in de teller van de host wordt gerapporteerd en draait niets terug.
+- **Blokkades** komen uit één contract met `blockedWith()` (één aanroep per request, gecachet in de scoped `Participation`), zodat verbergen in de query kan (`Comment::withoutAuthors()`, ook placeholders zonder auteur blijven). Verborgen reacties nemen hun antwoorden mee, zoals in WelZoLekker; `total`, zoeken en de reviewlijst volgen. Niet gefilterd: de TL;DR (`digest`, voor iedereen gelijk) en het aantal "nieuw sinds je laatste bezoek".
+- **Attributie** is een momentopname `{key, label, url}` op de bijdrage: de badge blijft staan als het lid het team verlaat (zoals `organization_name` bij WelZoLekker). Alleen sleutels uit `allowedFor()` worden aanvaard; zonder resolver is elke `attribution` 422. Een review houdt zijn attributie bij een bewerking zonder het veld; `null` wist hem. Een reactie houdt hem altijd.
+- **Vastzetten.** Eén vastgezette reactie per discussie, alleen op het hoogste niveau en zichtbaar; de vorige verliest de pin in dezelfde transactie. Vastzetten mag een moderator (ook scoped) of de eigenaar. Een "officieel antwoord" is een vastgezette reactie met attributie. Mede-ondertekening door een tweede account (WelZoLekker `OfficialReplyCosign`) zit niet in het pakket.
+- **`reviews_enabled`** vervangt de WelZoLekker-middleware `RefuseRatingsReviewsOnRatingOnlySubjects`. Uit: indienen en bewerken geven 422 (`reviews_disabled`), de lijst en het zoeken in reviews zijn leeg, uitnodigingen wachten, de Blade-componenten renderen niets en Vue toont een melding; losse onderwerpscores werken gewoon (zolang het subject `acceptsReviews()`).
+- **`min_reviews_for_average`** (sectie, standaard 0) maakt het gemiddelde, het Bayesiaanse gemiddelde, de onderwerpgemiddelden en de gemiddelden van schaalvragen null onder dat aantal (WelZoLekker `BranchReview::MIN_REVIEWS_FOR_AVERAGE`). Filiaalreviews met vier aspecten zijn onderwerpscores op een review of zonder review.
+- **Reviewvragen** zijn generiek: smaakdimensies, gebruiksmomenten en extra vragen van WelZoLekker worden allemaal schaal- of keuzevragen. Overerving per sleutel langs `ratingCategoryPath()` (zoals onderwerpen): een vraag met dezelfde sleutel in een specifiekere categorie vervangt de geërfde op zijn plek, een inactieve schakelt hem daar uit. WelZoLekkers `inherits_parent = false` wordt bij import een inactieve overschrijving per geërfde sleutel. Antwoorden zijn optioneel tenzij `is_required`; zonder `answers` bij een bewerking blijven ze staan. De telling per vraag zit in de aggregatenjob (`question_counts`), de labels komen bij het lezen uit de actuele vragen. Beheer met `rr.manage-topics` (geen nieuwe ability: het is dezelfde catalogus en hosts hoeven geen gate toe te voegen).
+- **Vervolgen** ("na een maand") horen bij de review: openbaar zolang de review het is, gemeld, gemodereerd en gewist met de review (een melding van de review neemt het vervolg mee in de snapshot; purge verwijdert het via de foreign key). Een vervolgtekst die SpamGuard of RiskSignals vasthoudt zet de hele review terug op `pending`, zoals een vastgehouden bewerking. Het vervolg slaat de score van de review op dat moment op, zodat latere bewerkingen de "gemiddelde verandering" niet verschuiven; die verschijnt vanaf `reviews.follow_ups.min_for_change` (3). Een verwijderde en opnieuw ingediende review verliest zijn vervolg. De uitnodiging is een event (`ReviewFollowUpDue`), één keer per review via `follow_up_invited_at`, in `rr:send-review-invitations`.
+- **Review-Q&A** (WelZoLekker `ReviewQuestionService`) is gedekt door reacties op reviews (`reviews.replies`); een blokkade met de auteur van de review weigert een vraag of antwoord.
+- **Niet in het pakket** (host blijft eigenaar of het valt buiten de vervanging): punten en achievements, de activiteitenfeed, notificatiekanalen, mede-ondertekening van officiële antwoorden, WelZoLekkers reviewer-biasmodel en -kalibratie, de radargrafiek (de data staat in `questions`), het forum van NutriCompare.
+
+### Migratienotitie voor de hosts
+
+**Nieuwe contracts** (`RatingsAndReviews\Contracts`; standaard uit):
+
+- `BlockList`: `isEnabled(): bool`, `isBlocked(int $userId, int $otherUserId): bool`, `blockedWith(int $userId): list<int>`. Standaard `Defaults\NullBlockList`.
+- `AttributionResolver`: `isEnabled(): bool`, `allowedFor(Authenticatable $user, Model $subject): list<Support\Attribution>`. `Support\Attribution(string $key, string $label, ?string $url = null)`. Standaard `Defaults\NullAttributionResolver`.
+
+**Nieuwe optionele subject-interfaces:**
+
+- `ParticipationRules`: `canParticipate(Authenticatable $user): bool`, `holdsContributionFrom(Authenticatable $author): ?bool`.
+- `ScopedModeration`: `canModerate(Authenticatable $user): bool`.
+- `HasDiscussionOwner`: `discussionOwnerId(): ?int`.
+- `HasDiscussionContext`: `discussionContextUrl(): ?string`.
+- `SyncsCommentCount`: `syncCommentCount(int $publicComments): void`.
+- `HidesBlockedMembers`: `hidesBlockedMembers(): bool`.
+
+**Gewijzigd:** `Events\CommentPosted(Comment $comment, array $recipients = [])`, `recipients` als `list<array{user_id: int, reason: 'reply'|'owner'}>`. `DiscussionService::quote(Model $subject, mixed $quotedId, mixed $quoteText, ?int $authorId = null)`. De constructors van `DiscussionService`, `ReviewService`, `VoteService`, `PollService`, `TopicRatings`, `TrustLevels`, `CommentPublisher`, `DiscussionTree`, `Erasure` en de controllers kregen services erbij (container-resolved). Nieuwe services: `Participation` (scoped), `ReviewQuestions` (scoped), `ReviewFollowUps`, `CommentCounts`.
+
+**Nieuwe events:** `CommentPinned(Comment $comment, bool $pinned, int|string $byUserId, ?int $unpinnedId)`, `ReviewFollowUpDue(Review $review)`, `ReviewFollowUpPosted(ReviewFollowUp $followUp, Review $review, bool $sentBackToModeration)`.
+
+**Migraties** (alleen toevoegend, idempotent, met `down()`):
+
+- `2026_11_03_000014_add_attribution_and_pins`: `rr_comments.attribution` (json), `pinned_at`, `pinned_by`, index `rr_comments_pinned_index`; `rr_reviews.attribution` (json).
+- `2026_11_03_000015_create_rr_review_questions_and_follow_ups`: tabellen `rr_review_questions`, `rr_review_answers`, `rr_review_follow_ups`; `rr_reviews.follow_up_invited_at` (index `rr_reviews_follow_up_due_index`); `rr_rating_aggregates.question_counts`, `follow_up_stats`.
+
+Morph-aliassen: `rr_review_question`, `rr_review_answer`, `rr_review_follow_up`.
+
+**Config:** sectie-instellingen `reviews_enabled` (true), `min_reviews_for_average` (0), `review_follow_up_after_days` (0 = uit), `review_follow_up_window_days` (150), ook in `PATCH admin/sections/{section}`; `review_questions.{enabled, scale_max, max_per_subject, max_options, max_label_length}`; `reviews.follow_ups.{max_body_length, min_for_change}`.
+
+**Endpoints:** `POST|DELETE comments/{id}/pin`; `POST|DELETE reviews/{id}/follow-up` (`rating`, `body`, `confirm_tone`); `GET|POST admin/review-questions`, `PATCH|DELETE admin/review-questions/{id}`; formulierroutes `rr.web.comments.pin|unpin`, `rr.web.reviews.follow-up.store|destroy`. Nieuwe invoer: `attribution` bij `POST …/comments` en bij reviews, `answers` bij reviews.
+
+**Responsvelden:** reactie `attribution`, `is_pinned`, `pinned_at`, `is_blocked`, `can.vote`, `can.pin`; reactielijst `meta.pinned_comment_id`, `meta.can_participate`, `meta.can_pin`, `meta.attributions`, `meta.subject {type, id, title, url, context_url}` (`accepts_comments` is false voor wie niet mag deelnemen); review `attribution`, `answers`, `follow_up`, `follow_up_window` (alleen de auteur), `is_blocked`, `can.vote`, `can.follow_up`; reviewlijst `meta.reviews_enabled`, `meta.can_participate`, `meta.attributions`, `meta.review_questions`, `meta.review_follow_up`, `meta.features.follow_ups`, `meta.features.attributions` (`accepts_reviews` volgt `reviews_enabled` en deelname); samenvatting `questions`, `follow_ups`, `min_reviews_for_average`; moderatie-inbox `attribution`, `follow_up`.
+
+**Van WelZoLekkers `Commentable` naar het pakket:** `isOpenForComments` → `acceptsComments`; `isDiscussionVisibleTo` → `commentsVisibleTo`; `canJoinDiscussion` → `ParticipationRules::canParticipate`; `holdsCommentFrom` → `holdsContributionFrom`; `hidesCommentsOfBlockedMembers` → `HidesBlockedMembers::hidesBlockedMembers` (+ `BlockList` over `UserBlock::idsRelatedTo`/`existsBetween`); `canModerateDiscussion` → `ScopedModeration::canModerate`; `discussionOwner` → `HasDiscussionOwner::discussionOwnerId` en `CommentPosted::$recipients`; `syncCommentCount` → `SyncsCommentCount`; `discussionUrl`/`discussionTitle` blijven; `discussionContextUrl` → `HasDiscussionContext`; `brand_account_id`/"hats" en `OfficialReply` → `AttributionResolver` + pin. NutriCompare: productreacties en postreacties worden `Commentable` (zichtbaarheid van posts in `commentsVisibleTo`, vrienden/groepen in `ParticipationRules`, `Messaging\UserBlock` in `BlockList`); merkreacties op reviews via `OfficialReplyResolver` of als reactie op de review met attributie.
 
