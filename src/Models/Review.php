@@ -1,0 +1,405 @@
+<?php
+
+namespace RatingsAndReviews\Models;
+
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
+use RatingsAndReviews\Concerns\HasComments;
+use RatingsAndReviews\Contracts\Commentable;
+use RatingsAndReviews\Contracts\HasDiscussionContext;
+use RatingsAndReviews\Contracts\HasDiscussionOwner;
+use RatingsAndReviews\Contracts\HidesBlockedMembers;
+use RatingsAndReviews\Contracts\KindAwareParticipationRules;
+use RatingsAndReviews\Contracts\Moderatable;
+use RatingsAndReviews\Contracts\ParticipationRules;
+use RatingsAndReviews\Contracts\Reviewable;
+use RatingsAndReviews\Contracts\ScopedModeration;
+use RatingsAndReviews\Contracts\Votable;
+use RatingsAndReviews\Database\Factories\ReviewFactory;
+use RatingsAndReviews\Models\Scopes\ExcludeErasureWithheld;
+use RatingsAndReviews\Services\ReviewService;
+use RatingsAndReviews\Support\Comparison;
+use RatingsAndReviews\Support\ContentStatus;
+use RatingsAndReviews\Support\ParticipationKind;
+use RatingsAndReviews\Support\VoteDimension;
+
+/**
+ * @property int $id
+ * @property string $reviewable_type
+ * @property int $reviewable_id
+ * @property int $user_id
+ * @property string|null $section the subject's reviewSectionKey() when written (null: rows from before it was stored)
+ * @property ContentStatus $status
+ * @property int $rating
+ * @property int $scale_max
+ * @property string|null $title
+ * @property string $body_html
+ * @property string $body_text
+ * @property list<string>|null $pros
+ * @property list<string>|null $cons
+ * @property array{key: string, label: string, url: string|null}|null $attribution posted "as" (AttributionResolver snapshot)
+ * @property array<string, mixed>|null $facets
+ * @property int|null $price_cents
+ * @property string|null $price_currency
+ * @property string|null $compared_type
+ * @property int|null $compared_id
+ * @property Comparison|null $comparison
+ * @property int|null $quality_score
+ * @property int $helpful_count
+ * @property int $flags_count
+ * @property string|null $ip_hash
+ * @property string|null $network_hash
+ * @property string|null $device_hash
+ * @property bool $counted
+ * @property string|null $uncounted_reason why it does not count (RiskSignals or ReviewService::setCounted()); see config reviews.uncounted_reasons
+ * @property Carbon|null $approved_at
+ * @property Carbon|null $follow_up_invited_at when ReviewFollowUpDue was fired
+ * @property Carbon|null $edited_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
+ * @property Carbon|null $erasure_withheld_at set while the author's erasure request is pending (hidden everywhere)
+ */
+/**
+ * As the subject of its replies the review passes the participation hooks on to its own
+ * subject (ParticipationRules, ScopedModeration, HidesBlockedMembers); its author owns the
+ * thread (HasDiscussionOwner) and the subject's page is the context.
+ */
+class Review extends Model implements Commentable, HasDiscussionContext, HasDiscussionOwner, HidesBlockedMembers, KindAwareParticipationRules, Moderatable, ParticipationRules, ScopedModeration, Votable
+{
+    use HasComments;
+
+    /** @use HasFactory<ReviewFactory> */
+    use HasFactory;
+
+    use SoftDeletes;
+
+    protected $table = 'rr_reviews';
+
+    protected $fillable = [
+        'reviewable_type', 'reviewable_id', 'user_id', 'section', 'status', 'rating', 'scale_max', 'title', 'body_html', 'body_text',
+        'pros', 'cons', 'attribution', 'facets', 'price_cents', 'price_currency', 'compared_type', 'compared_id', 'comparison',
+        'quality_score', 'helpful_count', 'flags_count', 'ip_hash', 'network_hash', 'device_hash', 'counted',
+        'uncounted_reason', 'approved_at', 'edited_at', 'erasure_withheld_at', 'follow_up_invited_at',
+    ];
+
+    protected $hidden = ['ip_hash', 'network_hash', 'device_hash'];
+
+    protected function casts(): array
+    {
+        return [
+            'reviewable_id' => 'integer',
+            'user_id' => 'integer',
+            'status' => ContentStatus::class,
+            'rating' => 'integer',
+            'scale_max' => 'integer',
+            'pros' => 'array',
+            'cons' => 'array',
+            'attribution' => 'array',
+            'facets' => 'array',
+            'price_cents' => 'integer',
+            'compared_id' => 'integer',
+            'comparison' => Comparison::class,
+            'quality_score' => 'integer',
+            'helpful_count' => 'integer',
+            'flags_count' => 'integer',
+            'counted' => 'boolean',
+            'approved_at' => 'datetime',
+            'follow_up_invited_at' => 'datetime',
+            'edited_at' => 'datetime',
+            'erasure_withheld_at' => 'datetime',
+        ];
+    }
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new ExcludeErasureWithheld);
+    }
+
+    /**
+     * Includes reviews withheld for a pending erasure request.
+     *
+     * @param  Builder<Review>  $query
+     */
+    public function scopeWithErasureWithheld(Builder $query): void
+    {
+        $query->withoutGlobalScope(ExcludeErasureWithheld::class);
+    }
+
+    /**
+     * @return MorphTo<Model, $this>
+     */
+    public function reviewable(): MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    /**
+     * The alternative named in "compared with…" (a Reviewable host model).
+     *
+     * @return MorphTo<Model, $this>
+     */
+    public function compared(): MorphTo
+    {
+        return $this->morphTo('compared', 'compared_type', 'compared_id');
+    }
+
+    /**
+     * @return HasMany<ReviewTopicRating, $this>
+     */
+    public function topicRatings(): HasMany
+    {
+        return $this->hasMany(ReviewTopicRating::class);
+    }
+
+    /**
+     * The answers to the review questions (one row per chosen option, or one per scale question).
+     *
+     * @return HasMany<ReviewAnswer, $this>
+     */
+    public function answers(): HasMany
+    {
+        return $this->hasMany(ReviewAnswer::class);
+    }
+
+    /**
+     * @return HasOne<ReviewFollowUp, $this>
+     */
+    public function followUp(): HasOne
+    {
+        return $this->hasOne(ReviewFollowUp::class);
+    }
+
+    /**
+     * @return MorphMany<Vote, $this>
+     */
+    public function votes(): MorphMany
+    {
+        return $this->morphMany(Vote::class, 'votable');
+    }
+
+    /**
+     * The review's photos (rr_uploads with role `photo`), in their order.
+     *
+     * @return MorphMany<Upload, $this>
+     */
+    public function photos(): MorphMany
+    {
+        return $this->morphMany(Upload::class, 'attached')->photos();
+    }
+
+    /**
+     * @return MorphMany<Report, $this>
+     */
+    public function reports(): MorphMany
+    {
+        return $this->morphMany(Report::class, 'reportable');
+    }
+
+    /**
+     * @param  Builder<Review>  $query
+     */
+    public function scopeApproved(Builder $query): void
+    {
+        $query->where('status', ContentStatus::Approved->value);
+    }
+
+    /**
+     * @param  Builder<Review>  $query
+     */
+    public function scopeForSubject(Builder $query, Model $subject): void
+    {
+        $query->where('reviewable_type', $subject->getMorphClass())->where('reviewable_id', $subject->getKey());
+    }
+
+    /** The rating mapped onto 0 (lowest) … 1 (highest) of its own scale. */
+    public function normalizedRating(): float
+    {
+        return self::normalize($this->rating, $this->scale_max);
+    }
+
+    public static function normalize(int $value, int $scaleMax): float
+    {
+        return $scaleMax <= 1 ? 0.0 : max(0.0, min(1.0, ($value - 1) / ($scaleMax - 1)));
+    }
+
+    public function voteSection(): ?string
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof Reviewable ? $subject->reviewSectionKey() : null;
+    }
+
+    public function votableAuthorId(): ?int
+    {
+        return $this->user_id;
+    }
+
+    public function acceptsVotes(): bool
+    {
+        return $this->isPubliclyVisible();
+    }
+
+    public function voteCounterColumns(): array
+    {
+        return [VoteDimension::Helpfulness->value => [1 => 'helpful_count']];
+    }
+
+    public function derivedVoteColumns(array $counters): array
+    {
+        return [];
+    }
+
+    public function supportsDimension(VoteDimension $dimension): bool
+    {
+        return array_key_exists($dimension->value, $this->voteCounterColumns());
+    }
+
+    /** Whether replies to reviews are switched on (`reviews.replies.enabled`). */
+    public static function repliesEnabled(): bool
+    {
+        return (bool) config('ratings-and-reviews.reviews.replies.enabled', false);
+    }
+
+    public function commentSectionKey(): string
+    {
+        return (string) config('ratings-and-reviews.reviews.replies.section', 'review_replies');
+    }
+
+    /** Replies are taken on a public review whose subject still takes reviews. */
+    public function acceptsComments(): bool
+    {
+        $subject = $this->reviewable;
+
+        return self::repliesEnabled() && $this->isPubliclyVisible() && $subject instanceof Reviewable && $subject->acceptsReviews();
+    }
+
+    /** The replies are visible with the review: a public review of a subject the viewer may see. */
+    public function commentsVisibleTo(?Authenticatable $viewer): bool
+    {
+        $subject = $this->reviewable;
+
+        return self::repliesEnabled() && $this->isPubliclyVisible() && $subject instanceof Reviewable && $subject->reviewsVisibleTo($viewer);
+    }
+
+    public function discussionTitle(): string
+    {
+        $subject = $this->reviewable;
+        $title = trim((string) $this->title);
+
+        return $title !== '' ? $title : ($subject instanceof Reviewable ? $subject->reviewSubjectTitle() : '');
+    }
+
+    public function discussionUrl(): ?string
+    {
+        $subject = $this->reviewable;
+        $url = $subject instanceof Reviewable ? $subject->reviewSubjectUrl() : null;
+
+        return $url === null ? null : $url.'#rr-review-'.$this->id;
+    }
+
+    public function discussionContextUrl(): ?string
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof Reviewable ? $subject->reviewSubjectUrl() : null;
+    }
+
+    /** The review's author owns its thread of replies. */
+    public function discussionOwnerId(): ?int
+    {
+        return $this->user_id;
+    }
+
+    /** Who may reply to this review: the reviewed subject decides, as `review_reply`. */
+    public function canParticipate(Authenticatable $user): bool
+    {
+        return $this->canParticipateIn($user, ParticipationKind::REVIEW_REPLY);
+    }
+
+    /**
+     * The reviewed subject decides: with KindAwareParticipationRules per kind (a comment on
+     * the review is a `review_reply`), else with ParticipationRules::canParticipate().
+     */
+    public function canParticipateIn(Authenticatable $user, string $kind): bool
+    {
+        $subject = $this->reviewable;
+
+        if ($subject instanceof KindAwareParticipationRules) {
+            return $subject->canParticipateIn($user, $kind === ParticipationKind::COMMENT ? ParticipationKind::REVIEW_REPLY : $kind);
+        }
+
+        return ! $subject instanceof ParticipationRules || $subject->canParticipate($user);
+    }
+
+    public function holdsContributionFrom(Authenticatable $author): ?bool
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof ParticipationRules ? $subject->holdsContributionFrom($author) : null;
+    }
+
+    public function canModerate(Authenticatable $user): bool
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof ScopedModeration && $subject->canModerate($user);
+    }
+
+    public function hidesBlockedMembers(): bool
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof HidesBlockedMembers && $subject->hidesBlockedMembers();
+    }
+
+    public function moderationAuthorId(): ?int
+    {
+        return $this->user_id;
+    }
+
+    public function isPubliclyVisible(): bool
+    {
+        return $this->status === ContentStatus::Approved && ! $this->trashed() && $this->erasure_withheld_at === null;
+    }
+
+    public function moderationSnapshot(): array
+    {
+        return [
+            'kind' => 'review',
+            'id' => $this->id,
+            'user_id' => $this->user_id,
+            'status' => $this->status->value,
+            'rating' => $this->rating,
+            'scale_max' => $this->scale_max,
+            'title' => $this->title,
+            'body_html' => $this->body_html,
+            'body_text' => $this->body_text,
+            'pros' => $this->pros,
+            'cons' => $this->cons,
+            'attribution' => $this->attribution,
+            'follow_up' => $this->followUp?->only(['rating', 'scale_max', 'body_text', 'created_at']),
+            'created_at' => $this->created_at?->toIso8601String(),
+            'edited_at' => $this->edited_at?->toIso8601String(),
+        ];
+    }
+
+    public function takeDown(int|string $moderatorId, ?string $note = null): void
+    {
+        app(ReviewService::class)->moderate($this, ContentStatus::Rejected, $moderatorId, $note);
+    }
+
+    protected static function newFactory(): Factory
+    {
+        return ReviewFactory::new();
+    }
+}

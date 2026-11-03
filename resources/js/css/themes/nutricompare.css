@@ -1,0 +1,28 @@
+/*
+ * Example theme: NutriCompare ("Clinical Integrity"): teal, Plus Jakarta Sans. Load the
+ * font in the host (NC already ships @fontsource-variable/plus-jakarta-sans).
+ */
+:root {
+    --rr-font-family: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, sans-serif;
+    --rr-color-text: #12202a;
+    --rr-color-muted: #4f6470;
+    --rr-color-surface: #ffffff;
+    --rr-color-surface-alt: #f2f7f7;
+    --rr-color-border: #d3e1e1;
+    --rr-color-primary: #005d5d;
+    --rr-color-primary-contrast: #ffffff;
+    --rr-color-primary-soft: #e0f0ef;
+    --rr-color-accent: #007a73;
+    --rr-color-success: #0b7a45;
+    --rr-color-warning: #8a5a00;
+    --rr-color-warning-soft: #fdf3dc;
+    --rr-color-danger: #b42318;
+    --rr-color-danger-soft: #fdecea;
+    --rr-color-new: #3949ab;
+    --rr-color-focus: #005d5d;
+    --rr-color-bar: #dbe8e8;
+    --rr-color-mark: #d6f5ef;
+    --rr-radius: 0.5rem;
+    --rr-radius-small: 0.25rem;
+    --rr-shadow: 0 1px 2px rgb(18 32 42 / 0.06), 0 6px 18px rgb(0 93 93 / 0.10);
+}
