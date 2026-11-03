@@ -1,6 +1,48 @@
-import { inject, shallowRef, type App, type InjectionKey, type Ref } from 'vue';
+import { inject, markRaw, shallowRef, type App, type Component, type InjectionKey, type Ref } from 'vue';
 import { createApiClient, createTranslator, sanitizeHtml, type ApiClient, type ApiOptions } from './shared';
-import type { Option, ProductCard, Sticker, Translate, TranslateChoice } from './types';
+import type { CardExtensionItem, CardExtensionPosition, Option, ProductCard, Sticker, Translate, TranslateChoice } from './types';
+
+/**
+ * A host component rendered on every card at a position (props `item` and `position`), with an
+ * optional `preload` that the list components call once per loaded page with all its items
+ * (the first page, every further page, a page of replies, a newly posted comment), so the
+ * host fills its own store in one request instead of one per card. Its return value is not
+ * passed on: the component reads the host's store.
+ */
+export interface CardExtensionDefinition<P extends CardExtensionPosition = CardExtensionPosition> {
+    component: Component;
+    preload?: (items: Array<CardExtensionItem<P>>, position: P) => unknown;
+}
+
+export type CardExtension<P extends CardExtensionPosition = CardExtensionPosition> = Component | CardExtensionDefinition<P>;
+
+export type CardExtensionOptions = { [P in CardExtensionPosition]?: CardExtension<P> | Array<CardExtension<P>> };
+
+export type CardExtensionRegistry = { [P in CardExtensionPosition]: Array<CardExtensionDefinition<P>> };
+
+export const CARD_EXTENSION_POSITIONS: readonly CardExtensionPosition[] = Object.freeze(['review.meta', 'review.footer', 'comment.meta', 'comment.footer']);
+
+function isDefinition(value: unknown): value is CardExtensionDefinition {
+    return typeof value === 'object' && value !== null && 'component' in value && !('setup' in value) && !('render' in value) && !('template' in value);
+}
+
+/** Normalises the plugin option to a list per position; an unknown position is an error. */
+export function normalizeCardExtensions(options: CardExtensionOptions | undefined): CardExtensionRegistry {
+    const registry = Object.fromEntries(CARD_EXTENSION_POSITIONS.map((position) => [position, []])) as unknown as CardExtensionRegistry;
+
+    for (const [position, value] of Object.entries(options ?? {})) {
+        if (!CARD_EXTENSION_POSITIONS.includes(position as CardExtensionPosition)) {
+            throw new Error(`[ratings-and-reviews] Unknown card extension position "${position}"; use one of: ${CARD_EXTENSION_POSITIONS.join(', ')}.`);
+        }
+
+        const list = (Array.isArray(value) ? value : [value]).filter((entry) => entry !== null && entry !== undefined);
+        (registry[position as CardExtensionPosition] as CardExtensionDefinition[]) = list.map((entry) => (isDefinition(entry)
+            ? { component: markRaw(entry.component as object) as Component, preload: entry.preload as CardExtensionDefinition['preload'] }
+            : { component: markRaw(entry as object) as Component }));
+    }
+
+    return registry;
+}
 
 
 export interface RatingsAndReviewsOptions {
@@ -30,6 +72,12 @@ export interface RatingsAndReviewsOptions {
     uploadImage?: (file: File) => Promise<{ url: string; alt?: string | null }>;
     /** Product search for the `#` card trigger; without it `#type:id` is resolved through the API. */
     searchCards?: (query: string) => Promise<ProductCard[]>;
+    /**
+     * Host components on every review or comment card: `{ 'review.footer': Reactions }` or
+     * `{ 'comment.footer': [{ component: Reactions, preload: (comments) => store.load(comments) }] }`.
+     * A card slot (`#footer`, `#meta`, or `#review-footer`/`#comment-footer` on the lists) replaces them on that card.
+     */
+    cardExtensions?: CardExtensionOptions;
 }
 
 export interface RatingsAndReviewsContext {
@@ -52,6 +100,8 @@ export interface RatingsAndReviewsContext {
     uploadImage: NonNullable<RatingsAndReviewsOptions['uploadImage']> | null;
     searchCards: RatingsAndReviewsOptions['searchCards'] | null;
     sanitize: (html: string, extraTags?: string[]) => string;
+    /** The registered card extensions per position (always every position, possibly empty). */
+    cardExtensions: CardExtensionRegistry;
 }
 
 export const RR_CONTEXT: InjectionKey<RatingsAndReviewsContext> = Symbol('ratings-and-reviews');
@@ -102,6 +152,7 @@ export function createContext(options: RatingsAndReviewsOptions): RatingsAndRevi
         uploadImage: options.uploadImage ?? ((file: File) => api.uploadImage(file)),
         searchCards: options.searchCards ?? null,
         sanitize: (html, extraTags) => sanitizeHtml(html, { mediaPrefixes, extraTags }),
+        cardExtensions: normalizeCardExtensions(options.cardExtensions),
     };
 }
 
@@ -127,4 +178,28 @@ export function useRr(): RatingsAndReviewsContext {
     }
 
     return context;
+}
+
+/**
+ * Runs the `preload` hooks of the card extensions at the positions of one kind of card, once,
+ * with the items of a freshly loaded page. A failing hook is logged and does not stop the list.
+ */
+export function preloadCardExtensions<P extends CardExtensionPosition>(context: RatingsAndReviewsContext, positions: readonly P[], items: Array<CardExtensionItem<P>>): void {
+    if (items.length === 0) {
+        return;
+    }
+
+    for (const position of positions) {
+        for (const extension of context.cardExtensions[position] as Array<CardExtensionDefinition<P>>) {
+            if (!extension.preload) {
+                continue;
+            }
+
+            try {
+                Promise.resolve(extension.preload(items, position)).catch((failure: unknown) => console.error(`[ratings-and-reviews] card extension preload at ${position} failed`, failure));
+            } catch (failure) {
+                console.error(`[ratings-and-reviews] card extension preload at ${position} failed`, failure);
+            }
+        }
+    }
 }

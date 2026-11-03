@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useId, watch } from 'vue';
-import { useRr } from '../context';
+import { preloadCardExtensions, useRr } from '../context';
 import { useAnnouncer } from '../composables/useAnnouncer';
 import { errorMessage } from '../composables/errors';
 import RrConfirmDialog from './RrConfirmDialog.vue';
 import RrReportDialog from './RrReportDialog.vue';
 import RrReviewCard from './RrReviewCard.vue';
-import type { Review, ReviewPage, ReviewTopic, SubjectRef } from '../types';
+import type { Comment, Review, ReviewPage, ReviewTopic, SubjectRef } from '../types';
 
 const props = withDefaults(defineProps<{
     subject: SubjectRef;
@@ -18,8 +18,22 @@ const props = withDefaults(defineProps<{
 }>(), { rating: null, facets: () => ({}), topics: () => [], initialSort: '' });
 
 const emit = defineEmits<{ 'update:rating': [value: number | null]; 'update:facets': [value: Record<string, string>]; edit: [review: Review]; deleted: [review: Review]; loaded: [page: ReviewPage] }>();
+/**
+ * Host slots on every card (scoped `{ review, item }` / `{ comment, item }`): `review-meta`,
+ * `review-footer`, and `comment-meta`/`comment-footer` for the replies of a review. They
+ * replace the `cardExtensions` registered at the matching position.
+ */
+defineSlots<{
+    'brand-reply'?: (props: { review: Review }) => unknown;
+    'review-meta'?: (props: { review: Review; item: Review }) => unknown;
+    'review-footer'?: (props: { review: Review; item: Review }) => unknown;
+    'comment-meta'?: (props: { comment: Comment; item: Comment }) => unknown;
+    'comment-footer'?: (props: { comment: Comment; item: Comment }) => unknown;
+}>();
+
 const rr = useRr();
 const { message: live, announce } = useAnnouncer();
+const REVIEW_POSITIONS = ['review.meta', 'review.footer'] as const;
 
 const items = ref<Review[]>([]);
 const meta = ref<ReviewPage['meta'] | null>(null);
@@ -49,7 +63,11 @@ async function load(page = 1) {
 
     try {
         const result = (await rr.api.reviews(props.subject, { sort: sort.value || undefined, rating: props.rating, facets: props.facets, withPhotos: withPhotos.value, page }, current.signal)) as ReviewPage;
-        items.value = page === 1 ? result.items : [...items.value, ...result.items.filter((item) => !items.value.some((existing) => existing.id === item.id))];
+        const added = page === 1 ? result.items : result.items.filter((item) => !items.value.some((existing) => existing.id === item.id));
+        items.value = page === 1 ? result.items : [...items.value, ...added];
+        const ownReview = page === 1 ? result.meta.ownReview : null;
+        // Card extension preloads: once per loaded page, with the own review on the first.
+        preloadCardExtensions(rr, REVIEW_POSITIONS, ownReview && !added.some((item) => item.id === ownReview.id) ? [ownReview, ...added] : added);
         meta.value = result.meta;
         sort.value = result.meta.sort;
         emit('loaded', result);
@@ -177,6 +195,10 @@ defineExpose({ reload: () => load() });
             <p class="rr-reviews__own-label">{{ rr.t('reviews.your_review') }}</p>
             <RrReviewCard :review="own" :subject="subject" :topic-names="topicNames" @edit="emit('edit', $event)" @delete="deleteTarget = $event" @message="announce" @updated="replaceReview">
                 <template #brand-reply="slotProps"><slot name="brand-reply" v-bind="slotProps" /></template>
+                <template v-if="$slots['review-meta']" #meta="slotProps"><slot name="review-meta" v-bind="slotProps" /></template>
+                <template v-if="$slots['review-footer']" #footer="slotProps"><slot name="review-footer" v-bind="slotProps" /></template>
+                <template v-if="$slots['comment-meta']" #comment-meta="slotProps"><slot name="comment-meta" v-bind="slotProps" /></template>
+                <template v-if="$slots['comment-footer']" #comment-footer="slotProps"><slot name="comment-footer" v-bind="slotProps" /></template>
             </RrReviewCard>
         </div>
 
@@ -199,6 +221,10 @@ defineExpose({ reload: () => load() });
                     @updated="replaceReview"
                 >
                     <template #brand-reply="slotProps"><slot name="brand-reply" v-bind="slotProps" /></template>
+                    <template v-if="$slots['review-meta']" #meta="slotProps"><slot name="review-meta" v-bind="slotProps" /></template>
+                    <template v-if="$slots['review-footer']" #footer="slotProps"><slot name="review-footer" v-bind="slotProps" /></template>
+                    <template v-if="$slots['comment-meta']" #comment-meta="slotProps"><slot name="comment-meta" v-bind="slotProps" /></template>
+                    <template v-if="$slots['comment-footer']" #comment-footer="slotProps"><slot name="comment-footer" v-bind="slotProps" /></template>
                 </RrReviewCard>
             </li>
         </ol>

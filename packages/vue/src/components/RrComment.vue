@@ -6,6 +6,7 @@ import { errorMessage } from '../composables/errors';
 import { formatDate, formatRelative } from '../shared';
 import RrAttributionBadge from './RrAttributionBadge.vue';
 import RrAuthorName from './RrAuthorName.vue';
+import RrCardExtensions from './RrCardExtensions.vue';
 import RrComposer from './RrComposer.vue';
 import RrEditor from './RrEditor.vue';
 import RrPoll from './RrPoll.vue';
@@ -16,6 +17,16 @@ import type { Comment } from '../types';
 defineOptions({ name: 'RrComment' });
 
 const props = defineProps<{ comment: Comment; truncated?: number }>();
+
+/**
+ * Host slots: `meta` (end of the header line) and `footer` (next to the votes), scoped with
+ * `{ comment, item }`; they replace the `cardExtensions` at `comment.meta`/`comment.footer` on
+ * this comment and pass on to every reply below it.
+ */
+defineSlots<{
+    meta?: (props: { comment: Comment; item: Comment }) => unknown;
+    footer?: (props: { comment: Comment; item: Comment }) => unknown;
+}>();
 const rr = useRr();
 const discussion = useDiscussion();
 
@@ -82,6 +93,9 @@ async function saveEdit() {
                         <span v-if="comment.isNew" class="rr-tag rr-tag--new">{{ rr.t('discussion.new') }}</span>
                         <span v-if="comment.status !== 'approved'" class="rr-tag rr-tag--pending">{{ rr.t('common.pending') }}</span>
                         <button v-if="comment.isEdited" type="button" class="rr-tag rr-tag--button" :aria-label="rr.t('discussion.revisions')" @click="discussion.showRevisions(comment)">{{ rr.t('common.edited') }}</button>
+                        <RrCardExtensions position="comment.meta" :item="comment">
+                            <template v-if="$slots.meta" #default><slot name="meta" :comment="comment" :item="comment" /></template>
+                        </RrCardExtensions>
                     </span>
                 </header>
 
@@ -123,6 +137,9 @@ async function saveEdit() {
                             :blocked="comment.isBlocked"
                             @message="discussion.announce"
                         />
+                        <RrCardExtensions position="comment.footer" :item="comment">
+                            <template v-if="$slots.footer" #default><slot name="footer" :comment="comment" :item="comment" /></template>
+                        </RrCardExtensions>
                         <p v-if="comment.isBlocked" class="rr-help rr-comment__blocked">{{ rr.t('discussion.blocked') }}</p>
                         <div class="rr-comment__actions">
                             <button v-if="comment.can.reply && discussion.acceptsComments.value && rr.isAuthenticated" type="button" class="rr-button rr-button--small rr-button--ghost" :aria-expanded="discussion.replyTo.value === comment.id ? 'true' : 'false'" @click="discussion.openReply(comment)">{{ rr.t('discussion.reply') }}</button>
@@ -156,7 +173,10 @@ async function saveEdit() {
         />
 
         <ol v-if="comment.replies.length" class="rr-thread rr-thread--replies">
-            <RrComment v-for="reply in comment.replies" :key="reply.id" :comment="reply" />
+            <RrComment v-for="reply in comment.replies" :key="reply.id" :comment="reply">
+                <template v-if="$slots.meta" #meta="slotProps"><slot name="meta" v-bind="slotProps" /></template>
+                <template v-if="$slots.footer" #footer="slotProps"><slot name="footer" v-bind="slotProps" /></template>
+            </RrComment>
         </ol>
         <p v-if="truncated" class="rr-thread__truncated">
             <button type="button" class="rr-button rr-button--small rr-button--ghost" :disabled="thread?.loading" :aria-busy="thread?.loading ? 'true' : undefined" @click="discussion.loadReplies(comment)">

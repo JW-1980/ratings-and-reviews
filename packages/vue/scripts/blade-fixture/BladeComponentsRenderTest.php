@@ -2,10 +2,14 @@
 
 namespace RatingsAndReviews\Tests\BladeFixture;
 
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\HtmlString;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Support\CardExtensions;
 use RatingsAndReviews\Tests\TestCase;
 
 /**
@@ -100,5 +104,57 @@ class BladeComponentsRenderTest extends TestCase
         $this->assertStringContainsString('data-rr-pin=', $html);
         $this->assertStringContainsString('rr-tag--pinned', $html);
         $this->assertStringContainsString('Posted as Oatly', $html);
+    }
+
+    /**
+     * Host card extensions (a reactions bar on reviews and comments, kudos in the review meta),
+     * on page 1 and page 2 of the discussion: tests/blade-card-extensions.spec.ts runs the
+     * browser hook registerCardExtension() against the first render, a re-render and "load more".
+     */
+    public function test_card_extensions_render(): void
+    {
+        config(['ratings-and-reviews.discussions.roots_per_page' => 2]);
+        $product = $this->product();
+        $viewer = $this->user();
+        $review = Review::factory()->forSubject($product)->create(['title' => 'Met reacties']);
+        $roots = collect([1, 2, 3])->map(fn (int $number) => Comment::factory()->forSubject($product)->create(['body_html' => "<p>Reactie {$number}</p>", 'body_text' => "Reactie {$number}", 'created_at' => now()->subMinutes(10 - $number)]));
+        $reply = Comment::factory()->replyTo($roots->last())->create(['body_html' => '<p>Antwoord</p>', 'body_text' => 'Antwoord']);
+        $preloads = [];
+        $bar = function (array $item, ?Authenticatable $user, ?array $counts): HtmlString {
+            $type = isset($item['rating']) ? 'review' : 'comment';
+
+            return new HtmlString('<button type="button" class="host-reactions" data-host-type="'.$type.'" data-host-id="'.$item['id'].'" data-viewer="'.($user?->getAuthIdentifier() ?? '').'">👍 '.(int) ($counts[$item['id']] ?? 0).'</button>');
+        };
+        CardExtensions::preload(CardExtensions::REVIEW_FOOTER, function (Collection $items) use (&$preloads): array {
+            $preloads[] = 'review:'.$items->pluck('id')->implode(',');
+
+            return $items->mapWithKeys(fn (array $item): array => [$item['id'] => 3])->all();
+        }, 'reactions');
+        CardExtensions::preload(CardExtensions::COMMENT_FOOTER, function (Collection $items) use (&$preloads): array {
+            $preloads[] = 'comment:'.$items->pluck('id')->implode(',');
+
+            return $items->mapWithKeys(fn (array $item): array => [$item['id'] => 1])->all();
+        }, 'reactions');
+        CardExtensions::register(CardExtensions::REVIEW_FOOTER, $bar, 'reactions');
+        CardExtensions::register(CardExtensions::COMMENT_FOOTER, $bar, 'reactions');
+        CardExtensions::register(CardExtensions::REVIEW_META, fn (array $item): string => 'Kudos <3', 'kudos');
+
+        try {
+            $this->page('<x-rr::reviews :subject="$p" /><x-rr::discussion :subject="$p" action="/host/comments" />', $product);
+            $html = $this->actingAs($viewer)->get('/page')->assertOk()->getContent();
+            file_put_contents(dirname(__DIR__, 2).'/tests/fixtures/blade-page-extensions.html', $html);
+            $next = $this->actingAs($viewer)->get('/page?rr_cpage=2')->assertOk()->getContent();
+            file_put_contents(dirname(__DIR__, 2).'/tests/fixtures/blade-page-extensions-2.html', $next);
+        } finally {
+            CardExtensions::forget();
+        }
+
+        $this->assertStringContainsString('data-rr-extension="review.footer" data-rr-item-type="review" data-rr-item-id="'.$review->id.'"', $html);
+        $this->assertStringContainsString('>Kudos &lt;3</span>', $html);
+        $this->assertSame(3, substr_count($html, 'data-rr-extension="comment.footer"'));
+        $this->assertStringContainsString('data-rr-more', $html);
+        $this->assertSame(1, substr_count($next, 'data-rr-extension="comment.footer"'));
+        // One preload per list and request: the reviews, then every comment of the page with its replies.
+        $this->assertSame(['review:'.$review->id, 'comment:'.$roots[2]->id.','.$reply->id.','.$roots[1]->id, 'review:'.$review->id, 'comment:'.$roots[0]->id], $preloads);
     }
 }

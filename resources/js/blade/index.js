@@ -25,6 +25,90 @@ import { enhanceComposer, enhanceReviewForm, showUndoToast } from './forms.js';
 import { mountEditor } from './editor-ui.js';
 import { bindHovercard, confirmAction, errorText, openReport, showRevisions, votePoll, vote, wantToTry } from './widgets.js';
 
+/** Positions of the host extension points on review and comment cards (Support\CardExtensions). */
+export const CARD_EXTENSION_POSITIONS = Object.freeze(['review.meta', 'review.footer', 'comment.meta', 'comment.footer']);
+
+/** position => [{ callback, seen }]: host callbacks run once per server-rendered extension element. */
+const cardExtensionCallbacks = new Map();
+
+/**
+ * Calls the host callbacks for every extension element (`[data-rr-extension]`) in `scope` that
+ * a callback has not seen yet. The element is server-rendered (the host's renderer or view);
+ * the callback binds behaviour to it. A failing callback is logged and does not stop others.
+ */
+function applyCardExtensions(scope) {
+    scope.querySelectorAll?.('[data-rr-extension]').forEach((element) => {
+        const position = element.dataset.rrExtension;
+        const entries = cardExtensionCallbacks.get(position) ?? [];
+
+        if (entries.length === 0) {
+            return;
+        }
+
+        const root = element.closest('[data-rr]');
+        const item = {
+            position,
+            type: element.dataset.rrItemType,
+            id: Number(element.dataset.rrItemId),
+            subject: root ? { type: root.dataset.rrSubjectType ?? null, id: root.dataset.rrSubjectId ?? null } : null,
+            card: element.closest(element.dataset.rrItemType === 'review' ? '[data-rr-review]' : '[data-rr-comment]'),
+        };
+
+        entries.forEach((entry) => {
+            if (entry.seen.has(element)) {
+                return;
+            }
+
+            entry.seen.add(element);
+
+            try {
+                entry.callback(item, element);
+            } catch (failure) {
+                console.error(`[ratings-and-reviews] card extension at ${position} failed`, failure);
+            }
+        });
+    });
+}
+
+/**
+ * Registers a host callback for the extension elements at `position` (`review.meta`,
+ * `review.footer`, `comment.meta`, `comment.footer`). It runs for every such element on the
+ * page that is already enhanced, and again for every element that arrives later: after a
+ * post, edit, vote-triggered refresh, sort, filter, page change or "load more" the cards are
+ * server-rendered again (with the host's PHP extensions) and swapped in. The callback gets
+ * `item` `{ position, type: 'review'|'comment', id, subject: { type, id }, card }` and the
+ * element. Returns a function that unregisters it.
+ *
+ * @param {string} position
+ * @param {(item: { position: string, type: string, id: number, subject: { type: string|null, id: string|null }|null, card: Element|null }, element: HTMLElement) => void} callback
+ * @returns {() => void}
+ */
+export function registerCardExtension(position, callback) {
+    if (!CARD_EXTENSION_POSITIONS.includes(position)) {
+        throw new Error(`[ratings-and-reviews] Unknown card extension position "${position}"; use one of: ${CARD_EXTENSION_POSITIONS.join(', ')}.`);
+    }
+
+    if (typeof callback !== 'function') {
+        throw new TypeError('[ratings-and-reviews] A card extension callback must be a function.');
+    }
+
+    const entries = cardExtensionCallbacks.get(position) ?? [];
+    let entry = entries.find((existing) => existing.callback === callback);
+
+    if (!entry) {
+        entry = { callback, seen: new WeakSet() };
+        cardExtensionCallbacks.set(position, [...entries, entry]);
+    }
+
+    if (typeof document !== 'undefined') {
+        document.querySelectorAll('[data-rr-enhanced]').forEach((root) => applyCardExtensions(root));
+    }
+
+    return () => {
+        cardExtensionCallbacks.set(position, (cardExtensionCallbacks.get(position) ?? []).filter((existing) => existing !== entry));
+    };
+}
+
 /** Restores of undone comments, applied after the discussion is re-rendered. */
 const pendingRestore = new Map();
 const cardCache = new Map();
@@ -503,6 +587,7 @@ function enhanceRoot(root, env) {
 
     // Stand-alone <x-rr::editor> outside the package forms.
     root.querySelectorAll('[data-rr-editor]').forEach((wrapper) => wrapper.rrEditor || mountEditor(wrapper, env));
+    applyCardExtensions(root);
 }
 
 async function loadMore(env, root, link) {
@@ -529,6 +614,7 @@ async function loadMore(env, root, link) {
         const nextMore = next.querySelector('[data-rr-more]');
         nextMore ? link.setAttribute('href', nextMore.getAttribute('href')) : link.closest('.rr-more')?.remove();
         list.querySelectorAll('[data-rr-author]').forEach((trigger) => bindHovercard(trigger, env));
+        applyCardExtensions(list);
         announce(root, env.t('discussion.updated'));
         const firstId = first?.querySelector('[data-rr-comment]')?.dataset.rrComment;
 
@@ -544,9 +630,13 @@ async function loadMore(env, root, link) {
 
 /**
  * @param {ParentNode} [scope]
- * @param {{ uploadImage?: (file: File) => Promise<{url: string, alt?: string}>, searchCards?: (query: string) => Promise<Array>, stickers?: Array<{id: string|number, name: string, url: string}>, emojis?: string[], api?: object, apiOptions?: object }} [options]
+ * @param {{ uploadImage?: (file: File) => Promise<{url: string, alt?: string}>, searchCards?: (query: string) => Promise<Array>, stickers?: Array<{id: string|number, name: string, url: string}>, emojis?: string[], api?: object, apiOptions?: object, cardExtensions?: Record<string, Function|Function[]> }} [options]
+ *   `cardExtensions`: `{ 'review.footer': (item, element) => void, … }`, the same as calling registerCardExtension() per entry.
  */
 export function enhanceRatingsAndReviews(scope = document, options = {}) {
+    Object.entries(options.cardExtensions ?? {}).forEach(([position, callbacks]) => {
+        (Array.isArray(callbacks) ? callbacks : [callbacks]).forEach((callback) => registerCardExtension(position, callback));
+    });
     const env = createEnv(options);
     scope.querySelectorAll('[data-rr]').forEach((root) => enhanceRoot(root, env));
 

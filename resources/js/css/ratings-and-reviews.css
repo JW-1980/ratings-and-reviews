@@ -519,6 +519,9 @@ span.rr-author__name { cursor: default; display: inline-flex; align-items: cente
 .rr-comment__collapsed { display: flex; flex-wrap: wrap; gap: var(--rr-space-2); align-items: center; color: var(--rr-color-muted); font-size: var(--rr-font-size-small); }
 .rr-comment__collapsed > summary { list-style: none; }
 .rr-comment__footer { display: flex; flex-wrap: wrap; gap: var(--rr-space-2); justify-content: space-between; align-items: center; }
+/* Host extension points (CardExtensions / slots / cardExtensions): a neutral flex row, the host styles its own content. */
+.rr-extensions { display: inline-flex; flex-wrap: wrap; gap: var(--rr-space-2); align-items: center; min-inline-size: 0; }
+.rr-extensions--footer { flex: 1 1 auto; }
 .rr-comment__actions { display: flex; flex-wrap: wrap; gap: var(--rr-space-1); }
 .rr-comment__edit { display: grid; gap: var(--rr-space-2); }
 

@@ -564,3 +564,11 @@ export interface ReviewTopic {
 
 export type Translate = (key: string, replace?: Record<string, string | number>) => string;
 export type TranslateChoice = (key: string, count: number, replace?: Record<string, string | number>) => string;
+
+/** Host extension points on the review and comment cards (the same names as PHP `Support\CardExtensions`). */
+export type ReviewCardPosition = 'review.meta' | 'review.footer';
+export type CommentCardPosition = 'comment.meta' | 'comment.footer';
+export type CardExtensionPosition = ReviewCardPosition | CommentCardPosition;
+
+/** The item a card extension renders for: a Review at `review.*`, a Comment at `comment.*`. */
+export type CardExtensionItem<P extends CardExtensionPosition> = P extends ReviewCardPosition ? Review : Comment;

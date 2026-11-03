@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, useId } from 'vue';
-import { useRr } from '../context';
+import { preloadCardExtensions, useRr } from '../context';
 import { useAnnouncer } from '../composables/useAnnouncer';
 import { errorMessage } from '../composables/errors';
 import { RR_DISCUSSION, flatten, insertInTree, lastShownReply, mergeReplies, removeFromTree, replaceInTree, type ThreadState } from '../composables/discussion';
@@ -22,9 +22,24 @@ const props = withDefaults(defineProps<{
     searchable?: boolean;
 }>(), { initialSort: '', searchable: true });
 
+/**
+ * Host slots `comment-meta` and `comment-footer` (scoped `{ comment, item }`) on every comment
+ * and reply; they replace the `cardExtensions` at `comment.meta`/`comment.footer`.
+ */
+defineSlots<{
+    'comment-meta'?: (props: { comment: Comment; item: Comment }) => unknown;
+    'comment-footer'?: (props: { comment: Comment; item: Comment }) => unknown;
+}>();
+
 const rr = useRr();
 const { message: live, announce } = useAnnouncer();
 const uid = `rr-discussion-${useId()}`;
+const COMMENT_POSITIONS = ['comment.meta', 'comment.footer'] as const;
+
+/** The card extension preloads, once per loaded batch of comments (placeholders left out). */
+function preload(batch: Comment[]) {
+    preloadCardExtensions(rr, COMMENT_POSITIONS, batch.filter((comment) => !comment.isRemoved));
+}
 
 const items = ref<Comment[]>([]);
 const meta = ref<CommentPage['meta'] | null>(null);
@@ -86,7 +101,9 @@ async function load(page = 1) {
 
     try {
         const result = (await rr.api.comments(props.subject, { sort: sort.value || undefined, page }, controller.signal)) as CommentPage;
-        items.value = page === 1 ? result.items : [...items.value, ...result.items.filter((item) => !items.value.some((existing) => existing.id === item.id))];
+        const added = page === 1 ? result.items : result.items.filter((item) => !items.value.some((existing) => existing.id === item.id));
+        items.value = page === 1 ? result.items : [...items.value, ...added];
+        preload(flatten(added));
         meta.value = result.meta;
         sort.value = result.meta.sort;
         waitSeconds.value = result.meta.secondsUntilNextPost;
@@ -132,6 +149,7 @@ function jumpToNew() {
 
 function posted(payload: { item: Comment; message: string | null; bodyHtml: string }, parentId: number | null) {
     items.value = insertInTree(items.value, payload.item, parentId);
+    preload([payload.item]);
     replyTo.value = null;
     restore.value = null;
 
@@ -219,6 +237,8 @@ async function loadReplies(root: Comment) {
         const current = items.value.find((item) => item.id === root.id) ?? root;
         const before = flatten(current.replies).length;
         const merged = mergeReplies(current, page.items);
+        const known = new Set(flatten(current.replies).map((reply) => reply.id));
+        preload(page.items.filter((reply) => !known.has(reply.id)));
         items.value = items.value.map((item) => (item.id === root.id ? merged : item));
         threads.value = { ...threads.value, [key]: { loading: false, error: '', cursor: page.nextCursor, total: page.total } };
 
@@ -406,7 +426,10 @@ defineExpose({ reload: () => load(), jumpTo });
 
         <div ref="thread" class="rr-discussion__thread" @mouseup="onSelection" @keyup="onSelection">
             <ol class="rr-thread" :aria-label="rr.t('discussion.thread')">
-                <RrComment v-for="comment in items" :key="comment.id" :comment="comment" :truncated="meta?.truncatedThreads[String(comment.id)]" />
+                <RrComment v-for="comment in items" :key="comment.id" :comment="comment" :truncated="meta?.truncatedThreads[String(comment.id)]">
+                    <template v-if="$slots['comment-meta']" #meta="slotProps"><slot name="comment-meta" v-bind="slotProps" /></template>
+                    <template v-if="$slots['comment-footer']" #footer="slotProps"><slot name="comment-footer" v-bind="slotProps" /></template>
+                </RrComment>
             </ol>
             <button
                 v-if="quoteOffer"

@@ -5,12 +5,13 @@ import { errorMessage } from '../composables/errors';
 import { formatDate, formatMoney, formatRelative } from '../shared';
 import RrAttributionBadge from './RrAttributionBadge.vue';
 import RrAuthorName from './RrAuthorName.vue';
+import RrCardExtensions from './RrCardExtensions.vue';
 import RrDiscussion from './RrDiscussion.vue';
 import RrFollowUp from './RrFollowUp.vue';
 import RrRichText from './RrRichText.vue';
 import RrScoreBadge from './RrScoreBadge.vue';
 import RrVoteButtons from './RrVoteButtons.vue';
-import type { Review, SubjectRef } from '../types';
+import type { Comment, Review, SubjectRef } from '../types';
 
 const props = withDefaults(defineProps<{
     review: Review;
@@ -18,6 +19,19 @@ const props = withDefaults(defineProps<{
     topicNames?: Record<string, string>;
     wantToTry?: boolean;
 }>(), { topicNames: () => ({}), wantToTry: false });
+
+/**
+ * Host slots: `meta` (end of the header line) and `footer` (next to the helpful vote), scoped
+ * with `{ review, item }`; they replace the `cardExtensions` registered at `review.meta` and
+ * `review.footer` on this card. `comment-meta` and `comment-footer` pass on to the replies.
+ */
+defineSlots<{
+    'brand-reply'?: (props: { review: Review }) => unknown;
+    meta?: (props: { review: Review; item: Review }) => unknown;
+    footer?: (props: { review: Review; item: Review }) => unknown;
+    'comment-meta'?: (props: { comment: Comment; item: Comment }) => unknown;
+    'comment-footer'?: (props: { comment: Comment; item: Comment }) => unknown;
+}>();
 
 const emit = defineEmits<{ report: [review: Review]; edit: [review: Review]; delete: [review: Review]; message: [text: string]; updated: [review: Review] }>();
 const rr = useRr();
@@ -57,6 +71,9 @@ async function addToList() {
                 <time v-if="review.createdAt" :datetime="review.createdAt" :title="formatDate(review.createdAt, rr.locale, { dateStyle: 'long' })">{{ formatRelative(review.createdAt, rr.locale) }}</time>
                 <span v-if="review.isEdited" class="rr-tag" :title="formatDate(review.editedAt, rr.locale, { dateStyle: 'long', timeStyle: 'short' })">{{ rr.t('common.edited') }}</span>
                 <span v-if="review.uncounted?.isPublic" class="rr-tag rr-tag--uncounted" :data-reason="review.uncounted.reason ?? undefined" :title="rr.t('reviews.uncounted_public')">{{ review.uncounted.label }}<span class="rr-visually-hidden"> · {{ rr.t('reviews.uncounted_public') }}</span></span>
+                <RrCardExtensions position="review.meta" :item="review">
+                    <template v-if="$slots.meta" #default><slot name="meta" :review="review" :item="review" /></template>
+                </RrCardExtensions>
             </span>
         </header>
 
@@ -150,6 +167,9 @@ async function addToList() {
                 positive-only
                 @message="emit('message', $event)"
             />
+            <RrCardExtensions position="review.footer" :item="review">
+                <template v-if="$slots.footer" #default><slot name="footer" :review="review" :item="review" /></template>
+            </RrCardExtensions>
             <div class="rr-review__actions">
                 <button v-if="wantToTry && !review.isOwn" type="button" class="rr-button rr-button--small" :aria-pressed="added ? 'true' : 'false'" :disabled="adding" @click="addToList">
                     {{ added ? rr.t('reviews.want_to_try_added') : rr.t('reviews.want_to_try') }}
@@ -171,7 +191,10 @@ async function addToList() {
         </footer>
 
         <div v-if="showReplies" :id="repliesId" class="rr-review__replies" role="region" :aria-label="rr.t('reviews.replies_title')">
-            <RrDiscussion :subject="rr.api.reviewRepliesSubject(review.id)" :searchable="false" />
+            <RrDiscussion :subject="rr.api.reviewRepliesSubject(review.id)" :searchable="false">
+                <template v-if="$slots['comment-meta']" #comment-meta="slotProps"><slot name="comment-meta" v-bind="slotProps" /></template>
+                <template v-if="$slots['comment-footer']" #comment-footer="slotProps"><slot name="comment-footer" v-bind="slotProps" /></template>
+            </RrDiscussion>
         </div>
     </article>
 </template>

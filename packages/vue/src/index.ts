@@ -1,7 +1,7 @@
 import './shared/css/ratings-and-reviews.css';
 
-export { createRatingsAndReviews, createContext, useRr, RR_CONTEXT } from './context';
-export type { RatingsAndReviewsOptions, RatingsAndReviewsContext } from './context';
+export { createRatingsAndReviews, createContext, useRr, RR_CONTEXT, CARD_EXTENSION_POSITIONS, normalizeCardExtensions } from './context';
+export type { RatingsAndReviewsOptions, RatingsAndReviewsContext, CardExtension, CardExtensionDefinition, CardExtensionOptions, CardExtensionRegistry } from './context';
 export * from './types';
 
 export { default as RrRatingSummary } from './components/RrRatingSummary.vue';
@@ -27,6 +27,7 @@ export { default as RrRichText } from './components/RrRichText.vue';
 export { default as RrTopicRatings } from './components/RrTopicRatings.vue';
 export { default as RrFollowUp } from './components/RrFollowUp.vue';
 export { default as RrAttributionBadge } from './components/RrAttributionBadge.vue';
+export { default as RrCardExtensions } from './components/RrCardExtensions.vue';
 
 export {
     ApiError,
