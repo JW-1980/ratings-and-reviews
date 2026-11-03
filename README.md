@@ -228,6 +228,8 @@ Vendor-overschrijvingen (`resources/views/vendor/rr/partials/attribution.blade.p
 
 ### NutriCompare (Vue 3)
 
+Het Vue-pakket staat op GitHub Packages (npm.pkg.github.com), zie [Vue-pakket installeren](#vue-pakket-installeren-github-packages).
+
 ```bash
 npm i @jw-1980/ratings-and-reviews-vue @tiptap/core@~3.31 @tiptap/pm@~3.31 @tiptap/starter-kit@~3.31 @tiptap/extension-image@~3.31 dompurify@^3
 ```
@@ -290,6 +292,34 @@ app.use(createRatingsAndReviews({
 ```
 
 Alle API-vormen staan getypeerd in `packages/vue/src/types.ts`; de mapping van de server-JSON zit op één plek, `resources/js/normalize.js`.
+
+### Vue-pakket installeren (GitHub Packages)
+
+`@jw-1980/ratings-and-reviews-vue` wordt gepubliceerd op GitHub Packages. De host haalt het met `npm ci` binnen, zonder PHP-`vendor`-map. Het pakket is privé: elke installatie heeft een token nodig met `read:packages` (een classic personal access token, of in GitHub Actions een `GITHUB_TOKEN` met `packages: read` van een repository die toegang tot het pakket heeft).
+
+Zet in de host naast `package.json` een `.npmrc` (zonder token erin, die blijft een omgevingsvariabele):
+
+```ini
+@jw-1980:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+- Lokaal: `export NODE_AUTH_TOKEN=<token met read:packages>` en daarna `npm ci`.
+- CI (GitHub Actions): `actions/setup-node` met `registry-url: https://npm.pkg.github.com` en `scope: '@jw-1980'`, en `NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}` (of een eigen secret met `read:packages`) bij de stap `npm ci`.
+- Docker-builds: geef het token als build-secret door (`docker build --secret id=npm_token,env=NODE_AUTH_TOKEN`, in de Dockerfile `RUN --mount=type=secret,id=npm_token NODE_AUTH_TOKEN="$(cat /run/secrets/npm_token)" npm ci`). Zet het token niet in een `ARG`/`ENV`, want dan staat het in de imagelagen.
+- Commit nooit een `.npmrc` met een echt token.
+
+Het npm-pakket bevat alleen `dist/` (ES-module, CSS, thema's, `.d.ts`); de peer-dependencies (`vue`, Tiptap, `dompurify`) installeert de host zelf.
+
+### Release
+
+De versie van het Vue-pakket (`packages/vue/package.json`) is gelijk aan de PHP-tag van het pakket. Stappen:
+
+1. Zet `version` in `packages/vue/package.json` (en `package-lock.json`, bijvoorbeeld met `npm version X.Y.Z --no-git-tag-version` in `packages/vue`) op `X.Y.Z` en commit die wijziging samen met de rest van de release op `main`.
+2. Wacht tot de CI-workflow (`.github/workflows/ci.yml`) groen is.
+3. Tag die commit: `git tag vX.Y.Z && git push origin vX.Y.Z`. Composer leest de PHP-versie uit deze tag.
+4. De workflow `.github/workflows/publish-vue.yml` draait op de tag: `npm ci`, tests, typecheck, build, controle dat de tag gelijk is aan `package.json` (anders faalt hij) en daarna `npm publish` naar GitHub Packages.
+5. Een versie op GitHub Packages kan niet opnieuw worden gepubliceerd: bij een fout verhoog je de versie en tag je opnieuw.
 
 ### Thema
 

@@ -2,6 +2,12 @@
     "name": "@jw-1980/ratings-and-reviews-vue",
     "version": "0.1.0",
     "description": "Vue 3 components for the jw-1980/ratings-and-reviews Laravel package: rating summary, reviews, review form, discussion and a Tiptap editor.",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/JW-1980/ratings-and-reviews.git",
+        "directory": "packages/vue"
+    },
+    "homepage": "https://github.com/JW-1980/ratings-and-reviews/tree/main/packages/vue",
     "license": "UNLICENSED",
     "private": false,
     "type": "module",
@@ -31,10 +37,10 @@
         "typecheck": "vue-tsc --noEmit -p tsconfig.json",
         "prebuild": "node scripts/sync-shared.mjs",
         "build": "vite build && vue-tsc -p tsconfig.build.json && node scripts/copy-themes.mjs",
-        "prepack": "npm run build"
+        "prepublishOnly": "npm run build"
     },
     "publishConfig": {
-        "access": "public"
+        "registry": "https://npm.pkg.github.com"
     },
     "peerDependencies": {
         "@tiptap/core": "~3.31.0",
