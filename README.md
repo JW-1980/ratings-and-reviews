@@ -118,7 +118,7 @@ Drie lagen, met dezelfde class-namen (`rr-…`) en dezelfde stylesheet:
 | Laag | Waar | Voor |
 |---|---|---|
 | Gedeelde ES-modules | `resources/js/` | API-client (CSRF), één mapping van de API-JSON (`normalize.js`), Tiptap-editorfabriek per sectie (StarterKit, Link, Underline, Image alleen eigen uploads, Sticker, ProductCard `data-rr-card="type:id"`, QuoteReply `data-rr-quote="id"`), DOMPurify-renderhulp, kwaliteitsmeter (identiek aan `ReviewQualityMeter`), tone-check-client, peilingvalidatie, undo-countdown, concepten. Geen build: de host bundelt ze. |
-| Blade (WelZoLekker) | `resources/views/components/` + `resources/js/blade/` | `<x-rr::rating-summary>`, `<x-rr::reviews>`, `<x-rr::review-form>`, `<x-rr::discussion>`, `<x-rr::editor>`, `<x-rr::topic-ratings>` |
+| Blade (WelZoLekker) | `resources/views/components/` + `resources/js/blade/` | `<x-rr::rating-summary>`, `<x-rr::reviews>`, `<x-rr::review-form>`, `<x-rr::discussion>`, `<x-rr::editor>`, `<x-rr::topic-ratings>`, kaartuitbreidingen (`Support\CardExtensions`, `registerCardExtension`) |
 | Vue 3 (NutriCompare) | `packages/vue/` → npm `@jw-1980/ratings-and-reviews-vue` | `RrRatingSummary`, `RrReviews`, `RrReviewForm`, `RrDiscussion`, `RrEditor`, `RrTopicRatings` (plus de onderdelen) |
 
 Peer-dependencies (in de host): `@tiptap/core`, `@tiptap/pm`, `@tiptap/starter-kit`, `@tiptap/extension-image` `~3.31`, `dompurify` `^3` en voor Vue `vue` `^3.5`. Geen AI, nergens.
@@ -154,6 +154,46 @@ Peer-dependencies (in de host): `@tiptap/core`, `@tiptap/pm`, `@tiptap/starter-k
    De componenten renderen op de server via de pakketroutes (in-process, met de rechten en vormen van de API). Zonder JavaScript werken lezen, sorteren, filteren (`?rr_rating`, `?rr_facet[groep]`, `?rr_photos=1`, `?rr_sort`, `?rr_page`; reacties op een review `?rr_rthread=ID`, getoond onder de lijst met voorvoegsel `rr_r`; discussie `?rr_csort`, `?rr_cpage`, `?rr_cq`, `?rr_creply`), zoeken, antwoorden en "Meer antwoorden tonen" (`?rr_cthread=ID&rr_cthread_pages=N`). Met JavaScript gebeurt hetzelfde zonder herladen. Het voorvoegsel is instelbaar met `prefix`. Het reviewformulier volgt `review_extended_fields` (titel, plus- en minpunten), `review_min_length` en `reviews.max_photos` (foto's: met JavaScript direct geüpload, zonder als bestanden meegestuurd).
 
 **Posten zonder JavaScript.** Zet `web_routes.enabled` op `true`: het pakket registreert dan formulierroutes onder `/{web_routes.prefix}` (standaard `rr-forms`, routenamen `rr.web.*`, middleware `web` plus `web_routes.middleware`) voor reviews (met foto's als `photo_files[]`, antwoorden als `answers[sleutel]`/`answers[sleutel][]` en `attribution`), vervolgen (`POST|DELETE rr-forms/reviews/{id}/follow-up`), vastzetten (`POST|DELETE rr-forms/comments/{id}/pin`), reacties, bewerken, verwijderen (met bevestiging in een `<details>`), ongedaan maken, stemmen, peilingstemmen en meldingen. `<x-rr::topic-ratings>` post alleen via deze routes (`PUT rr-forms/subjects/{type}/{id}/topic-ratings`, error bag `rr_topic_ratings`). Zonder `brand-reply` toont de reviewkaart de `official_reply` van de API. Elke route draait de API-controller in-process en stuurt terug naar de pagina: `rr_status` bij succes, fouten in een eigen error bag per formulier (`rr_review`, `rr_comment`, `rr_report`, `rr_vote`) met de oude invoer, `rr_form` om te weten bij welk formulier ze horen, `rr_tone` bij de herformuleer-suggestie (het formulier biedt dan "Toch plaatsen") en `rr_error` bij 401/403/404/429. De Blade-componenten gebruiken deze routes automatisch; bewerken zonder JavaScript gaat via `?rr_cedit=ID`. Met JavaScript blijven dezelfde formulieren via de JSON-API werken. `action`/`update-action` overschrijven de URL nog steeds met een eigen hostroute (die dan zelf `$errors` en `session('rr_status')` moet vullen).
+
+**Kaartuitbreidingen (host-features op review- en reactiekaarten).** Een host rendert eigen features, zoals de emoji-reacties en kudos van WelZoLekker, in de kaarten van het pakket via `RatingsAndReviews\Support\CardExtensions`. Posities: `review.meta` (einde van de kopregel, inline), `review.footer` (naast de nuttig-stem), `comment.meta` en `comment.footer`. Een renderer krijgt de kaart als API-array (`ReviewResource`/`CommentResource`, dezelfde vorm als bij `brand-reply`), de kijker (`null` voor een gast) en het resultaat van de preload met dezelfde sleutel; hij geeft een `Htmlable` (view, `HtmlString`: ongewijzigd geprint), een string (ge-escaped) of `null` (niets). Een preload draait één keer per lijst (alle reviews van de pagina inclusief de eigen review, of alle reacties van de discussiepagina inclusief antwoorden, zonder verwijderde placeholders) en alleen als op die positie iets geregistreerd is. Dezelfde sleutel opnieuw registreren vervangt de vorige. Host-views kunnen ook via de config: `card_extensions.views` (`['review.footer' => ['reactions.review-bar']]`, met `$item`/`$review`/`$comment`, `$viewer`, `$preloaded` en `$position`). Een fout in host-code wordt met `report()` gemeld en laat alleen die uitbreiding weg; met `app.debug` aan wordt hij gegooid.
+
+```php
+// Host-ServiceProvider::boot() (WelZoLekker)
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Collection;
+use RatingsAndReviews\Support\CardExtensions;
+
+foreach (['review' => 'rr_review', 'comment' => 'rr_comment'] as $kind => $type) {
+    // Eén query per lijst: tellingen per emoji en de eigen reacties van de kijker.
+    CardExtensions::preload("{$kind}.footer", fn (Collection $items, ?Authenticatable $viewer) => Reaction::summaryFor($type, $items->pluck('id'), $viewer?->getAuthIdentifier()), 'reactions');
+    CardExtensions::register("{$kind}.footer", fn (array $item, ?Authenticatable $viewer, array $summary) => view('reactions.bar', [
+        'type' => $type,
+        'id' => $item['id'],
+        'counts' => $summary[$item['id']]['counts'] ?? [],
+        'mine' => $summary[$item['id']]['mine'] ?? [],
+        'canReact' => $viewer !== null && ! $item['is_own'] && $item['status'] === 'approved',
+    ]), 'reactions');
+}
+
+CardExtensions::preload('review.meta', fn (Collection $reviews) => Kudos::totalsForUsers($reviews->pluck('author.id')->filter()), 'kudos');
+CardExtensions::register('review.meta', fn (array $review, ?Authenticatable $viewer, array $totals) => isset($review['author']['id'], $totals[$review['author']['id']])
+    ? view('kudos.badge', ['total' => $totals[$review['author']['id']]])
+    : null, 'kudos');
+```
+
+De wrapper is `<div|span class="rr-extensions rr-extensions--footer|meta" data-rr-extension="review.footer" data-rr-item-type="review" data-rr-item-id="12">`. Met JavaScript rendert de verrijking na posten, bewerken, verwijderen, sorteren, filteren en pagineren de componenten opnieuw op de server en wisselt ze om ("Meer reacties" haalt de volgende pagina als HTML), dus de host-uitbreidingen staan altijd in die server-HTML. Gedrag (klikken, tellers bijwerken) koppelt de host met een JS-haak, die voor elk uitbreidingselement één keer draait, ook voor elementen die later binnenkomen:
+
+```js
+import { enhanceRatingsAndReviews, registerCardExtension } from '../../vendor/jw-1980/ratings-and-reviews/resources/js/blade/index.js';
+
+const bindReactions = (item, element) => { // item: { position, type: 'review'|'comment', id, subject: { type, id }, card }
+    element.querySelectorAll('[data-reaction]').forEach((button) => button.addEventListener('click', () => toggleReaction(item.type, item.id, button)));
+};
+enhanceRatingsAndReviews(document, { searchCards, cardExtensions: { 'review.footer': bindReactions, 'comment.footer': bindReactions } });
+// of later: const off = registerCardExtension('comment.footer', bindReactions);
+```
+
+Vendor-overschrijvingen (`resources/views/vendor/rr/partials/attribution.blade.php` voor de zakelijke badge, enzovoort) blijven werken; een oudere overschrijving van `partials/review-card` of `partials/comment` zonder de twee `render()`-aanroepen toont gewoon geen uitbreidingen.
 
 ### NutriCompare (Vue 3)
 
@@ -198,6 +238,25 @@ app.use(createRatingsAndReviews({
 ```
 
 Met `:meta` volgt `RrReviewForm` de sectie (schaal, uitgebreide velden, minimale lengte, foto's en lengtelimieten, reviewvragen `meta.questions`, "plaatsen als" `meta.attributions`; met `reviews_enabled` uit of zonder deelname een melding in plaats van het formulier); losse props (`scale`, `extended-fields`, `min-length`, `max-photos`, `max-title`, `max-points`) winnen als ze gegeven zijn. `RrDiscussion` toont bij een afgekapte draad "Meer antwoorden tonen" en laadt de rest per pagina. `RrReviewCard` toont de badge (`RrAttributionBadge`), waarom de review niet meetelt (een publieke reden als label, anders een melding voor de auteur of moderator), de antwoorden, het vervolg met formulier voor de auteur (`RrFollowUp`, event `updated`) en de blokkade-melding, en `officialReply` (het slot `brand-reply` wint) en opent met "Reacties tonen" een `RrDiscussion` op `{ type: 'rr_review', id }`; `RrReviews` heeft het filter "Met foto's". `RrDiscussion` zet de vastgezette reactie bovenaan, biedt moderators en de eigenaar "Bovenaan vastzetten"/"Losmaken" en een "plaatsen als"-keuze in de composer. De API-client heeft ook `createFollowUp`, `deleteFollowUp`, `pinComment`, `adminReviewQuestions`, `createReviewQuestion`, `updateReviewQuestion`, `deleteReviewQuestion`, `uploadImage`, `replies`, `stickers`, `topicRatings`, `saveTopicRatings`, `reviewRepliesSubject` en voor beheer `adminStickers`, `createSticker`, `updateSticker`, `deleteSticker`.
+
+**Kaartuitbreidingen in Vue.** Dezelfde vier posities. Per kaart als slot, gescoped met het item: `RrReviewCard` `#meta`/`#footer` (`{ review, item }`) en `#comment-meta`/`#comment-footer` (voor de antwoorden op de review), `RrComment` `#meta`/`#footer` (`{ comment, item }`, doorgegeven aan alle antwoorden), `RrReviews` `#review-meta`/`#review-footer`/`#comment-meta`/`#comment-footer` en `RrDiscussion` `#comment-meta`/`#comment-footer`. Of voor de hele app in de plugin, met een optionele `preload` die de lijsten één keer per geladen pagina aanroepen (eerste pagina met de eigen review, elke volgende pagina, een pagina antwoorden, een nieuw geplaatste reactie; zonder verwijderde placeholders). De terugkeerwaarde van `preload` wordt niet doorgegeven: de host vult zijn eigen store en de component leest die. Een slot vervangt op die kaart de geregistreerde componenten; zonder slot en registratie is er geen wrapper. De componenten krijgen de props `item` (genormaliseerde `Review`/`Comment`) en `position`.
+
+```js
+app.use(createRatingsAndReviews({
+    // …
+    cardExtensions: {
+        'review.footer': { component: ReactionBar, preload: (reviews) => reactions.load('rr_review', reviews.map((r) => r.id)) },
+        'comment.footer': { component: ReactionBar, preload: (comments) => reactions.load('rr_comment', comments.map((c) => c.id)) },
+        'review.meta': KudosBadge,
+    },
+}));
+```
+
+```vue
+<RrReviews :subject="{ type: 'product', id }">
+    <template #review-footer="{ review }"><ReactionBar :item="review" position="review.footer" /></template>
+</RrReviews>
+```
 
 Alle API-vormen staan getypeerd in `packages/vue/src/types.ts`; de mapping van de server-JSON zit op één plek, `resources/js/normalize.js`.
 
