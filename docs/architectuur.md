@@ -50,7 +50,7 @@ packages/vue/                    npm-pakket @jw-1980/ratings-and-reviews-vue (Nu
 | `ContributionCounter` | Telt goedgekeurde bijdragen per gebruiker, voor **vertrouwensniveaus**. Standaard: tellen in de pakkettabellen. |
 | `BlockList` | Optioneel. Blokkades tussen leden (`isBlocked`, `blockedWith`); geen antwoorden, citaten of stemmen over een blokkade heen. |
 | `AttributionResolver` | Optioneel. Identiteiten waarmee een lid mag plaatsen (merk, winkel, keten); `attribution` op reacties en reviews. |
-| Subject-interfaces | Optioneel op het host-model: `ParticipationRules`, `ScopedModeration`, `HasDiscussionOwner`, `HasDiscussionContext`, `SyncsCommentCount`, `HidesBlockedMembers` (zie de vierde ronde). |
+| Subject-interfaces | Optioneel op het host-model: `ParticipationRules`, `KindAwareParticipationRules` (vijfde ronde), `ScopedModeration`, `HasDiscussionOwner`, `HasDiscussionContext`, `SyncsCommentCount`, `HidesBlockedMembers` (zie de vierde ronde). |
 
 Elk optioneel contract heeft een standaardbinding die de feature uitschakelt. De UI verbergt de feature dan.
 
@@ -70,7 +70,7 @@ Elk optioneel contract heeft een standaardbinding die de feature uitschakelt. De
   - Subject en auteur: `reviewable_type`/`_id`, `user_id`, `section` (de `reviewSectionKey()` van het subject), `status` (pending, approved, rejected, spam), `erasure_withheld_at`.
   - Score en tekst: `rating` plus `scale_max`, `title`, `body_html`, `body_text`, `pros` en `cons` (json).
   - Features: `facets` (json), `price_cents`, `price_currency`, `compared_type`/`_id`, `comparison` (better/worse/same), `quality_score`.
-  - Tellers en herkomst: `helpful_count`, `flags_count`, `ip_hash`, `network_hash`, `device_hash`, `counted`.
+  - Tellers en herkomst: `helpful_count`, `flags_count`, `ip_hash`, `network_hash`, `device_hash`, `counted`, `uncounted_reason` (sinds de vijfde ronde).
   - Tijden: `approved_at`, `edited_at`, soft deletes.
   - Unique (reviewable, user).
   - **Een afgewezen of als spam gemarkeerde review kan niet automatisch terug naar approved.** Opnieuw indienen geeft weer `pending`.
@@ -116,7 +116,7 @@ Elk optioneel contract heeft een standaardbinding die de feature uitschakelt. De
 - `DiscussionTree`: een vast aantal queries, roots gepagineerd, replies via `root_id`.
   - Sorteringen: nuttigst (Wilson-ondergrens), nieuwst, oudst, **controversieel**.
   - `controversy_score = (agree + disagree) ^ (min/max)`, 0 bij geen stemmen.
-- `VoteService`: één stemtabel. Toggle en wisselen binnen een dimensie, nooit op je eigen bijdrage, `RiskSignals` bepaalt `counted`, tellers worden hersteld uit de rijen.
+- `VoteService`: één stemtabel. Toggle en wisselen binnen een dimensie, nooit op je eigen bijdrage, `RiskSignals` bepaalt `counted`, tellers worden hersteld uit de rijen. `recountForUsers()` vraagt de stemmen van een groep leden opnieuw aan `RiskSignals` en hertelt (vijfde ronde).
 - `ReportService`: melden, afhandelen (met wie en wanneer), takedown via `Moderatable`.
 - `SpamGuard` (deterministisch): honeypot, tijdval, aantal links, hoofdletters, herhaalde tekens, duplicaat in 10 minuten over de **volledige** tekst. De woordenlijst staat in de config.
 - `ToneNudge` (deterministisch, nl/en woordenlijst in de config): geeft `null` of een suggestie. Plaatsen met `confirm_tone=true` gaat altijd door.
@@ -280,4 +280,39 @@ Morph-aliassen: `rr_review_question`, `rr_review_answer`, `rr_review_follow_up`.
 **Responsvelden:** reactie `attribution`, `is_pinned`, `pinned_at`, `is_blocked`, `can.vote`, `can.pin`; reactielijst `meta.pinned_comment_id`, `meta.can_participate`, `meta.can_pin`, `meta.attributions`, `meta.subject {type, id, title, url, context_url}` (`accepts_comments` is false voor wie niet mag deelnemen); review `attribution`, `answers`, `follow_up`, `follow_up_window` (alleen de auteur), `is_blocked`, `can.vote`, `can.follow_up`; reviewlijst `meta.reviews_enabled`, `meta.can_participate`, `meta.attributions`, `meta.review_questions`, `meta.review_follow_up`, `meta.features.follow_ups`, `meta.features.attributions` (`accepts_reviews` volgt `reviews_enabled` en deelname); samenvatting `questions`, `follow_ups`, `min_reviews_for_average`; moderatie-inbox `attribution`, `follow_up`.
 
 **Van WelZoLekkers `Commentable` naar het pakket:** `isOpenForComments` → `acceptsComments`; `isDiscussionVisibleTo` → `commentsVisibleTo`; `canJoinDiscussion` → `ParticipationRules::canParticipate`; `holdsCommentFrom` → `holdsContributionFrom`; `hidesCommentsOfBlockedMembers` → `HidesBlockedMembers::hidesBlockedMembers` (+ `BlockList` over `UserBlock::idsRelatedTo`/`existsBetween`); `canModerateDiscussion` → `ScopedModeration::canModerate`; `discussionOwner` → `HasDiscussionOwner::discussionOwnerId` en `CommentPosted::$recipients`; `syncCommentCount` → `SyncsCommentCount`; `discussionUrl`/`discussionTitle` blijven; `discussionContextUrl` → `HasDiscussionContext`; `brand_account_id`/"hats" en `OfficialReply` → `AttributionResolver` + pin. NutriCompare: productreacties en postreacties worden `Commentable` (zichtbaarheid van posts in `commentsVisibleTo`, vrienden/groepen in `ParticipationRules`, `Messaging\UserBlock` in `BlockList`); merkreacties op reviews via `OfficialReplyResolver` of als reactie op de review met attributie.
+
+## Vijfde ronde (3 november 2026)
+
+Een kleine ronde met één bug en vier aanvullingen. Alles is toevoegend; de enige zichtbare wijziging in bestaand gedrag is dat het stemantwoord velden erbij kreeg en dat de JavaScript-client die nu leest.
+
+### Beslissingen
+
+- **Stemantwoord expliciet (bug).** `VoteService::recount()` geeft de tellers per kolom (`agree_count`, …), en dat ging ongewijzigd als `counts` naar de client, terwijl `normalize.voteResult` `counts.up`/`counts.down` las: na elke stem via JavaScript stond de teller op 0, bij elke dimensie en bij de nuttig-stem op reviews. Het antwoord heeft nu een vaste, gedocumenteerde vorm (`Support\VoteResult::toArray()`): `count` (`{up, down}` van de gestemde dimensie), `counts_by_dimension` (elke dimensie van de sectie, dezelfde vorm als `counts` in de `CommentResource`) en `counts` (de ruwe kolommen, ongewijzigd gelaten voor bestaande clients). `normalize.voteResult` geeft `counts` (de gestemde dimensie, zoals de componenten al verwachtten) en `allCounts`; een antwoord met alleen kolommen wordt nog gelezen. Vue en de Blade-verrijking werken ook de andere dimensies bij. De mocks in de JS-tests hadden de verkeerde vorm, daarom viel het niet op; de nieuwe tests gebruiken het antwoord dat de PHP-test vastlegt. Peilingen hadden het probleem niet (`PollService::present()`).
+- **`uncounted_reason` op reviews.** Zoals bij stemmen en onderwerpscores staat de reden nu bij de review. Gezet uit het RiskSignals-verdict (indienen en bewerken) of door de host met `ReviewService::setCounted()` (bijvoorbeeld een proefpakket van het merk, of na een fraudecontrole). Labels en zichtbaarheid komen uit `reviews.uncounted_reasons` (host-data in de config, per taal; zonder label de pakketvertaling `enums.uncounted_reason.<key>` of het algemene label, geen terugvaltaal). Een reden is alleen voor de auteur en moderators, tenzij `public` (dan een label op de kaart voor iedereen: openheid over gekregen producten). `keep_on_edit` houdt een hostbeslissing vast bij een bewerking; zonder die vlag beslist RiskSignals bij elke bewerking opnieuw, zoals voorheen. De resource vraagt `rr.moderate` alleen voor een niet-tellende review met een niet-publieke reden die niet van de kijker is, zodat een lijst niet per rij vraagt. Alleen reviews kregen de kolom: reacties tellen nergens zichtbaar mee.
+- **Deelname per soort.** Een nieuwe optionele interface `KindAwareParticipationRules::canParticipateIn($user, $kind)` in plaats van een extra parameter op `ParticipationRules::canParticipate()`: een parameter toevoegen aan een interfacemethode breekt elke bestaande implementatie (PHP eist dezelfde signatuur), een tweede interface niet. Heeft een subject hem, dan beslist hij voor elke soort; `holdsContributionFrom()` blijft bij `ParticipationRules`. De package-`Review` geeft een reactie op de review door als `review_reply` aan het gereviewde subject, zodat filiaalpersoneel op filiaalreviews kan antwoorden zonder zelf te mogen reviewen.
+- **Indexen.** `rr_votes.user_id` had al een index (000004); `rr_poll_votes.user_id` niet. Migratie 000017 voegt de ontbrekende toe (en die op `rr_votes` alleen als een database hem mist).
+- **Hertellen voor een groep leden.** `VoteService::recountForUsers($userIds)` vraagt elke stem en peilingstem van die leden opnieuw aan RiskSignals, per item onder de rijlock en oudste eerst; `existingVotes` zijn de stemmen die vóór deze stem werden uitgebracht, zodat de volgorde van de oorspronkelijke beslissingen behouden blijft en niet steeds een andere stem "de eerste" wordt. Een gewijzigd verdict zet `counted` en `uncounted_reason` (en nieuwe `meta`), daarna worden de tellers altijd herteld (ook verlopen tellers worden zo hersteld). Er wordt niets geweigerd of verwijderd en er is geen event: de host roept het zelf aan, voor grote clusters vanuit een job. Bijdragen (reviews, reacties) worden niet opnieuw beoordeeld; daarvoor is `setCounted()` er voor reviews.
+- **Niet gedaan.** `accepts_ratings` van `GET …/topic-ratings` kijkt nog niet naar deelname (een PUT geeft wel 403); reacties hebben geen `uncounted_reason`.
+
+### Migratienotitie voor de hosts
+
+**Migraties** (toevoegend, idempotent, met `down()`): `2026_11_03_000016_add_uncounted_reason_to_rr_reviews` (`rr_reviews.uncounted_reason`, string 64, nullable; bestaande niet-tellende reviews houden `counted = false` zonder reden) en `2026_11_03_000017_add_user_indexes_to_rr_votes` (`rr_poll_votes_user_id_index`, en `rr_votes_user_id_index` als die ontbreekt). `php artisan migrate`.
+
+**Stemantwoord** van `POST reviews/{id}/votes` en `POST comments/{id}/votes`: nieuw `count` en `counts_by_dimension`; `counts` (kolommen) blijft. Wie de JSON zelf leest: gebruik `count`. Vue-hosts: `VoteResult` (event `voted` van `RrVoteButtons`) kreeg `allCounts`; `counts` is de gestemde dimensie zoals voorheen bedoeld, nu met de juiste waarden.
+
+**Config:** `reviews.uncounted_reasons` (standaard `sample_campaign` met `nl` "Gekregen van het merk", `en` "Received from the brand", `public` true, `keep_on_edit` true). Een gepubliceerde config moet de sleutel overnemen om de standaard te houden.
+
+**Responsvelden:** review `uncounted_reason`, `uncounted_label`, `uncounted_public` (null/false als hij telt of als de kijker de reden niet mag zien); moderatie-inbox `counted`, `uncounted_reason`, `uncounted_label`.
+
+**Nieuw in PHP:**
+
+- `Contracts\KindAwareParticipationRules`: `canParticipateIn(Authenticatable $user, string $kind): bool`; soorten in `Support\ParticipationKind` (`REVIEW`, `COMMENT`, `REVIEW_REPLY`, `TOPIC_RATING`, `FOLLOW_UP`). Optioneel; zonder interface blijft `ParticipationRules::canParticipate()` voor elke soort gelden.
+- `Services\Participation::canParticipate($user, $subject, string $kind = 'comment')` en `assertCanParticipate(…, string $kind = 'comment')`: optionele derde parameter.
+- `ReviewService::setCounted(Review $review, bool $counted, ?string $reason = null): Review` (een reden is verplicht bij `false`, anders `InvalidArgumentException`; herberekent de aggregaten).
+- `VoteService::recountForUsers(array $userIds): array{votes, votes_changed, items, poll_votes, poll_votes_changed, polls}`, `VoteService::votableByKey(string $type, int $id)`, `PollService::recountForUsers(array $userIds)`.
+- `VoteContext` en `PollVoteContext` kregen een optioneel laatste argument `vote` (de opgeslagen rij bij herbeoordeling) en `isReevaluation()`. Een RiskSignals-implementatie die `existingVotes` telt hoeft niets te veranderen.
+- `Support\VoteResult` kreeg `countsByDimension` (optioneel constructorargument), `byDimension()`, `count()` en `toArray()`; `Support\UncountedReasons` leest de config.
+- De constructor van `VoteService` kreeg `PollService` (container-resolved).
+
+**Vertalingen:** `enums.uncounted_reason.{default, held_by_subject, imported}`, `ui.reviews.{uncounted_public, own_uncounted, uncounted_moderator}`. CSS: `.rr-tag--uncounted`.
 
