@@ -3,8 +3,10 @@ import { computed, ref } from 'vue';
 import { useRr } from '../context';
 import { errorMessage } from '../composables/errors';
 import { formatDate, formatMoney, formatRelative } from '../shared';
+import RrAttributionBadge from './RrAttributionBadge.vue';
 import RrAuthorName from './RrAuthorName.vue';
 import RrDiscussion from './RrDiscussion.vue';
+import RrFollowUp from './RrFollowUp.vue';
 import RrRichText from './RrRichText.vue';
 import RrScoreBadge from './RrScoreBadge.vue';
 import RrVoteButtons from './RrVoteButtons.vue';
@@ -17,7 +19,7 @@ const props = withDefaults(defineProps<{
     wantToTry?: boolean;
 }>(), { topicNames: () => ({}), wantToTry: false });
 
-const emit = defineEmits<{ report: [review: Review]; edit: [review: Review]; delete: [review: Review]; message: [text: string] }>();
+const emit = defineEmits<{ report: [review: Review]; edit: [review: Review]; delete: [review: Review]; message: [text: string]; updated: [review: Review] }>();
 const rr = useRr();
 
 const added = ref(false);
@@ -47,9 +49,10 @@ async function addToList() {
 </script>
 
 <template>
-    <article class="rr-review" :class="{ 'is-own': review.isOwn, 'is-pending': review.status !== 'approved' }" :aria-labelledby="headingId" :data-rr-review="review.id">
+    <article class="rr-review" :class="{ 'is-own': review.isOwn, 'is-pending': review.status !== 'approved', 'is-blocked': review.isBlocked }" :aria-labelledby="headingId" :data-rr-review="review.id">
         <header class="rr-review__header">
             <RrAuthorName :author="review.author" />
+            <RrAttributionBadge :attribution="review.attribution" />
             <span class="rr-review__meta">
                 <time v-if="review.createdAt" :datetime="review.createdAt" :title="formatDate(review.createdAt, rr.locale, { dateStyle: 'long' })">{{ formatRelative(review.createdAt, rr.locale) }}</time>
                 <span v-if="review.isEdited" class="rr-tag" :title="formatDate(review.editedAt, rr.locale, { dateStyle: 'long', timeStyle: 'short' })">{{ rr.t('common.edited') }}</span>
@@ -76,6 +79,13 @@ async function addToList() {
         </ul>
 
         <RrRichText v-if="review.bodyHtml" :html="review.bodyHtml" class="rr-review__body" />
+
+        <dl v-if="review.answers.length" class="rr-review__answers" :aria-label="rr.t('reviews.answers')">
+            <div v-for="answer in review.answers" :key="answer.key" class="rr-review__answer" :class="`rr-review__answer--${answer.type}`">
+                <dt>{{ answer.label }}</dt>
+                <dd>{{ answer.type === 'scale' ? rr.t('form.question_scale_option', { value: String(answer.value), max: answer.scaleMax ?? 5 }) : answer.display }}</dd>
+            </div>
+        </dl>
 
         <div v-if="review.pros.length || review.cons.length" class="rr-review__points">
             <div v-if="review.pros.length" class="rr-points rr-points--pros">
@@ -104,6 +114,15 @@ async function addToList() {
             </span>
         </p>
 
+        <RrFollowUp
+            :review="review"
+            @saved="emit('updated', $event)"
+            @removed="emit('updated', { ...review, followUp: null, can: { ...review.can, followUp: true } })"
+            @message="emit('message', $event)"
+        />
+
+        <p v-if="review.isBlocked" class="rr-notice rr-notice--muted">{{ rr.t('reviews.blocked') }}</p>
+
         <slot name="brand-reply" :review="review">
             <aside v-if="review.officialReply" class="rr-brand-reply rr-official-reply" :aria-label="rr.t('reviews.official_reply', { name: review.officialReply.author.name })">
                 <p class="rr-brand-reply__title">
@@ -125,6 +144,7 @@ async function addToList() {
                 :counts="{ helpfulness: { up: review.helpfulCount, down: 0 } }"
                 :viewer-votes="review.viewerVotes"
                 :is-own="review.isOwn"
+                :blocked="review.isBlocked"
                 positive-only
                 @message="emit('message', $event)"
             />

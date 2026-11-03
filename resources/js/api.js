@@ -262,6 +262,19 @@ export function createApiClient(options = {}) {
             await request('DELETE', `reviews/${encodeURIComponent(id)}`);
         },
 
+        /**
+         * The author's follow-up on their review ("after a month").
+         *
+         * @param {{ rating: number, body?: string|null, confirmTone?: boolean }} draft
+         */
+        async createFollowUp(reviewId, draft) {
+            return normalize.saved(await post(`reviews/${encodeURIComponent(reviewId)}/follow-up`, normalize.followUpPayload(draft)), normalize.review);
+        },
+
+        async deleteFollowUp(reviewId) {
+            await request('DELETE', `reviews/${encodeURIComponent(reviewId)}/follow-up`);
+        },
+
         async voteReview(id, dimension, value) {
             return normalize.voteResult((await post(`reviews/${encodeURIComponent(id)}/votes`, { dimension, value }))?.data);
         },
@@ -289,6 +302,13 @@ export function createApiClient(options = {}) {
 
         async deleteComment(id) {
             await request('DELETE', `comments/${encodeURIComponent(id)}`);
+        },
+
+        /** Pins a top-level comment to the top of its discussion (moderator or discussion owner); `pinned: false` unpins it. */
+        async pinComment(id, pinned = true) {
+            const payload = await request(pinned ? 'POST' : 'DELETE', `comments/${encodeURIComponent(id)}/pin`);
+
+            return { isPinned: Boolean(payload?.data?.is_pinned), message: payload?.message ?? null };
         },
 
         /** Withdraws a comment inside its undo window. */
@@ -400,6 +420,24 @@ export function createApiClient(options = {}) {
         /** The active sticker library for the editor. */
         async stickers(signal) {
             return list((await get('stickers', {}, signal))?.data).map(normalize.sticker);
+        },
+
+        /** Admin (rr.manage-topics): the review questions of the scopes the user manages. */
+        async adminReviewQuestions(query = {}, signal) {
+            return list((await get('admin/review-questions', query, signal))?.data);
+        },
+
+        /** @param {Record<string, unknown>} question as in POST admin/review-questions (snake_case) */
+        async createReviewQuestion(question) {
+            return (await post('admin/review-questions', question))?.data ?? null;
+        },
+
+        async updateReviewQuestion(id, changes) {
+            return (await request('PATCH', `admin/review-questions/${encodeURIComponent(id)}`, { body: changes }))?.data ?? null;
+        },
+
+        async deleteReviewQuestion(id) {
+            return (await request('DELETE', `admin/review-questions/${encodeURIComponent(id)}`))?.data ?? null;
         },
 
         /** Admin (rr.manage-settings): every sticker with both names. */

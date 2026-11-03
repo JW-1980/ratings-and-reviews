@@ -7,7 +7,7 @@ import { evaluateQuality, toneSuggestionFromError } from '../shared';
 import RrEditor from './RrEditor.vue';
 import RrQualityMeter from './RrQualityMeter.vue';
 import RrScaleInput from './RrScaleInput.vue';
-import type { FacetGroup, Option, Photo, ProductRef, QualityResult, QualityRules, Review, ReviewPage, ReviewTopic, SubjectRef } from '../types';
+import type { FacetGroup, Option, Photo, ProductRef, QualityResult, QualityRules, Review, ReviewPage, ReviewQuestion, ReviewTopic, SubjectRef } from '../types';
 
 const props = withDefaults(defineProps<{
     subject: SubjectRef;
@@ -37,9 +37,11 @@ const props = withDefaults(defineProps<{
     qualityRules?: QualityRules | null;
     maxTitle?: number;
     maxPoints?: number;
+    /** The subject's review questions (default: `meta.questions`). */
+    questions?: ReviewQuestion[];
 }>(), {
     scale: undefined, meta: null, topics: () => [], facetOptions: () => [], comparisons: () => [], tools: () => ['bold', 'italic', 'underline', 'bullet_list', 'ordered_list'],
-    extendedFields: undefined, minLength: undefined, maxPhotos: undefined, review: null, qualityRules: null, maxTitle: undefined, maxPoints: undefined,
+    extendedFields: undefined, minLength: undefined, maxPhotos: undefined, review: null, qualityRules: null, maxTitle: undefined, maxPoints: undefined, questions: undefined,
 });
 
 const emit = defineEmits<{ saved: [payload: { item: Review; message: string | null }]; cancel: [] }>();
@@ -55,6 +57,9 @@ const photoLimit = computed(() => props.maxPhotos ?? props.meta?.form.maxPhotos 
 const titleLimit = computed(() => props.maxTitle ?? props.meta?.form.maxTitleLength ?? 150);
 const pointLimit = computed(() => props.maxPoints ?? props.meta?.form.maxProsCons ?? 5);
 const pointLength = computed(() => props.meta?.form.maxProConLength ?? 200);
+const questionList = computed<ReviewQuestion[]>(() => props.questions ?? props.meta?.questions ?? []);
+const attributionOptions = computed(() => props.meta?.attributions ?? []);
+const ownAnswers = Object.fromEntries((props.review?.answers ?? []).map((answer) => [answer.key, answer.value]));
 
 const form = reactive({
     rating: props.review?.rating ?? null as number | null,
@@ -66,6 +71,11 @@ const form = reactive({
     facets: Object.fromEntries(props.review?.facets.map((facet) => [facet.group, facet.value]) ?? []) as Record<string, string | null>,
     comparison: props.review?.comparison ? { subject: props.review.comparison.subject, verdict: props.review.comparison.verdict ?? 'same' } : null as { subject: ProductRef; verdict: string } | null,
     photos: [...(props.review?.photos ?? [])] as Photo[],
+    // Question key => a scale number, an option value or (several choices) a list.
+    answers: Object.fromEntries(questionList.value.map((question) => [question.key, question.type === 'multi'
+        ? (Array.isArray(ownAnswers[question.key]) ? [...(ownAnswers[question.key] as string[])] : [])
+        : (ownAnswers[question.key] ?? null)])) as Record<string, number | string | string[] | null>,
+    attribution: props.review?.attribution?.key ?? '',
 });
 const uploadingPhotos = ref(false);
 const photoStatus = ref('');
@@ -175,6 +185,8 @@ async function submit(confirmTone = false) {
         topicRatings: form.topicRatings,
         facets: props.facetOptions.length ? form.facets : undefined,
         comparison: form.comparison ? { type: form.comparison.subject.type, id: form.comparison.subject.id, verdict: form.comparison.verdict } : null,
+        answers: questionList.value.length ? form.answers : undefined,
+        attribution: attributionOptions.value.length ? (form.attribution || null) : undefined,
         confirmTone,
         formStartedAt: props.review ? undefined : startedAt,
     };
@@ -213,8 +225,10 @@ const describedBy = (field: string, help?: string) => [help, errors.value[field]
             <a v-if="rr.loginUrl" :href="rr.loginUrl">{{ rr.t('form.login_required') }}</a>
             <template v-else>{{ rr.t('form.login_required') }}</template>
         </p>
+        <p v-else-if="meta && !meta.reviewsEnabled" class="rr-notice">{{ rr.t('reviews.disabled') }}</p>
+        <p v-else-if="meta && meta.canParticipate === false" class="rr-notice">{{ rr.t('reviews.participation_denied') }}</p>
 
-        <form v-else class="rr-form" novalidate @submit.prevent="submit()">
+        <form v-else-if="!meta || (meta.reviewsEnabled && meta.canParticipate !== false)" class="rr-form" novalidate @submit.prevent="submit()">
             <p class="rr-visually-hidden" aria-live="polite" role="status">{{ live }}</p>
             <p v-if="error" class="rr-alert rr-alert--error" role="alert">{{ error }}</p>
 
@@ -246,6 +260,50 @@ const describedBy = (field: string, help?: string) => [help, errors.value[field]
                         :invalid="!!errors[`topic_ratings.${topic.id}`]"
                     />
                 </div>
+            </fieldset>
+
+            <fieldset v-if="questionList.length" class="rr-fieldset rr-questions">
+                <legend class="rr-label">{{ rr.t('form.questions') }}</legend>
+                <fieldset
+                    v-for="question in questionList"
+                    :key="question.key"
+                    class="rr-fieldset rr-fieldset--nested rr-question"
+                    :class="`rr-question--${question.type}`"
+                    :aria-invalid="errors[`answers.${question.key}`] ? 'true' : undefined"
+                    :aria-describedby="errors[`answers.${question.key}`] ? `${uid}-q-${question.key}-error` : undefined"
+                >
+                    <legend class="rr-label rr-label--minor">
+                        {{ question.label }}
+                        <span v-if="question.required" class="rr-tag">{{ rr.t('form.question_required') }}</span>
+                    </legend>
+                    <div v-if="question.type === 'scale'" class="rr-question__scale">
+                        <span v-if="question.lowLabel" class="rr-question__anchor" aria-hidden="true">{{ question.lowLabel }}</span>
+                        <div class="rr-chips">
+                            <label v-if="!question.required" class="rr-chip rr-chip--input">
+                                <input v-model="form.answers[question.key]" type="radio" :name="`${uid}-q-${question.key}`" :value="null">
+                                <span>{{ rr.t('form.question_none') }}</span>
+                            </label>
+                            <label v-for="value in question.scaleMax ?? 5" :key="value" class="rr-chip rr-chip--input">
+                                <input v-model="form.answers[question.key]" type="radio" :name="`${uid}-q-${question.key}`" :value="value">
+                                <span aria-hidden="true">{{ value }}</span>
+                                <span class="rr-visually-hidden">{{ rr.t('form.question_scale_option', { value, max: question.scaleMax ?? 5 }) }}<template v-if="value === 1 && question.lowLabel">, {{ question.lowLabel }}</template><template v-else-if="value === (question.scaleMax ?? 5) && question.highLabel">, {{ question.highLabel }}</template></span>
+                            </label>
+                        </div>
+                        <span v-if="question.highLabel" class="rr-question__anchor" aria-hidden="true">{{ question.highLabel }}</span>
+                    </div>
+                    <div v-else class="rr-chips">
+                        <label v-if="question.type === 'choice' && !question.required" class="rr-chip rr-chip--input">
+                            <input v-model="form.answers[question.key]" type="radio" :name="`${uid}-q-${question.key}`" :value="null">
+                            <span>{{ rr.t('form.question_none') }}</span>
+                        </label>
+                        <label v-for="option in question.options" :key="option.value" class="rr-chip rr-chip--input">
+                            <input v-if="question.type === 'multi'" v-model="form.answers[question.key]" type="checkbox" :value="option.value">
+                            <input v-else v-model="form.answers[question.key]" type="radio" :name="`${uid}-q-${question.key}`" :value="option.value">
+                            <span>{{ option.label }}</span>
+                        </label>
+                    </div>
+                    <p v-if="errors[`answers.${question.key}`]" :id="`${uid}-q-${question.key}-error`" class="rr-field-error">{{ errors[`answers.${question.key}`] }}</p>
+                </fieldset>
             </fieldset>
 
             <div v-if="extended" class="rr-field">
@@ -324,6 +382,15 @@ const describedBy = (field: string, help?: string) => [help, errors.value[field]
                 </div>
                 <p v-if="errors.compared_id || errors.compared_type || errors.comparison" class="rr-field-error">{{ errors.compared_id || errors.compared_type || errors.comparison }}</p>
             </fieldset>
+
+            <div v-if="attributionOptions.length" class="rr-field">
+                <label :for="`${uid}-attribution`" class="rr-label">{{ rr.t('form.post_as') }}</label>
+                <select :id="`${uid}-attribution`" v-model="form.attribution" class="rr-select">
+                    <option value="">{{ rr.t('form.post_as_self') }}</option>
+                    <option v-for="option in attributionOptions" :key="option.key" :value="option.key">{{ option.label }}</option>
+                </select>
+                <p v-if="errors.attribution" class="rr-field-error">{{ errors.attribution }}</p>
+            </div>
 
             <div v-if="tone" class="rr-tone" role="alertdialog" :aria-labelledby="`${uid}-tone-title`" :aria-describedby="`${uid}-tone-body`">
                 <p :id="`${uid}-tone-title`" class="rr-tone__title">{{ rr.t('tone.title') }}</p>

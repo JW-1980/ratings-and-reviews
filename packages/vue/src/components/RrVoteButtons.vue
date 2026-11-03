@@ -15,7 +15,9 @@ const props = withDefaults(defineProps<{
     guestVotes?: boolean;
     /** Reviews only have the positive helpfulness vote. */
     positiveOnly?: boolean;
-}>(), { isOwn: false, guestVotes: false, positiveOnly: false });
+    /** The author is in a block relation with the viewer: shown, not votable. */
+    blocked?: boolean;
+}>(), { isOwn: false, guestVotes: false, positiveOnly: false, blocked: false });
 
 const emit = defineEmits<{ voted: [result: VoteResult]; message: [text: string] }>();
 const rr = useRr();
@@ -47,6 +49,10 @@ const buttons = computed(() => props.dimensions.flatMap((dimension) => {
 const blockedReason = computed(() => {
     if (props.isOwn) {
         return rr.t('votes.own');
+    }
+
+    if (props.blocked) {
+        return rr.t('votes.blocked');
     }
 
     if (!rr.isAuthenticated && !props.guestVotes) {

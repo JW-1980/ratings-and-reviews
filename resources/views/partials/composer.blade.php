@@ -8,6 +8,8 @@
     $composerForm = 'comment:'.($parentId ?: 'root');
     $ownsFlash = ! $template && $rr['isForm']($composerForm, main: ! $parentId);
     $composerErrors = $ownsFlash ? $rr['formErrors']('rr_comment') : new \Illuminate\Support\MessageBag;
+    // Identities the member may post as (AttributionResolver): a "post as" select.
+    $attributions = (array) ($meta['attributions'] ?? []);
 @endphp
 <form method="post" action="{{ $action ?? '#' }}" id="{{ $formId }}" class="rr-composer {{ $parentId ? 'rr-composer--reply' : '' }}" novalidate aria-labelledby="{{ $formId }}-label"
     data-rr-composer data-min-length="{{ $settings['min_length'] }}" data-max-length="{{ $settings['max_length'] }}" data-tone-check="{{ ($settings['tone_check'] ?? false) ? '1' : '0' }}"
@@ -31,6 +33,18 @@
     <x-rr::editor name="body" :id="$formId.'-body'" :value="$ownsFlash ? old('body', '') : ''" :tools="$settings['editor_tools']" :locked="$locked"
         :label="$label" :placeholder="__('ratings-and-reviews::ui.composer.placeholder')" :described-by="$formId.'-meta'" :invalid="$composerErrors->has('body')"
         :minlength="$settings['min_length']" :maxlength="$settings['max_length']" required :rows="4" />
+
+    @if ($attributions !== [])
+        <div class="rr-inline-field rr-composer__attribution">
+            <label for="{{ $formId }}-attribution" class="rr-label rr-label--minor">{{ __('ratings-and-reviews::ui.form.post_as') }}</label>
+            <select id="{{ $formId }}-attribution" name="attribution" class="rr-select">
+                <option value="">{{ __('ratings-and-reviews::ui.form.post_as_self') }}</option>
+                @foreach ($attributions as $option)
+                    <option value="{{ $option['key'] }}" @selected($ownsFlash && old('attribution') === $option['key'])>{{ $option['label'] }}</option>
+                @endforeach
+            </select>
+        </div>
+    @endif
 
     @if ($canPoll)
         <fieldset class="rr-poll-builder" data-rr-poll-builder hidden disabled>
@@ -62,7 +76,7 @@
         </div>
     </div>
 
-    <p class="rr-field-error" role="alert" data-rr-error>{{ $composerErrors->first('body') ?: ($composerErrors->first('parent_id') ?: $composerErrors->first('confirm_tone')) }}</p>
+    <p class="rr-field-error" role="alert" data-rr-error>{{ $composerErrors->first('body') ?: ($composerErrors->first('parent_id') ?: ($composerErrors->first('attribution') ?: ($composerErrors->first('quoted_comment_id') ?: $composerErrors->first('confirm_tone')))) }}</p>
     @if ($ownsFlash && session('rr_tone'))
         {{-- The rephrase nudge after a form post without JavaScript: posting again with this ticked goes through. --}}
         <label class="rr-choice rr-nojs-only"><input type="checkbox" name="confirm_tone" value="1"><span>{{ __('ratings-and-reviews::ui.tone.post_anyway') }}</span></label>

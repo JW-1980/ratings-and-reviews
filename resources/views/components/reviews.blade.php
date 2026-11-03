@@ -6,6 +6,9 @@
     (without one, the official reply of the host's OfficialReplyResolver is shown). Filter
     "with photos" (?rr_photos=1). With reviews.replies on, every review links to its replies
     (?rr_rthread=ID), shown below the list as a discussion of the review (:login-url passes on).
+    Every card shows the attribution badge, the answers to the review questions and the
+    author's follow-up; the author adds or removes a follow-up from their card. Renders nothing
+    when the section's `reviews_enabled` is off (topic ratings only).
 --}}
 @props(['subject', 'prefix' => 'rr_', 'brandReply' => null, 'loginUrl' => null])
 @php
@@ -24,7 +27,7 @@
     $summary = $rr['api']('rating-summary.show', ['type' => $type, 'id' => $key])['data'] ?? [];
     $rootId = 'rr-reviews-'.\Illuminate\Support\Str::slug($type.'-'.$key);
 @endphp
-@if ($response !== null && isset($response['data']))
+@if ($response !== null && isset($response['data']) && ($response['meta']['reviews_enabled'] ?? true))
     @php
         $items = $response['data'];
         $meta = $response['meta'];
@@ -93,7 +96,7 @@
 
         <p class="rr-visually-hidden" aria-live="polite" role="status" data-rr-live></p>
         {{-- Outcome of a form post without JavaScript (package form routes) that belongs to this list. --}}
-        @php $listFlash = in_array(session('rr_form'), ['review:delete', 'vote:review'], true) || str_starts_with((string) session('rr_form'), 'report:rr_review'); @endphp
+        @php $listFlash = in_array(session('rr_form'), ['review:delete', 'vote:review'], true) || str_starts_with((string) session('rr_form'), 'report:rr_review') || str_starts_with((string) session('rr_form'), 'follow-up:'); @endphp
         @if ($listFlash && session('rr_status'))
             <p class="rr-alert rr-alert--success" role="status">{{ session('rr_status') }}</p>
         @endif

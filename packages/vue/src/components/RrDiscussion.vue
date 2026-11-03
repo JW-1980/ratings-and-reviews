@@ -52,6 +52,7 @@ const settings = computed(() => meta.value?.settings ?? fallbackSettings);
 const lockedTools = computed(() => meta.value?.trust.locked ?? {});
 // accepts_comments already accounts for the lock (moderators may still post in a locked discussion).
 const acceptsComments = computed(() => Boolean(meta.value?.acceptsComments));
+const attributions = computed(() => meta.value?.attributions ?? []);
 const newComments = computed(() => flatten(items.value).filter((comment) => comment.isNew));
 const newCount = computed(() => Math.max(newComments.value.length, meta.value?.newSince.count ?? 0));
 const slowInterval = computed(() => {
@@ -280,6 +281,7 @@ provide(RR_DISCUSSION, {
     settings,
     lockedTools,
     acceptsComments,
+    attributions,
     replyTo,
     quote,
     waitSeconds,
@@ -299,6 +301,16 @@ provide(RR_DISCUSSION, {
     showRevisions: (comment: Comment) => (revisionsTarget.value = comment),
     confirmDelete: (comment: Comment) => (deleteTarget.value = comment),
     replace: (comment: Comment) => (items.value = replaceInTree(items.value, comment)),
+    pin: async (comment: Comment) => {
+        try {
+            await rr.api.pinComment(comment.id, !comment.isPinned);
+            announce(rr.t(comment.isPinned ? 'discussion.unpinned_done' : 'discussion.pinned_done'));
+            // The pinned comment leads the first page: load it again.
+            await load();
+        } catch (failure) {
+            announce(errorMessage(failure, rr.t));
+        }
+    },
     undo: async (comment: Comment) => {
         try {
             await rr.api.undoComment(comment.id);
@@ -363,6 +375,7 @@ defineExpose({ reload: () => load(), jumpTo });
         </div>
 
         <p v-if="meta?.isLocked" class="rr-notice">{{ rr.t('discussion.locked') }}</p>
+        <p v-else-if="meta && meta.canParticipate === false" class="rr-notice">{{ rr.t('discussion.participation_denied') }}</p>
         <p v-else-if="meta && !meta.acceptsComments" class="rr-notice">{{ rr.t('discussion.closed') }}</p>
         <p v-if="meta?.slowModeSeconds" class="rr-notice rr-notice--slow">{{ rr.t('discussion.slow_mode', { interval: slowInterval }) }}</p>
 
@@ -375,6 +388,7 @@ defineExpose({ reload: () => load(), jumpTo });
                 :locked-tools="lockedTools"
                 :wait-seconds="waitSeconds"
                 :restore-html="restore?.parentId === null ? restore.html : null"
+                :attributions="attributions"
                 @posted="posted($event, null)"
                 @update:quote="quote = null"
                 @wait="waitSeconds = $event"

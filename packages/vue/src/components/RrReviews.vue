@@ -118,11 +118,21 @@ async function confirmDelete() {
     }
 }
 
+/** A card changed in place (a follow-up added or removed). */
+function replaceReview(updated: Review) {
+    items.value = items.value.map((review) => (review.id === updated.id ? updated : review));
+
+    if (meta.value?.ownReview?.id === updated.id) {
+        meta.value = { ...meta.value, ownReview: updated };
+    }
+}
+
 defineExpose({ reload: () => load() });
 </script>
 
 <template>
-    <section class="rr rr-reviews" :aria-labelledby="`${uid}-title`" :aria-busy="loading ? 'true' : 'false'">
+    <!-- Section `reviews_enabled` off: topic ratings only, no review list. -->
+    <section v-if="!meta || meta.reviewsEnabled" class="rr rr-reviews" :aria-labelledby="`${uid}-title`" :aria-busy="loading ? 'true' : 'false'">
         <header class="rr-section-header">
             <h2 :id="`${uid}-title`" class="rr-section-header__title">
                 {{ rr.t('reviews.title') }}
@@ -165,7 +175,7 @@ defineExpose({ reload: () => load() });
 
         <div v-if="own" class="rr-reviews__own">
             <p class="rr-reviews__own-label">{{ rr.t('reviews.your_review') }}</p>
-            <RrReviewCard :review="own" :subject="subject" :topic-names="topicNames" @edit="emit('edit', $event)" @delete="deleteTarget = $event" @message="announce">
+            <RrReviewCard :review="own" :subject="subject" :topic-names="topicNames" @edit="emit('edit', $event)" @delete="deleteTarget = $event" @message="announce" @updated="replaceReview">
                 <template #brand-reply="slotProps"><slot name="brand-reply" v-bind="slotProps" /></template>
             </RrReviewCard>
         </div>
@@ -186,6 +196,7 @@ defineExpose({ reload: () => load() });
                     @edit="emit('edit', $event)"
                     @delete="deleteTarget = $event"
                     @message="announce"
+                    @updated="replaceReview"
                 >
                     <template #brand-reply="slotProps"><slot name="brand-reply" v-bind="slotProps" /></template>
                 </RrReviewCard>

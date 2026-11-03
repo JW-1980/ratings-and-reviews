@@ -244,6 +244,8 @@ export function enhanceComposer(form, env, root, hooks) {
                 parentId: parentInput.value ? Number(parentInput.value) : null,
                 quote: quote ? { commentId: quote.commentId, text: quote.text } : null,
                 poll,
+                // Post "as" a brand or shop (the composer's attribution select, when offered).
+                attribution: form.querySelector('[name="attribution"]')?.value || null,
                 confirmTone,
                 formStartedAt: Number(form.querySelector(`[name="${env.startedAtField}"]`)?.value || 0) || undefined,
             });
@@ -468,6 +470,16 @@ export function enhanceReviewForm(form, env, root, hooks) {
             }
         }
 
+        // Review questions: answers[key] (scale, choice) and answers[key][] (multi).
+        const questions = form.querySelector('[data-rr-questions]');
+        const answers = {};
+
+        questions?.querySelectorAll('[data-rr-question]').forEach((fieldset) => {
+            const key = fieldset.dataset.rrQuestion;
+            answers[key] = fieldset.dataset.type === 'multi' ? data.getAll(`answers[${key}][]`).map(String) : String(data.get(`answers[${key}]`) ?? '');
+        });
+
+        const attributionField = form.querySelector('[name="attribution"]');
         const comparedType = String(data.get('compared_type') ?? '');
         const comparedId = String(data.get('compared_id') ?? '');
         const verdict = String(data.get('comparison') ?? '');
@@ -485,6 +497,8 @@ export function enhanceReviewForm(form, env, root, hooks) {
             comparison: comparedType && comparedId && verdict ? { type: comparedType, id: Number(comparedId), verdict } : null,
             // Ticked photos (kept and newly uploaded), in their order; left out without the photo field.
             ...(photoBox ? { photos: data.getAll('photos[]').map(Number) } : {}),
+            ...(questions ? { answers } : {}),
+            ...(attributionField ? { attribution: attributionField.value || null } : {}),
         };
     };
 

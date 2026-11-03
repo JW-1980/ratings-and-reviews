@@ -4,6 +4,7 @@ import { useRr } from '../context';
 import { flatten, useDiscussion } from '../composables/discussion';
 import { errorMessage } from '../composables/errors';
 import { formatDate, formatRelative } from '../shared';
+import RrAttributionBadge from './RrAttributionBadge.vue';
 import RrAuthorName from './RrAuthorName.vue';
 import RrComposer from './RrComposer.vue';
 import RrEditor from './RrEditor.vue';
@@ -60,7 +61,7 @@ async function saveEdit() {
         <article
             :id="anchor"
             class="rr-comment"
-            :class="{ 'is-new': comment.isNew, 'is-top': comment.isTop, 'is-removed': comment.isRemoved, 'is-collapsed': !expanded, 'is-pending': comment.status !== 'approved', 'is-own': comment.isOwn }"
+            :class="{ 'is-new': comment.isNew, 'is-top': comment.isTop, 'is-pinned': comment.isPinned, 'is-blocked': comment.isBlocked, 'is-removed': comment.isRemoved, 'is-collapsed': !expanded, 'is-pending': comment.status !== 'approved', 'is-own': comment.isOwn }"
             :aria-label="comment.isRemoved ? comment.removedLabel ?? '' : rr.t('discussion.by', { name })"
             :data-rr-comment="comment.id"
             tabindex="-1"
@@ -70,11 +71,13 @@ async function saveEdit() {
             <template v-else>
                 <header class="rr-comment__header">
                     <RrAuthorName :author="comment.author" />
+                    <RrAttributionBadge :attribution="comment.attribution" />
                     <span v-if="comment.inReplyToAuthor" class="rr-comment__reply-to">↳ {{ rr.t('discussion.in_reply_to', { name: comment.inReplyToAuthor.name }) }}</span>
                     <span class="rr-comment__meta">
                         <a :href="`#${anchor}`" class="rr-comment__time">
                             <time v-if="comment.createdAt" :datetime="comment.createdAt" :title="formatDate(comment.createdAt, rr.locale, { dateStyle: 'long', timeStyle: 'short' })">{{ formatRelative(comment.createdAt, rr.locale) }}</time>
                         </a>
+                        <span v-if="comment.isPinned" class="rr-tag rr-tag--pinned">{{ rr.t('discussion.pinned') }}</span>
                         <span v-if="comment.isTop" class="rr-tag rr-tag--top">{{ rr.t('discussion.top_comment') }}</span>
                         <span v-if="comment.isNew" class="rr-tag rr-tag--new">{{ rr.t('discussion.new') }}</span>
                         <span v-if="comment.status !== 'approved'" class="rr-tag rr-tag--pending">{{ rr.t('common.pending') }}</span>
@@ -117,13 +120,16 @@ async function saveEdit() {
                             :viewer-votes="comment.viewerVotes"
                             :is-own="comment.isOwn"
                             :guest-votes="discussion.settings.value.guestVotes"
+                            :blocked="comment.isBlocked"
                             @message="discussion.announce"
                         />
+                        <p v-if="comment.isBlocked" class="rr-help rr-comment__blocked">{{ rr.t('discussion.blocked') }}</p>
                         <div class="rr-comment__actions">
                             <button v-if="comment.can.reply && discussion.acceptsComments.value && rr.isAuthenticated" type="button" class="rr-button rr-button--small rr-button--ghost" :aria-expanded="discussion.replyTo.value === comment.id ? 'true' : 'false'" @click="discussion.openReply(comment)">{{ rr.t('discussion.reply') }}</button>
                             <button v-if="comment.can.edit && !editing" type="button" class="rr-button rr-button--small rr-button--ghost" @click="startEdit">{{ rr.t('common.edit') }}</button>
                             <button v-if="comment.can.undo && comment.publishAt" type="button" class="rr-button rr-button--small" @click="discussion.undo(comment)">{{ rr.t('undo.action') }}</button>
                             <button v-if="comment.can.delete" type="button" class="rr-button rr-button--small rr-button--ghost" @click="discussion.confirmDelete(comment)">{{ rr.t('common.delete') }}</button>
+                            <button v-if="comment.can.pin" type="button" class="rr-button rr-button--small rr-button--ghost" :aria-pressed="comment.isPinned ? 'true' : 'false'" @click="discussion.pin(comment)">{{ comment.isPinned ? rr.t('discussion.unpin') : rr.t('discussion.pin') }}</button>
                             <button v-if="!comment.isOwn && rr.isAuthenticated && comment.status === 'approved'" type="button" class="rr-button rr-button--small rr-button--ghost" @click="discussion.report(comment)">{{ rr.t('reviews.report') }}</button>
                             <button v-if="comment.isCollapsed" type="button" class="rr-button rr-button--small rr-button--link" @click="expanded = false">{{ rr.t('discussion.hide_collapsed') }}</button>
                         </div>
@@ -141,6 +147,7 @@ async function saveEdit() {
             :quote="discussion.quote.value && String(discussion.quote.value.commentId) === String(comment.id) ? discussion.quote.value : null"
             :wait-seconds="discussion.waitSeconds.value"
             :restore-html="discussion.restore.value?.parentId === comment.id ? discussion.restore.value.html : null"
+            :attributions="discussion.attributions.value"
             autofocus
             @posted="discussion.posted($event, comment.id)"
             @update:quote="discussion.quote.value = null"

@@ -5,7 +5,7 @@ import { errorMessage } from '../composables/errors';
 import { ApiError, codePointLength, createDraftStore, createToneChecker, toneSuggestionFromError, validatePoll } from '../shared';
 import RrEditor from './RrEditor.vue';
 import RrPollBuilder from './RrPollBuilder.vue';
-import type { Comment, DiscussionSettings, SubjectRef } from '../types';
+import type { Attribution, Comment, DiscussionSettings, SubjectRef } from '../types';
 
 const props = withDefaults(defineProps<{
     subject: SubjectRef;
@@ -18,7 +18,9 @@ const props = withDefaults(defineProps<{
     /** HTML to put back after an undo. */
     restoreHtml?: string | null;
     autofocus?: boolean;
-}>(), { lockedTools: () => ({}), parent: null, quote: null, waitSeconds: 0, restoreHtml: null, autofocus: false });
+    /** Identities the member may post as (meta.attributions): a "post as" select. */
+    attributions?: Attribution[];
+}>(), { lockedTools: () => ({}), parent: null, quote: null, waitSeconds: 0, restoreHtml: null, autofocus: false, attributions: () => [] });
 
 const emit = defineEmits<{ posted: [payload: { item: Comment; message: string | null; bodyHtml: string }]; cancel: []; 'update:quote': [value: null]; wait: [seconds: number] }>();
 const rr = useRr();
@@ -28,6 +30,7 @@ const editorRef = ref<InstanceType<typeof RrEditor> | null>(null);
 const body = ref('');
 const text = ref('');
 const poll = ref<{ question: string; options: string[] } | null>(null);
+const attribution = ref('');
 const showPollErrors = ref(false);
 const sending = ref(false);
 const error = ref('');
@@ -176,6 +179,7 @@ async function submit(confirmTone = false) {
             parentId: props.parent?.id ?? null,
             quote: props.quote ? { commentId: props.quote.commentId, text: props.quote.text } : insertedQuote.value,
             poll: poll.value,
+            attribution: attribution.value || null,
             confirmTone,
             formStartedAt: startedAt,
         });
@@ -238,6 +242,14 @@ defineExpose({ focus: () => editorRef.value?.focus(), insertQuote });
             @text="text = $event"
             @submit="submit()"
         />
+
+        <div v-if="attributions.length" class="rr-inline-field rr-composer__attribution">
+            <label :for="`${uid}-attribution`" class="rr-label rr-label--minor">{{ rr.t('form.post_as') }}</label>
+            <select :id="`${uid}-attribution`" v-model="attribution" class="rr-select">
+                <option value="">{{ rr.t('form.post_as_self') }}</option>
+                <option v-for="option in attributions" :key="option.key" :value="option.key">{{ option.label }}</option>
+            </select>
+        </div>
 
         <RrPollBuilder v-if="poll" v-model="poll" :show-errors="showPollErrors" :min-options="settings.polls.minOptions" :max-options="settings.polls.maxOptions" @remove="poll = null" />
 

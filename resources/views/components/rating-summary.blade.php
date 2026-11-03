@@ -1,7 +1,8 @@
 {{--
     <x-rr::rating-summary :subject="$product" />
     Score with uncertainty band, weighted score, trend, histogram (links that filter <x-rr::reviews>),
-    per-topic bars, facets and "reviewers switch to". Data: GET rating-summary, rendered on the server.
+    per-topic bars, facets, the answers to the review questions, the change after follow-ups and
+    "reviewers switch to". Data: GET rating-summary, rendered on the server.
 --}}
 @props(['subject', 'prefix' => 'rr_', 'reviewsAnchor' => null])
 @php
@@ -26,6 +27,8 @@
         $switch = $data['comparisons']['often_switch_to'] ?? null;
         $alternatives = (array) ($data['comparisons']['alternatives'] ?? []);
         $facetGroups = array_values(array_filter((array) ($data['facets'] ?? []), fn (array $group): bool => collect($group['values'])->sum('count') > 0));
+        $questions = array_values(array_filter((array) ($data['questions'] ?? []), fn (array $question): bool => (int) $question['count'] > 0));
+        $followUps = $data['follow_ups'] ?? null;
     @endphp
     @include('rr::partials.client')
     <section {{ $attributes->merge(['class' => 'rr rr-nojs rr-summary']) }} id="{{ $rootId }}" data-rr="summary" data-rr-subject-type="{{ $type }}" data-rr-subject-id="{{ $key }}" aria-labelledby="{{ $rootId }}-title">
@@ -125,6 +128,53 @@
                         </li>
                     @endforeach
                 </ul>
+            </div>
+        @endif
+
+        @if ($questions !== [])
+            <div class="rr-summary__questions">
+                <h3 class="rr-summary__subtitle">{{ __('ratings-and-reviews::ui.summary.questions') }}</h3>
+                <ul class="rr-question-summaries">
+                    @foreach ($questions as $question)
+                        <li class="rr-question-summary rr-question-summary--{{ $question['type'] }}">
+                            <span class="rr-topic__name">{{ $question['label'] }}</span>
+                            <span class="rr-help">{{ trans_choice('ratings-and-reviews::ui.summary.question_answers', $question['count'], ['count' => $question['count']]) }}</span>
+                            @if ($question['type'] === 'scale')
+                                @php $max = (int) ($question['scale_max'] ?? 5); @endphp
+                                <span class="rr-bar" aria-hidden="true"><span class="rr-bar__fill" style="inline-size: {{ $question['average'] === null ? 0 : round(($question['average'] - 1) / max(1, $max - 1) * 100, 1) }}%"></span></span>
+                                <span class="rr-topic__score">
+                                    @if ($question['average'] !== null){{ __('ratings-and-reviews::ui.summary.question_average', ['average' => $rr['number']($question['average']), 'max' => $max]) }}@else{{ __('ratings-and-reviews::ui.summary.topic_none') }}@endif
+                                </span>
+                                @if ($question['low_label'] || $question['high_label'])
+                                    <span class="rr-question-summary__anchors rr-help"><span>{{ $question['low_label'] }}</span><span>{{ $question['high_label'] }}</span></span>
+                                @endif
+                            @else
+                                <ul class="rr-question-summary__options">
+                                    @foreach ($question['options'] as $option)
+                                        @php $percent = $option['share'] === null ? 0 : (int) round($option['share'] * 100); @endphp
+                                        <li class="rr-question-summary__option">
+                                            <span class="rr-bar" aria-hidden="true"><span class="rr-bar__fill" style="inline-size: {{ $percent }}%"></span></span>
+                                            <span>{{ __('ratings-and-reviews::ui.summary.question_option', ['label' => $option['label'], 'percent' => $percent, 'count' => $option['count']]) }}</span>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
+        @if (($followUps['enabled'] ?? false) && ($followUps['count'] ?? 0) > 0)
+            <div class="rr-summary__follow-ups">
+                <h3 class="rr-summary__subtitle">{{ __('ratings-and-reviews::ui.summary.follow_ups') }}</h3>
+                @if ($followUps['average_change'] !== null)
+                    @php $change = $followUps['average_change']; @endphp
+                    <p class="rr-summary__follow-up-change" data-direction="{{ $change > 0 ? 'up' : ($change < 0 ? 'down' : 'same') }}">{{ __('ratings-and-reviews::ui.summary.follow_up_change', ['change' => ($change > 0 ? '+' : '').$rr['number']($change), 'before' => $rr['number']($followUps['average_before']), 'after' => $rr['number']($followUps['average_after'])]) }}</p>
+                    <p class="rr-help">{{ trans_choice('ratings-and-reviews::ui.summary.follow_up_count', $followUps['count'], ['count' => $followUps['count']]) }}</p>
+                @else
+                    <p class="rr-help">{{ __('ratings-and-reviews::ui.summary.follow_up_few') }}</p>
+                @endif
             </div>
         @endif
 

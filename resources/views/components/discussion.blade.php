@@ -7,6 +7,9 @@
     thread (?rr_cthread=ID) work without JavaScript. Posting, editing (?rr_cedit=ID), deleting,
     undo, votes, poll votes and reports work without JavaScript through the package form routes
     (`web_routes.enabled`); `action` overrides the posting URL with a host route.
+    The pinned comment leads the list (moderators and the discussion owner pin and unpin);
+    attribution badges, a "post as" select (AttributionResolver), blocked members' notices and
+    a notice for members the subject's participation rules keep out.
 --}}
 @props(['subject', 'action' => null, 'prefix' => 'rr_c', 'loginUrl' => null, 'searchable' => true])
 @php
@@ -187,13 +190,15 @@
 
         @if ($discussionState['locked'] ?? false)
             <p class="rr-notice">{{ __('ratings-and-reviews::ui.discussion.locked') }}</p>
+        @elseif (($meta['can_participate'] ?? null) === false)
+            <p class="rr-notice" data-rr-participation-denied>{{ __('ratings-and-reviews::ui.discussion.participation_denied') }}</p>
         @elseif (! $acceptsComments)
             <p class="rr-notice">{{ __('ratings-and-reviews::ui.discussion.closed') }}</p>
         @endif
         @if ($slow > 0)
             <p class="rr-notice rr-notice--slow">{{ __('ratings-and-reviews::ui.discussion.slow_mode', ['interval' => $interval]) }}</p>
         @endif
-        @php $flashOwned = preg_match('/^(comment|edit|delete|undo|poll|vote:comment|report:rr_comment)/', (string) session('rr_form')) === 1; @endphp
+        @php $flashOwned = preg_match('/^(comment|edit|delete|undo|poll|pin|vote:comment|report:rr_comment)/', (string) session('rr_form')) === 1; @endphp
         @if (session('rr_status') && (session('rr_form') === null || $flashOwned))
             <p class="rr-alert rr-alert--success" role="status">{{ session('rr_status') }}</p>
         @endif

@@ -33,6 +33,79 @@ export function author(raw) {
     };
 }
 
+/** Attribution snapshot (posted "as" a brand or shop): `{ key, label, url }` or null. */
+export function attribution(raw) {
+    if (!raw || raw.key === undefined || raw.label === undefined) {
+        return null;
+    }
+
+    return { key: String(raw.key), label: str(raw.label, ''), url: str(raw.url) };
+}
+
+/** ReviewQuestion::present(): a question of the review form (and, with counts, of the summary). */
+export function reviewQuestion(raw) {
+    const data = raw ?? {};
+
+    return {
+        id: data.id ?? null,
+        key: str(data.key, ''),
+        type: str(data.type, 'scale'),
+        label: str(data.label, ''),
+        lowLabel: str(data.low_label),
+        highLabel: str(data.high_label),
+        scaleMax: num(data.scale_max),
+        required: Boolean(data.required),
+        options: list(data.options).map((option) => ({ value: str(option.value, ''), label: str(option.label ?? option.value, '') })),
+    };
+}
+
+/** ReviewQuestionSummary: a question with `count`, `average` (scale), `distribution` (scale) or option counts. */
+export function questionSummary(raw) {
+    const data = raw ?? {};
+
+    return {
+        ...reviewQuestion(data),
+        count: num(data.count, 0),
+        average: num(data.average),
+        distribution: list(data.distribution).map((entry) => ({ value: num(entry.value, 0), count: num(entry.count, 0) })),
+        options: list(data.options).map((option) => ({
+            value: str(option.value, ''),
+            label: str(option.label ?? option.value, ''),
+            count: num(option.count, 0),
+            share: num(option.share),
+        })),
+    };
+}
+
+/** ReviewResource `answers`: [{ key, label, type, value, display, scale_max }]. */
+export function reviewAnswer(raw) {
+    return {
+        key: str(raw?.key, ''),
+        label: str(raw?.label, ''),
+        type: str(raw?.type, 'scale'),
+        value: Array.isArray(raw?.value) ? raw.value.map(String) : raw?.value ?? null,
+        display: str(raw?.display, ''),
+        scaleMax: num(raw?.scale_max),
+    };
+}
+
+/** ReviewResource `follow_up`: the author's follow-up, or null. */
+export function followUp(raw) {
+    if (!raw) {
+        return null;
+    }
+
+    return {
+        rating: num(raw.rating, 0),
+        scaleMax: num(raw.scale_max, 5),
+        initialRating: num(raw.initial_rating, 0),
+        initialScaleMax: num(raw.initial_scale_max, 5),
+        body: str(raw.body),
+        createdAt: str(raw.created_at),
+        daysAfter: num(raw.days_after),
+    };
+}
+
 /** Histogram as `[{ bucket, count }]`, highest bucket first, whatever the JSON key order. */
 export function histogram(raw, scaleMax) {
     const counts = new Map();
@@ -69,6 +142,8 @@ export function ratingSummary(raw) {
     const facets = list(data.facets);
     // ComparisonSummary: { alternatives: [{ type, id, title, url, better, worse, same, total }], often_switch_to }
     const comparisons = data.comparisons ?? {};
+    // FollowUpSummary: { enabled, count, min_for_change, average_before, average_after, average_change }
+    const followUps = data.follow_ups ?? null;
 
     return {
         scaleMax,
@@ -108,6 +183,18 @@ export function ratingSummary(raw) {
             total: num(entry.total, 0),
         })).filter((entry) => entry.subject !== null),
         switchTo: comparisons.often_switch_to ? { subject: productRef(comparisons.often_switch_to), count: num(comparisons.often_switch_to.count, 0) } : null,
+        // ReviewQuestionSummary: per review question the answers of the counted reviews.
+        questions: list(data.questions).map(questionSummary),
+        followUps: followUps === null ? null : {
+            enabled: Boolean(followUps.enabled),
+            count: num(followUps.count, 0),
+            minForChange: num(followUps.min_for_change, 3),
+            averageBefore: num(followUps.average_before),
+            averageAfter: num(followUps.average_after),
+            averageChange: num(followUps.average_change),
+        },
+        // Averages appear from this many counted ratings (null averages below it).
+        minReviewsForAverage: num(data.min_reviews_for_average, 1),
         computedAt: str(data.computed_at),
     };
 }
@@ -164,12 +251,27 @@ export function review(raw) {
         photos: list(data.photos).map(photo),
         // ReviewResource `official_reply` (OfficialReplyResolver): null without one; absent when the host has none.
         officialReply: officialReply(data.official_reply),
+        // Posted "as" a brand or shop (AttributionResolver).
+        attribution: attribution(data.attribution),
+        // Answers to the review questions, in question order.
+        answers: list(data.answers).map(reviewAnswer),
+        followUp: followUp(data.follow_up),
+        // Only for the author: when a follow-up can be added.
+        followUpWindow: data.follow_up_window ? { opensAt: str(data.follow_up_window.opens_at), closesAt: str(data.follow_up_window.closes_at) } : null,
+        // The author is in a block relation with the viewer: no vote or reply.
+        isBlocked: Boolean(data.is_blocked),
         helpfulCount: num(data.helpful_count, 0),
         // Public replies to the review (reviews.replies); null when replies are switched off.
         repliesCount: data.replies_count === null || data.replies_count === undefined ? null : num(data.replies_count, 0),
         viewerVotes: { ...(data.viewer_votes ?? {}) },
         isOwn: Boolean(data.is_own),
-        can: { edit: Boolean(data.can?.edit), delete: Boolean(data.can?.delete), reply: Boolean(data.can?.reply) },
+        can: {
+            edit: Boolean(data.can?.edit),
+            delete: Boolean(data.can?.delete),
+            reply: Boolean(data.can?.reply),
+            vote: data.can?.vote === undefined ? !data.is_own : Boolean(data.can.vote),
+            followUp: Boolean(data.can?.follow_up),
+        },
         createdAt: str(data.created_at),
         editedAt: str(data.edited_at),
         isEdited: data.edited_at !== null && data.edited_at !== undefined,
@@ -330,7 +432,20 @@ export function reviewPage(raw) {
                 toneCheck: Boolean(meta.features?.tone_check),
                 reviewReplies: Boolean(meta.features?.review_replies),
                 officialReplies: Boolean(meta.features?.official_replies),
+                followUps: Boolean(meta.features?.follow_ups),
+                attributions: Boolean(meta.features?.attributions),
             },
+            // Section `reviews_enabled`: false means topic ratings only, no written reviews.
+            reviewsEnabled: meta.reviews_enabled === undefined ? true : Boolean(meta.reviews_enabled),
+            // null for a guest; false: the subject's participation rules keep the viewer out.
+            canParticipate: meta.can_participate === undefined || meta.can_participate === null ? null : Boolean(meta.can_participate),
+            attributions: list(meta.attributions).map(attribution).filter((entry) => entry !== null),
+            questions: list(meta.review_questions).map(reviewQuestion),
+            followUp: meta.review_follow_up ? {
+                afterDays: num(meta.review_follow_up.after_days, 0),
+                windowDays: num(meta.review_follow_up.window_days, 0),
+                maxBodyLength: num(meta.review_follow_up.max_body_length, 2000),
+            } : null,
             // The section of replies to reviews (`subjects/rr_review/{id}/comments`), null when off.
             reviewRepliesSection: str(meta.review_replies_section),
             acceptsReviews: meta.accepts_reviews === undefined ? true : Boolean(meta.accepts_reviews),
@@ -391,7 +506,19 @@ export function comment(raw) {
         dimensions: Object.keys(counts),
         viewerVotes: { ...(data.viewer_votes ?? {}) },
         isOwn: Boolean(data.is_own),
-        can: { edit: Boolean(data.can?.edit), delete: Boolean(data.can?.delete), reply: Boolean(data.can?.reply ?? true), undo: Boolean(data.can?.undo) },
+        can: {
+            edit: Boolean(data.can?.edit),
+            delete: Boolean(data.can?.delete),
+            reply: Boolean(data.can?.reply ?? true),
+            undo: Boolean(data.can?.undo),
+            vote: data.can?.vote === undefined ? !data.is_own : Boolean(data.can.vote),
+            pin: Boolean(data.can?.pin),
+        },
+        // Posted "as" a brand or shop (AttributionResolver).
+        attribution: attribution(data.attribution),
+        isPinned: Boolean(data.is_pinned),
+        // The author is in a block relation with the viewer: no reply, quote or vote.
+        isBlocked: Boolean(data.is_blocked),
         quote: quote ? { commentId: quote.comment_id, rootId: quote.root_id ?? null, text: str(quote.text, ''), author: author(quote.author), available: Boolean(quote.available) } : null,
         poll: poll(data.poll),
         publishAt: str(data.publish_at),
@@ -420,6 +547,18 @@ export function commentPage(raw) {
             sort: str(meta.sort, 'helpful'),
             sorts: list(meta.sorts).map((sort) => ({ value: String(sort.value), label: str(sort.label, String(sort.value)) })),
             topCommentId: meta.top_comment_id ?? null,
+            pinnedCommentId: meta.pinned_comment_id ?? null,
+            // null for a guest; false: the subject's participation rules keep the viewer out.
+            canParticipate: meta.can_participate === undefined || meta.can_participate === null ? null : Boolean(meta.can_participate),
+            canPin: Boolean(meta.can_pin),
+            attributions: list(meta.attributions).map(attribution).filter((entry) => entry !== null),
+            subject: meta.subject ? {
+                type: str(meta.subject.type, ''),
+                id: meta.subject.id,
+                title: str(meta.subject.title, ''),
+                url: str(meta.subject.url),
+                contextUrl: str(meta.subject.context_url),
+            } : null,
             truncatedThreads: { ...(meta.truncated_threads ?? {}) },
             acceptsComments: Boolean(meta.accepts_comments ?? true),
             isLocked: Boolean(discussion.locked),
@@ -606,6 +745,8 @@ export function qualityRules(raw) {
  * @property {Record<string, string|null>} [facets] group => value
  * @property {{ type: string, id: string|number, verdict: string }|null} [comparison]
  * @property {Array<number|string>} [photos] upload ids in display order; leave out to keep the current photos
+ * @property {Record<string, number|string|string[]|null>} [answers] question key => value; leave out to keep the stored answers
+ * @property {string|null} [attribution] post "as" this key (meta.attributions); leave out of an edit to keep it, null clears it
  * @property {boolean} [confirmTone]
  * @property {number} [formStartedAt] unix seconds, for the SpamGuard time trap
  */
@@ -636,6 +777,14 @@ export function reviewPayload(draft) {
         payload.photos = list(draft.photos).map(Number).filter((id) => Number.isInteger(id) && id > 0);
     }
 
+    if (draft.answers !== undefined) {
+        payload.answers = answersPayload(draft.answers);
+    }
+
+    if (draft.attribution !== undefined) {
+        payload.attribution = draft.attribution === '' ? null : draft.attribution;
+    }
+
     if (draft.comparison) {
         payload.compared_type = draft.comparison.type;
         payload.compared_id = draft.comparison.id;
@@ -655,6 +804,7 @@ export function reviewPayload(draft) {
  * @property {number|null} [parentId]
  * @property {{ commentId: number|string, text: string }|null} [quote]
  * @property {{ question: string, options: string[], closesAt?: string|null }|null} [poll]
+ * @property {string|null} [attribution] post "as" this key (meta.attributions)
  * @property {boolean} [confirmTone]
  * @property {number} [formStartedAt]
  */
@@ -676,12 +826,56 @@ export function commentPayload(draft) {
         }
     }
 
+    if (draft.attribution) {
+        payload.attribution = draft.attribution;
+    }
+
     if (draft.confirmTone) {
         payload.confirm_tone = true;
     }
 
     if (draft.formStartedAt) {
         payload.form_started_at = draft.formStartedAt;
+    }
+
+    return payload;
+}
+
+/**
+ * Review answers for the API: unanswered questions (null, '', []) are left out; a scale
+ * becomes a number, a multi question a list of option values.
+ *
+ * @param {Record<string, number|string|string[]|null|undefined>} answers
+ */
+export function answersPayload(answers) {
+    const payload = {};
+
+    Object.entries(answers ?? {}).forEach(([key, value]) => {
+        if (value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) {
+            return;
+        }
+
+        payload[key] = Array.isArray(value) ? value.map(String) : typeof value === 'number' || /^\d+$/.test(String(value)) ? Number(value) : String(value);
+    });
+
+    return payload;
+}
+
+/**
+ * POST reviews/{review}/follow-up body.
+ *
+ * @param {{ rating: number, body?: string|null, confirmTone?: boolean }} draft
+ */
+export function followUpPayload(draft) {
+    const payload = { rating: Number(draft.rating) };
+    const body = (draft.body ?? '').trim();
+
+    if (body !== '') {
+        payload.body = body;
+    }
+
+    if (draft.confirmTone) {
+        payload.confirm_tone = true;
     }
 
     return payload;

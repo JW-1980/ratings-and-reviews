@@ -3,10 +3,16 @@
     $features ??= [];
     $headingId = 'rr-review-'.$review['id'].'-title';
     $approved = ($review['status'] ?? 'approved') === 'approved';
+    $blocked = (bool) ($review['is_blocked'] ?? false);
+    $followUp = $review['follow_up'] ?? null;
+    $followUpForm = 'follow-up:'.$review['id'];
+    $followUpErrors = $rr['isForm']($followUpForm) ? $rr['formErrors']('rr_review') : new \Illuminate\Support\MessageBag;
+    $followUpAction = $rr['webRoute']('reviews.follow-up.store', ['review' => $review['id']]);
 @endphp
 <article id="rr-review-{{ $review['id'] }}" class="rr-review {{ $review['is_own'] ? 'is-own' : '' }} {{ $approved ? '' : 'is-pending' }}" aria-labelledby="{{ $headingId }}" data-rr-review="{{ $review['id'] }}">
     <header class="rr-review__header">
         @include('rr::partials.author', ['author' => $review['author'] ?? null])
+        @include('rr::partials.attribution', ['attribution' => $review['attribution'] ?? null])
         <span class="rr-review__meta">
             @if ($review['created_at'])
                 <time datetime="{{ $review['created_at'] }}" title="{{ $rr['date']($review['created_at'], 'long') }}">{{ $rr['date']($review['created_at'], 'relative') }}</time>
@@ -50,6 +56,17 @@
         <div class="rr-prose rr-review__body">{!! $review['body_html'] !!}</div>
     @endif
 
+    @if (! empty($review['answers']))
+        <dl class="rr-review__answers" aria-label="{{ __('ratings-and-reviews::ui.reviews.answers') }}">
+            @foreach ($review['answers'] as $answer)
+                <div class="rr-review__answer rr-review__answer--{{ $answer['type'] }}">
+                    <dt>{{ $answer['label'] }}</dt>
+                    <dd>{{ $answer['type'] === 'scale' ? __('ratings-and-reviews::ui.form.question_scale_option', ['value' => $answer['value'], 'max' => $answer['scale_max']]) : $answer['display'] }}</dd>
+                </div>
+            @endforeach
+        </dl>
+    @endif
+
     @if (! empty($review['pros']) || ! empty($review['cons']))
         <div class="rr-review__points">
             @foreach (['pros', 'cons'] as $kind)
@@ -86,6 +103,65 @@
         </p>
     @endif
 
+    @if ($followUp !== null)
+        @php $followUpTitle = trans_choice('ratings-and-reviews::ui.reviews.follow_up_title', (int) ($followUp['days_after'] ?? 0), ['count' => (int) ($followUp['days_after'] ?? 0)]); @endphp
+        <aside class="rr-follow-up" aria-label="{{ $followUpTitle }}" data-rr-follow-up="{{ $review['id'] }}">
+            <p class="rr-follow-up__title">
+                <span>{{ $followUpTitle }}</span>
+                @include('rr::partials.score', ['value' => $followUp['rating'], 'max' => $followUp['scale_max']])
+                @if ($followUp['created_at'])<time class="rr-review__meta" datetime="{{ $followUp['created_at'] }}">{{ $rr['date']($followUp['created_at'], 'relative') }}</time>@endif
+            </p>
+            @if ($followUp['rating'] !== $followUp['initial_rating'] || $followUp['scale_max'] !== $followUp['initial_scale_max'])
+                <p class="rr-help">{{ __('ratings-and-reviews::ui.reviews.follow_up_change', ['from' => __('ratings-and-reviews::ui.reviews.rating', ['rating' => $followUp['initial_rating'], 'max' => $followUp['initial_scale_max']]), 'to' => __('ratings-and-reviews::ui.reviews.rating', ['rating' => $followUp['rating'], 'max' => $followUp['scale_max']])]) }}</p>
+            @endif
+            @if (! empty($followUp['body']))
+                {{-- Plain text from the server, escaped here. --}}
+                <p class="rr-follow-up__body">{!! nl2br(e($followUp['body']), false) !!}</p>
+            @endif
+            @if ($review['is_own'])
+                <button type="button" class="rr-button rr-button--small rr-button--ghost rr-js-only" data-rr-delete-follow-up="{{ $review['id'] }}">{{ __('ratings-and-reviews::ui.reviews.follow_up_delete') }}</button>
+                @include('rr::partials.delete-form', ['deleteAction' => $rr['webRoute']('reviews.follow-up.destroy', ['review' => $review['id']]), 'deleteQuestion' => __('ratings-and-reviews::ui.reviews.follow_up_delete_confirm'), 'deleteLabel' => __('ratings-and-reviews::ui.reviews.follow_up_delete')])
+            @endif
+        </aside>
+    @elseif ($review['is_own'] && ($review['can']['follow_up'] ?? false))
+        {{-- The author's follow-up: a native <details> (no JavaScript needed); with JavaScript it posts to the API. --}}
+        <details class="rr-follow-up rr-follow-up--form" @if ($rr['isForm']($followUpForm)) open @endif>
+            <summary class="rr-button rr-button--small">{{ __('ratings-and-reviews::ui.reviews.follow_up_add') }}</summary>
+            <form method="post" action="{{ $followUpAction ?? '#' }}" class="rr-form @if (! $followUpAction) rr-js-only @endif" novalidate data-rr-follow-up-form="{{ $review['id'] }}">
+                @csrf
+                <p class="rr-help">{{ __('ratings-and-reviews::ui.reviews.follow_up_intro') }}</p>
+                <p class="rr-alert rr-alert--error" role="alert" data-rr-error @if (! $followUpErrors->has('follow_up')) hidden @endif>{{ $followUpErrors->first('follow_up') }}</p>
+                <fieldset class="rr-scale rr-scale--{{ $review['scale_max'] }}" data-rr-field="rating">
+                    <legend class="rr-label">{{ __('ratings-and-reviews::ui.reviews.follow_up_rating') }}</legend>
+                    <div class="rr-scale__options">
+                        @for ($value = 1; $value <= $review['scale_max']; $value++)
+                            <label class="rr-scale__option">
+                                <input type="radio" name="rating" value="{{ $value }}" @checked((int) old('rating') === $value && $rr['isForm']($followUpForm)) @if ($value === 1) required @endif>
+                                <span class="rr-scale__mark" aria-hidden="true">{{ $review['scale_max'] <= 5 ? '★' : $value }}</span>
+                                <span class="rr-visually-hidden">{{ __('ratings-and-reviews::ui.form.rating_option', ['value' => $value, 'max' => $review['scale_max']]) }}</span>
+                            </label>
+                        @endfor
+                    </div>
+                    <p class="rr-field-error" data-rr-field-error>{{ $followUpErrors->first('rating') }}</p>
+                </fieldset>
+                <div class="rr-field" data-rr-field="body">
+                    <label for="rr-review-{{ $review['id'] }}-follow-up-body" class="rr-label">{{ __('ratings-and-reviews::ui.reviews.follow_up_body') }}</label>
+                    <textarea id="rr-review-{{ $review['id'] }}-follow-up-body" name="body" class="rr-textarea" rows="3">{{ $rr['isForm']($followUpForm) ? old('body') : '' }}</textarea>
+                    <p class="rr-field-error" data-rr-field-error>{{ $followUpErrors->first('body') }}</p>
+                </div>
+                <div class="rr-actions">
+                    <button type="submit" class="rr-button rr-button--primary rr-button--small" data-busy-label="{{ __('ratings-and-reviews::ui.form.submitting') }}">{{ __('ratings-and-reviews::ui.reviews.follow_up_submit') }}</button>
+                </div>
+            </form>
+        </details>
+    @elseif ($review['is_own'] && ! empty($review['follow_up_window']['opens_at']) && now()->lt(\Illuminate\Support\Carbon::parse($review['follow_up_window']['opens_at'])))
+        <p class="rr-help rr-follow-up__opens">{{ __('ratings-and-reviews::ui.reviews.follow_up_opens', ['date' => $rr['date']($review['follow_up_window']['opens_at'], 'long')]) }}</p>
+    @endif
+
+    @if ($blocked)
+        <p class="rr-notice rr-notice--muted" data-rr-blocked>{{ __('ratings-and-reviews::ui.reviews.blocked') }}</p>
+    @endif
+
     @if (isset($brandReply) && is_callable($brandReply))
         {{-- Host slot: a closure fn (array $review) returning a View/Htmlable (escaped when it is a plain string). --}}
         {{ $brandReply($review) }}
@@ -107,7 +183,7 @@
             @include('rr::partials.votes', [
                 'target' => 'review', 'id' => $review['id'], 'dimensions' => ['helpfulness'],
                 'counts' => ['helpfulness' => ['up' => $review['helpful_count'], 'down' => 0]],
-                'viewerVotes' => $review['viewer_votes'] ?? [], 'isOwn' => $review['is_own'], 'positiveOnly' => true,
+                'viewerVotes' => $review['viewer_votes'] ?? [], 'isOwn' => $review['is_own'], 'positiveOnly' => true, 'blocked' => $blocked,
             ])
         @endif
         <div class="rr-review__actions rr-js-only">

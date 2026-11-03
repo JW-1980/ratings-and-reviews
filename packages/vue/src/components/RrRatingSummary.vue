@@ -71,6 +71,9 @@ function toggleFacet(group: string, value: string) {
 }
 
 const facetGroups = computed(() => (data.value?.facets ?? []).filter((group) => group.values.some((value) => value.count > 0)));
+const questions = computed(() => (data.value?.questions ?? []).filter((question) => question.count > 0));
+const followUps = computed(() => (data.value?.followUps?.enabled && data.value.followUps.count > 0 ? data.value.followUps : null));
+const sharePercent = (share: number | null) => (share === null ? 0 : Math.round(share * 100));
 const verdictCount = (count: number) => rr.tc('summary.switch_count', count);
 
 defineExpose({ reload: load });
@@ -149,6 +152,38 @@ defineExpose({ reload: load });
                         </span>
                     </li>
                 </ul>
+            </div>
+
+            <div v-if="questions.length" class="rr-summary__questions">
+                <h3 class="rr-summary__subtitle">{{ rr.t('summary.questions') }}</h3>
+                <ul class="rr-question-summaries">
+                    <li v-for="question in questions" :key="question.key" class="rr-question-summary" :class="`rr-question-summary--${question.type}`">
+                        <span class="rr-topic__name">{{ question.label }}</span>
+                        <span class="rr-help">{{ rr.tc('summary.question_answers', question.count) }}</span>
+                        <template v-if="question.type === 'scale'">
+                            <span class="rr-bar" aria-hidden="true"><span class="rr-bar__fill" :style="{ inlineSize: question.average === null ? '0%' : `${((question.average - 1) / Math.max(1, (question.scaleMax ?? 5) - 1)) * 100}%` }" /></span>
+                            <span class="rr-topic__score">{{ question.average === null ? rr.t('summary.topic_none') : rr.t('summary.question_average', { average: fmt(question.average), max: question.scaleMax ?? 5 }) }}</span>
+                            <span v-if="question.lowLabel || question.highLabel" class="rr-question-summary__anchors rr-help"><span>{{ question.lowLabel }}</span><span>{{ question.highLabel }}</span></span>
+                        </template>
+                        <ul v-else class="rr-question-summary__options">
+                            <li v-for="option in question.options" :key="option.value" class="rr-question-summary__option">
+                                <span class="rr-bar" aria-hidden="true"><span class="rr-bar__fill" :style="{ inlineSize: `${sharePercent(option.share)}%` }" /></span>
+                                <span>{{ rr.t('summary.question_option', { label: option.label, percent: sharePercent(option.share), count: option.count }) }}</span>
+                            </li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+
+            <div v-if="followUps" class="rr-summary__follow-ups">
+                <h3 class="rr-summary__subtitle">{{ rr.t('summary.follow_ups') }}</h3>
+                <template v-if="followUps.averageChange !== null">
+                    <p class="rr-summary__follow-up-change" :data-direction="followUps.averageChange > 0 ? 'up' : followUps.averageChange < 0 ? 'down' : 'same'">
+                        {{ rr.t('summary.follow_up_change', { change: `${followUps.averageChange > 0 ? '+' : ''}${fmt(followUps.averageChange)}`, before: fmt(followUps.averageBefore), after: fmt(followUps.averageAfter) }) }}
+                    </p>
+                    <p class="rr-help">{{ rr.tc('summary.follow_up_count', followUps.count) }}</p>
+                </template>
+                <p v-else class="rr-help">{{ rr.t('summary.follow_up_few') }}</p>
             </div>
 
             <div v-if="facetGroups.length" class="rr-summary__facets">

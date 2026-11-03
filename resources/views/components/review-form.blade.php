@@ -10,6 +10,12 @@
 
     <x-slot:comparison-picker> must render inputs `compared_type` and `compared_id` (the host's
     own product search); the verdict select is part of this component.
+
+    The subject's review questions (meta.review_questions) are asked as `answers[key]`
+    (`answers[key][]` for several choices); with attributions (AttributionResolver) a select
+    `attribution` offers posting "as" a brand. Renders nothing when the section's
+    `reviews_enabled` is off, and a notice when the subject's participation rules keep the
+    member out.
 --}}
 @props(['subject', 'action' => null, 'updateAction' => null, 'loginUrl' => null, 'tools' => null, 'comparisonPicker' => null])
 @php
@@ -50,8 +56,12 @@
         $formAction = $own !== null ? ($updateAction ?? $action) : $action;
         $ownPhotos = (array) ($own['photos'] ?? []);
         $keptPhotos = $ownsFlash && old('photos_present') ? array_map('intval', (array) old('photos', [])) : array_column($ownPhotos, 'id');
+        $questions = (array) ($meta['review_questions'] ?? []);
+        $ownAnswers = collect($own['answers'] ?? [])->pluck('value', 'key')->all();
+        $attributions = (array) ($meta['attributions'] ?? []);
         $errors = $formErrors;
     @endphp
+    @if ($meta['reviews_enabled'] ?? true)
     @include('rr::partials.client')
     <section {{ $attributes->merge(['class' => 'rr rr-nojs rr-review-form']) }} id="{{ $rootId }}" data-rr="review-form" data-rr-subject-type="{{ $type }}" data-rr-subject-id="{{ $key }}" @if ($own) data-rr-review-id="{{ $own['id'] }}" @endif aria-labelledby="{{ $rootId }}-title">
         <h2 id="{{ $rootId }}-title" class="rr-section-header__title">{{ $own ? __('ratings-and-reviews::ui.form.edit_title') : __('ratings-and-reviews::ui.form.title') }}</h2>
@@ -65,6 +75,8 @@
 
         @if (! $authenticated)
             <p class="rr-notice">@if ($loginUrl)<a href="{{ $loginUrl }}">{{ __('ratings-and-reviews::ui.form.login_required') }}</a>@else{{ __('ratings-and-reviews::ui.form.login_required') }}@endif</p>
+        @elseif (($meta['can_participate'] ?? null) === false)
+            <p class="rr-notice" data-rr-participation-denied>{{ __('ratings-and-reviews::ui.reviews.participation_denied') }}</p>
         @elseif (! ($meta['accepts_reviews'] ?? true))
             <p class="rr-notice">{{ __('ratings-and-reviews::ui.form.closed') }}</p>
         @else
@@ -132,6 +144,59 @@
                                 </fieldset>
                             @endforeach
                         </div>
+                    </fieldset>
+                @endif
+
+                @if ($questions !== [])
+                    {{-- Review questions: a scale with words at both ends, one choice or several. --}}
+                    <fieldset class="rr-fieldset rr-questions" data-rr-questions>
+                        <legend class="rr-label">{{ __('ratings-and-reviews::ui.form.questions') }}</legend>
+                        @foreach ($questions as $question)
+                            @php
+                                $field = 'answers.'.$question['key'];
+                                $answer = $old($field, $ownAnswers[$question['key']] ?? null);
+                                $questionId = $rootId.'-q-'.$question['key'];
+                            @endphp
+                            <fieldset class="rr-fieldset rr-fieldset--nested rr-question rr-question--{{ $question['type'] }}" data-rr-question="{{ $question['key'] }}" data-type="{{ $question['type'] }}" @if ($errors->has($field)) aria-invalid="true" aria-describedby="{{ $questionId }}-error" @endif>
+                                <legend class="rr-label rr-label--minor">{{ $question['label'] }}@if ($question['required']) <span class="rr-tag">{{ __('ratings-and-reviews::ui.form.question_required') }}</span>@endif</legend>
+                                @if ($question['type'] === 'scale')
+                                    <div class="rr-question__scale">
+                                        @if ($question['low_label'])<span class="rr-question__anchor" aria-hidden="true">{{ $question['low_label'] }}</span>@endif
+                                        <div class="rr-chips">
+                                            @unless ($question['required'])
+                                                <label class="rr-chip rr-chip--input"><input type="radio" name="answers[{{ $question['key'] }}]" value="" @checked($answer === null || $answer === '')><span>{{ __('ratings-and-reviews::ui.form.question_none') }}</span></label>
+                                            @endunless
+                                            @for ($value = 1; $value <= (int) $question['scale_max']; $value++)
+                                                <label class="rr-chip rr-chip--input">
+                                                    <input type="radio" name="answers[{{ $question['key'] }}]" value="{{ $value }}" @checked((string) $answer === (string) $value)>
+                                                    <span aria-hidden="true">{{ $value }}</span>
+                                                    <span class="rr-visually-hidden">{{ __('ratings-and-reviews::ui.form.question_scale_option', ['value' => $value, 'max' => $question['scale_max']]) }}@if ($value === 1 && $question['low_label']), {{ $question['low_label'] }}@elseif ($value === (int) $question['scale_max'] && $question['high_label']), {{ $question['high_label'] }}@endif</span>
+                                                </label>
+                                            @endfor
+                                        </div>
+                                        @if ($question['high_label'])<span class="rr-question__anchor" aria-hidden="true">{{ $question['high_label'] }}</span>@endif
+                                    </div>
+                                @else
+                                    @php $chosen = array_map('strval', (array) ($answer ?? [])); @endphp
+                                    <div class="rr-chips">
+                                        @if ($question['type'] === 'choice' && ! $question['required'])
+                                            <label class="rr-chip rr-chip--input"><input type="radio" name="answers[{{ $question['key'] }}]" value="" @checked($chosen === [] || $chosen === [''])><span>{{ __('ratings-and-reviews::ui.form.question_none') }}</span></label>
+                                        @endif
+                                        @foreach ($question['options'] as $option)
+                                            <label class="rr-chip rr-chip--input">
+                                                @if ($question['type'] === 'multi')
+                                                    <input type="checkbox" name="answers[{{ $question['key'] }}][]" value="{{ $option['value'] }}" @checked(in_array($option['value'], $chosen, true))>
+                                                @else
+                                                    <input type="radio" name="answers[{{ $question['key'] }}]" value="{{ $option['value'] }}" @checked(in_array($option['value'], $chosen, true))>
+                                                @endif
+                                                <span>{{ $option['label'] }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                @endif
+                                <p id="{{ $questionId }}-error" class="rr-field-error" data-rr-field-error="{{ $field }}">{{ $errors->first($field) }}</p>
+                            </fieldset>
+                        @endforeach
                     </fieldset>
                 @endif
 
@@ -236,6 +301,20 @@
                     </fieldset>
                 @endif
 
+                @if ($attributions !== [])
+                    @php $ownAttribution = $old('attribution', $own['attribution']['key'] ?? ''); @endphp
+                    <div class="rr-field" data-rr-field="attribution">
+                        <label for="{{ $rootId }}-attribution" class="rr-label">{{ __('ratings-and-reviews::ui.form.post_as') }}</label>
+                        <select id="{{ $rootId }}-attribution" name="attribution" class="rr-select">
+                            <option value="">{{ __('ratings-and-reviews::ui.form.post_as_self') }}</option>
+                            @foreach ($attributions as $option)
+                                <option value="{{ $option['key'] }}" @selected($ownAttribution === $option['key'])>{{ $option['label'] }}</option>
+                            @endforeach
+                        </select>
+                        <p class="rr-field-error" data-rr-field-error>{{ $errors->first('attribution') }}</p>
+                    </div>
+                @endif
+
                 <div class="rr-quality rr-js-only" data-rr-quality hidden>
                     <div class="rr-quality__header">
                         <span id="{{ $rootId }}-quality-label" class="rr-label">{{ __('ratings-and-reviews::ui.quality.title') }}</span>
@@ -260,4 +339,5 @@
             </form>
         @endif
     </section>
+    @endif
 @endif

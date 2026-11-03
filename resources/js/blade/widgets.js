@@ -43,6 +43,12 @@ export async function vote(button, env) {
         return;
     }
 
+    if (group.dataset.blocked === '1') {
+        note.textContent = env.t('votes.blocked');
+
+        return;
+    }
+
     if (!env.config.authenticated && group.dataset.guestVotes !== '1') {
         note.textContent = env.t('votes.login');
 

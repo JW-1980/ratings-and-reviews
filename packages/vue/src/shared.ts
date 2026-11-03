@@ -47,6 +47,10 @@ export interface ReviewDraftPayload {
     comparison?: { type: string; id: string | number; verdict: string } | null;
     /** Upload ids in display order; leave out to keep the current photos. */
     photos?: Array<number | string>;
+    /** Question key => value (a number for a scale, an option value, or a list for several); leave out to keep the stored answers. */
+    answers?: Record<string, number | string | string[] | null>;
+    /** Post "as" this key (meta.attributions); leave out of an edit to keep it, null clears it. */
+    attribution?: string | null;
     confirmTone?: boolean;
     formStartedAt?: number;
 }
@@ -56,6 +60,8 @@ export interface CommentDraftPayload {
     parentId?: number | null;
     quote?: { commentId: number | string; text: string } | null;
     poll?: { question: string; options: string[]; closesAt?: string | null } | null;
+    /** Post "as" this key (meta.attributions). */
+    attribution?: string | null;
     confirmTone?: boolean;
     formStartedAt?: number;
 }
@@ -81,6 +87,9 @@ export interface ApiClient {
     updateReview(id: number, payload: ReviewDraftPayload): Promise<Saved<Review>>;
     deleteReview(id: number): Promise<void>;
     voteReview(id: number, dimension: string, value: number): Promise<VoteResult>;
+    createFollowUp(reviewId: number, draft: { rating: number; body?: string | null; confirmTone?: boolean }): Promise<Saved<Review>>;
+    deleteFollowUp(reviewId: number): Promise<void>;
+    pinComment(id: number, pinned?: boolean): Promise<{ isPinned: boolean; message: string | null }>;
     comments(subject: SubjectRef, query?: { sort?: string; page?: number; mark_read?: 0 | 1 }, signal?: AbortSignal): Promise<CommentPage>;
     createComment(subject: SubjectRef, payload: CommentDraftPayload): Promise<Saved<Comment>>;
     updateComment(id: number, body: string, confirmTone?: boolean): Promise<Saved<Comment>>;
@@ -105,6 +114,10 @@ export interface ApiClient {
     createSticker(sticker: { image?: Blob; path?: string; name: { nl: string; en: string }; isActive?: boolean; sortOrder?: number }): Promise<AdminSticker>;
     updateSticker(id: number, changes: { name?: { nl: string; en: string }; isActive?: boolean; sortOrder?: number }): Promise<AdminSticker>;
     deleteSticker(id: number, options?: { deleteFile?: boolean }): Promise<{ deleted: boolean; fileDeleted: boolean }>;
+    adminReviewQuestions(query?: { scope?: string; category_key?: string }, signal?: AbortSignal): Promise<Array<Record<string, unknown>>>;
+    createReviewQuestion(question: Record<string, unknown>): Promise<Record<string, unknown> | null>;
+    updateReviewQuestion(id: number, changes: Record<string, unknown>): Promise<Record<string, unknown> | null>;
+    deleteReviewQuestion(id: number): Promise<{ answered_reviews: number } | null>;
 }
 
 export interface ApiErrorShape extends Error {

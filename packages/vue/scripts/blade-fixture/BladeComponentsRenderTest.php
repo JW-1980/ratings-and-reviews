@@ -4,6 +4,8 @@ namespace RatingsAndReviews\Tests\BladeFixture;
 
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
+use RatingsAndReviews\Models\Comment;
+use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Tests\TestCase;
 
 /**
@@ -67,5 +69,36 @@ class BladeComponentsRenderTest extends TestCase
         // No-JS reply: ?rr_creply=<id> renders the main composer as a reply.
         $reply = $this->actingAs($viewer)->get('/page?rr_creply='.$root['id'])->assertOk()->getContent();
         $this->assertMatchesRegularExpression('/name="parent_id" value="'.$root['id'].'"/', $reply);
+    }
+
+    /**
+     * A pinned, attributed comment seen by a moderator and the author's own review with an open
+     * follow-up window: tests/blade-participation.spec.ts runs the pin and follow-up enhancement.
+     */
+    public function test_participation_features_render(): void
+    {
+        $this->configureSection('product', ['review_follow_up_after_days' => 30]);
+        $product = $this->product();
+        $author = $this->user();
+        $moderator = $this->moderator();
+
+        $review = Review::factory()->forSubject($product)->create(['user_id' => $author->id, 'title' => 'Eerste indruk', 'approved_at' => now()->subDays(31)]);
+        Comment::factory()->forSubject($product)->create(['user_id' => $author->id, 'body_html' => '<p>Officieel antwoord</p>', 'body_text' => 'Officieel antwoord', 'pinned_at' => now(), 'attribution' => ['key' => 'brand:1', 'label' => 'Oatly', 'url' => null]]);
+        Comment::factory()->forSubject($product)->create(['body_html' => '<p>Gewone reactie</p>', 'body_text' => 'Gewone reactie']);
+
+        Route::middleware('web')->get('/reviews', fn () => Blade::render('<x-rr::reviews :subject="$p" />', ['p' => $product]));
+        Route::middleware('web')->get('/discussion', fn () => Blade::render('<x-rr::discussion :subject="$p" action="/host/comments" />', ['p' => $product]));
+
+        // One page with both: the author's review card (follow-up form) and the moderator's discussion (pin buttons).
+        $own = $this->actingAs($author)->get('/reviews')->assertOk()->getContent();
+        // The page-wide client data (messages, config, toast region) once, from the first part.
+        $moderated = (string) preg_replace(['/<script type="application\/json" id="rr-(messages|config)">.*?<\/script>/s', '/<div class="rr-toast-region"[^>]*><\/div>/'], '', $this->actingAs($moderator)->get('/discussion')->assertOk()->getContent());
+        $html = $own.$moderated;
+        file_put_contents(dirname(__DIR__, 2).'/tests/fixtures/blade-page-participation.html', $html);
+
+        $this->assertStringContainsString('data-rr-follow-up-form="'.$review->id.'"', $html);
+        $this->assertStringContainsString('data-rr-pin=', $html);
+        $this->assertStringContainsString('rr-tag--pinned', $html);
+        $this->assertStringContainsString('Posted as Oatly', $html);
     }
 }

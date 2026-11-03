@@ -1,11 +1,13 @@
 import { inject, type InjectionKey, type Ref } from 'vue';
-import type { Comment, DiscussionSettings, SubjectRef } from '../types';
+import type { Attribution, Comment, DiscussionSettings, SubjectRef } from '../types';
 
 export interface DiscussionContext {
     subject: SubjectRef;
     settings: Ref<DiscussionSettings>;
     lockedTools: Ref<Record<string, number>>;
     acceptsComments: Ref<boolean>;
+    /** Identities the viewer may post as (AttributionResolver). */
+    attributions: Ref<Attribution[]>;
     replyTo: Ref<number | null>;
     quote: Ref<{ commentId: number | string; text: string; authorName?: string } | null>;
     waitSeconds: Ref<number>;
@@ -16,6 +18,8 @@ export interface DiscussionContext {
     showRevisions: (comment: Comment) => void;
     confirmDelete: (comment: Comment) => void;
     replace: (comment: Comment) => void;
+    /** Pins (or unpins) a top-level comment; moderators and the discussion owner. */
+    pin: (comment: Comment) => Promise<void>;
     /** Withdraws an own comment that is still inside its undo window. */
     undo: (comment: Comment) => Promise<void>;
     posted: (payload: { item: Comment; message: string | null; bodyHtml: string }, parentId: number | null) => void;

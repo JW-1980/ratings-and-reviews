@@ -78,6 +78,67 @@ export interface Alternative {
     total: number;
 }
 
+/** Posted "as" a brand or shop (AttributionResolver snapshot). */
+export interface Attribution {
+    key: string;
+    label: string;
+    url: string | null;
+}
+
+/** A review question (ReviewQuestion::present()). */
+export interface ReviewQuestion {
+    id: number | null;
+    key: string;
+    type: 'scale' | 'choice' | 'multi' | string;
+    label: string;
+    /** Words at both ends of a scale. */
+    lowLabel: string | null;
+    highLabel: string | null;
+    scaleMax: number | null;
+    required: boolean;
+    options: Option[];
+}
+
+/** ReviewQuestionSummary: the answers of the counted reviews to one question. */
+export interface QuestionSummary extends Omit<ReviewQuestion, 'options'> {
+    count: number;
+    /** Scale only, from `minReviewsForAverage` answers. */
+    average: number | null;
+    distribution: Array<{ value: number; count: number }>;
+    options: Array<{ value: string; label: string; count: number; share: number | null }>;
+}
+
+/** ReviewResource `answers[]`. */
+export interface ReviewAnswer {
+    key: string;
+    label: string;
+    type: string;
+    value: number | string | string[] | null;
+    /** The value as text (option labels joined). */
+    display: string;
+    scaleMax: number | null;
+}
+
+/** ReviewResource `follow_up`: the author's follow-up after N days. */
+export interface FollowUp {
+    rating: number;
+    scaleMax: number;
+    initialRating: number;
+    initialScaleMax: number;
+    body: string | null;
+    createdAt: string | null;
+    daysAfter: number | null;
+}
+
+export interface FollowUpSummary {
+    enabled: boolean;
+    count: number;
+    minForChange: number;
+    averageBefore: number | null;
+    averageAfter: number | null;
+    averageChange: number | null;
+}
+
 export interface RatingSummary {
     scaleMax: number;
     count: number;
@@ -90,6 +151,9 @@ export interface RatingSummary {
     facets: FacetGroupCount[];
     alternatives: Alternative[];
     switchTo: { subject: ProductRef; count: number } | null;
+    questions: QuestionSummary[];
+    followUps: FollowUpSummary | null;
+    minReviewsForAverage: number;
     computedAt: string | null;
 }
 
@@ -169,9 +233,16 @@ export interface Review {
     helpfulCount: number;
     /** Public replies (`reviews.replies`); null when replies to reviews are off. */
     repliesCount: number | null;
+    attribution: Attribution | null;
+    answers: ReviewAnswer[];
+    followUp: FollowUp | null;
+    /** Only for the author. */
+    followUpWindow: { opensAt: string | null; closesAt: string | null } | null;
+    /** The author is in a block relation with the viewer. */
+    isBlocked: boolean;
     viewerVotes: Record<string, number>;
     isOwn: boolean;
-    can: { edit: boolean; delete: boolean; reply: boolean };
+    can: { edit: boolean; delete: boolean; reply: boolean; vote: boolean; followUp: boolean };
     createdAt: string | null;
     editedAt: string | null;
     isEdited: boolean;
@@ -204,10 +275,18 @@ export interface ReviewPage {
         /** `review_min_length`: minimum characters of the review text. */
         minLength: number;
         form: ReviewFormLimits;
-        features: { priceAtReview: boolean; wantToTry: boolean; productCards: boolean; toneCheck: boolean; reviewReplies: boolean; officialReplies: boolean };
+        features: { priceAtReview: boolean; wantToTry: boolean; productCards: boolean; toneCheck: boolean; reviewReplies: boolean; officialReplies: boolean; followUps: boolean; attributions: boolean };
         /** Section of the replies to reviews; null when they are off. */
         reviewRepliesSection: string | null;
         acceptsReviews: boolean;
+        /** Section `reviews_enabled`: false means topic ratings only. */
+        reviewsEnabled: boolean;
+        /** null for a guest; false: the subject's participation rules keep the viewer out. */
+        canParticipate: boolean | null;
+        /** Identities the viewer may post as. */
+        attributions: Attribution[];
+        questions: ReviewQuestion[];
+        followUp: { afterDays: number; windowDays: number; maxBodyLength: number } | null;
     };
 }
 
@@ -278,7 +357,11 @@ export interface Comment {
     dimensions: string[];
     viewerVotes: Record<string, number>;
     isOwn: boolean;
-    can: { edit: boolean; delete: boolean; reply: boolean; undo: boolean };
+    can: { edit: boolean; delete: boolean; reply: boolean; undo: boolean; vote: boolean; pin: boolean };
+    attribution: Attribution | null;
+    isPinned: boolean;
+    /** The author is in a block relation with the viewer: no reply, quote or vote. */
+    isBlocked: boolean;
     quote: { commentId: number | string; rootId: number | null; text: string; author: Author | null; available: boolean } | null;
     poll: Poll | null;
     publishAt: string | null;
@@ -313,6 +396,11 @@ export interface CommentPage {
         sort: string;
         sorts: Option[];
         topCommentId: number | null;
+        pinnedCommentId: number | null;
+        canParticipate: boolean | null;
+        canPin: boolean;
+        attributions: Attribution[];
+        subject: { type: string; id: string | number; title: string; url: string | null; contextUrl: string | null } | null;
         truncatedThreads: Record<string, number>;
         acceptsComments: boolean;
         isLocked: boolean;

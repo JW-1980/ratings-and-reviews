@@ -322,6 +322,42 @@ function bindQuoteSelection(env, root) {
     document.addEventListener('keydown', (event) => event.key === 'Escape' && (offer.hidden = true));
 }
 
+/** The author's follow-up on a review card, posted to the API; errors are shown in the form. */
+async function submitFollowUp(env, root, form) {
+    const data = new FormData(form);
+    const error = form.querySelector('[data-rr-error]');
+    const submit = form.querySelector('[type="submit"]');
+    form.querySelectorAll('[data-rr-field-error]').forEach((node) => (node.textContent = ''));
+    error.hidden = true;
+
+    if (!data.get('rating')) {
+        form.querySelector('[data-rr-field="rating"] [data-rr-field-error]').textContent = env.t('form.rating_required');
+        form.querySelector('input[name="rating"]')?.focus();
+
+        return;
+    }
+
+    submit.disabled = true;
+
+    try {
+        const result = await env.api.createFollowUp(Number(form.dataset.rrFollowUpForm), { rating: Number(data.get('rating')), body: String(data.get('body') ?? '') });
+        await refresh(env, window.location.href);
+        announce(document.getElementById(root.id), result.message ?? env.t('reviews.follow_up_saved'));
+    } catch (failure) {
+        Object.entries(failure?.errors ?? {}).forEach(([field, messages]) => {
+            const target = form.querySelector(`[data-rr-field="${field}"] [data-rr-field-error]`);
+
+            if (target) {
+                target.textContent = messages[0];
+            }
+        });
+        error.textContent = errorText(failure, env.t);
+        error.hidden = false;
+    } finally {
+        submit.disabled = false;
+    }
+}
+
 function enhanceRoot(root, env) {
     if (root.dataset.rrEnhanced) {
         return;
@@ -387,6 +423,29 @@ function enhanceRoot(root, env) {
                     announce(root, errorText(failure, env.t));
                 }
             }
+        } else if (target.matches('[data-rr-pin]')) {
+            // Pin or unpin a top-level comment (moderator or discussion owner).
+            const pinned = target.dataset.pinned === '1';
+
+            try {
+                await env.api.pinComment(Number(target.dataset.rrPin), !pinned);
+                await refresh(env, window.location.href);
+                announce(document.getElementById(root.id), env.t(pinned ? 'discussion.unpinned_done' : 'discussion.pinned_done'));
+            } catch (failure) {
+                announce(root, errorText(failure, env.t));
+            }
+        } else if (target.matches('[data-rr-delete-follow-up]')) {
+            const ok = await confirmAction(env, env.t('reviews.follow_up_delete_confirm'), env.t('reviews.follow_up_delete'));
+
+            if (ok) {
+                try {
+                    await env.api.deleteFollowUp(Number(target.dataset.rrDeleteFollowUp));
+                    await refresh(env, window.location.href);
+                    announce(document.getElementById(root.id), env.t('common.deleted'));
+                } catch (failure) {
+                    announce(root, errorText(failure, env.t));
+                }
+            }
         } else if (target.matches('[data-rr-undo]')) {
             try {
                 await env.api.undoComment(Number(target.dataset.rrUndo));
@@ -403,6 +462,13 @@ function enhanceRoot(root, env) {
 
     root.addEventListener('submit', async (event) => {
         const form = event.target;
+
+        if (form.matches('form[data-rr-follow-up-form]')) {
+            event.preventDefault();
+            await submitFollowUp(env, root, form);
+
+            return;
+        }
 
         if (form.matches('form[data-rr-nav]') && (form.method || 'get').toLowerCase() === 'get') {
             event.preventDefault();
