@@ -40,6 +40,9 @@ class ReviewResource extends JsonResource
 
     private bool $canFollowUp = false;
 
+    /** @var list<array{key: string, label: string, tone: string, url: string|null}> */
+    private array $annotations = [];
+
     /** @var (Closure(): bool)|null whether the viewer moderates this review, asked only when needed */
     private ?Closure $moderates = null;
 
@@ -81,6 +84,18 @@ class ReviewResource extends JsonResource
         return $this;
     }
 
+    /**
+     * The ContentAnnotator's result for this review (Services\Annotations::forItems()).
+     *
+     * @param  list<array{key: string, label: string, tone: string, url: string|null}>  $annotations
+     */
+    public function withAnnotations(array $annotations): static
+    {
+        $this->annotations = $annotations;
+
+        return $this;
+    }
+
     /** The official reply (OfficialReplyResolver enabled); null: none for this review. */
     public function withOfficialReply(?OfficialReply $reply): static
     {
@@ -113,6 +128,8 @@ class ReviewResource extends JsonResource
             'cons' => $review->cons ?? [],
             // Posted "as" a brand or shop (AttributionResolver); shown as a badge.
             'attribution' => Attribution::present($review->attribution),
+            // Host marks in the card header (ContentAnnotator), e.g. a health claim warning.
+            'annotations' => $this->annotations,
             'answers' => app(ReviewQuestions::class)->presentAnswers($review),
             'follow_up' => $this->followUp(),
             'topic_ratings' => $review->relationLoaded('topicRatings')

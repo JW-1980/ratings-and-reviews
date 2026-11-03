@@ -385,6 +385,13 @@ return [
         'success' => 'Bedankt. Een moderator bekijkt je melding.',
     ],
 
+    'annotations' => [
+        'label' => 'Notities',
+        'tone_info' => 'Let op',
+        'tone_warning' => 'Waarschuwing',
+        'tone_success' => 'Bevestigd',
+    ],
+
     'author' => [
         'card' => 'Over :name',
         'reviews' => '{0} Geen reviews|{1} :count review|[2,*] :count reviews',

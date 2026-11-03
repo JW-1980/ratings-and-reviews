@@ -2,6 +2,8 @@
 
 namespace RatingsAndReviews\Http\Requests;
 
+use RatingsAndReviews\Services\Uploads;
+
 /**
  * An image upload (multipart `image`, optional `alt`). Size, type and pixel limits come from
  * `ratings-and-reviews.uploads`; the type is checked on the file's content, not its name.
@@ -37,7 +39,7 @@ class StoreUploadRequest extends PackageRequest
             $field => [
                 $required ? 'required' : 'nullable',
                 'file',
-                'mimetypes:'.implode(',', (array) ($config['mime_types'] ?? ['image/jpeg', 'image/png', 'image/webp', 'image/gif'])),
+                'mimetypes:'.implode(',', Uploads::allowedMimeTypes()),
                 'max:'.max(1, (int) ($config['max_kilobytes'] ?? 5120)),
                 $dimensions,
             ],

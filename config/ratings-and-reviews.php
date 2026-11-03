@@ -443,6 +443,13 @@ return [
         'daily_quota' => 50,
         'max_alt_length' => 255,
         'strip_metadata' => true,
+        // false: GIF is refused (also when listed in mime_types). true: accepted; with
+        // strip_metadata the file is rewritten block by block (animation kept, comments,
+        // application data and trailing bytes dropped).
+        'allow_gif' => true,
+        // UploadScanner (a host binding): a scanner that throws refuses the upload, unless
+        // fail_open is true (then the error is reported and the upload goes on).
+        'scanner' => ['fail_open' => false],
         'prune_after_hours' => 24,
         'prune_batch_size' => 200,
     ],

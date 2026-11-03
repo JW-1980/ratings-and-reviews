@@ -14,6 +14,8 @@ export interface Author {
     avatarUrl: string | null;
     profileUrl: string | null;
     extra: Record<string, unknown>;
+    /** `extra.badges` normalised: shown next to the name on the card. */
+    cardBadges: Annotation[];
 }
 
 export interface Money {
@@ -76,6 +78,14 @@ export interface Alternative {
     worse: number;
     same: number;
     total: number;
+}
+
+/** A host mark in a card header (ContentAnnotator `annotations`, or the author's `extra.badges`). */
+export interface Annotation {
+    key: string;
+    label: string;
+    tone: 'info' | 'warning' | 'success';
+    url: string | null;
 }
 
 /** Posted "as" a brand or shop (AttributionResolver snapshot). */
@@ -236,6 +246,8 @@ export interface Review {
     /** Public replies (`reviews.replies`); null when replies to reviews are off. */
     repliesCount: number | null;
     attribution: Attribution | null;
+    /** Host marks in the card header (ContentAnnotator). */
+    annotations: Annotation[];
     answers: ReviewAnswer[];
     followUp: FollowUp | null;
     /** Only for the author. */
@@ -361,6 +373,8 @@ export interface Comment {
     isOwn: boolean;
     can: { edit: boolean; delete: boolean; reply: boolean; undo: boolean; vote: boolean; pin: boolean };
     attribution: Attribution | null;
+    /** Host marks in the card header (ContentAnnotator). */
+    annotations: Annotation[];
     isPinned: boolean;
     /** The author is in a block relation with the viewer: no reply, quote or vote. */
     isBlocked: boolean;

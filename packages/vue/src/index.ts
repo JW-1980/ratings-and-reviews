@@ -26,6 +26,7 @@ export { default as RrScaleInput } from './components/RrScaleInput.vue';
 export { default as RrRichText } from './components/RrRichText.vue';
 export { default as RrTopicRatings } from './components/RrTopicRatings.vue';
 export { default as RrFollowUp } from './components/RrFollowUp.vue';
+export { default as RrAnnotations } from './components/RrAnnotations.vue';
 export { default as RrAttributionBadge } from './components/RrAttributionBadge.vue';
 export { default as RrCardExtensions } from './components/RrCardExtensions.vue';
 

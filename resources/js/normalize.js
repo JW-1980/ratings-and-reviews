@@ -15,8 +15,38 @@ const str = (value, fallback = null) => (value === null || value === undefined ?
 const list = (value) => (Array.isArray(value) ? value : []);
 
 /**
- * @typedef {{ id: number|string, name: string, avatarUrl: string|null, profileUrl: string|null, extra: Record<string, unknown> }} Author
+ * @typedef {{ id: number|string, name: string, avatarUrl: string|null, profileUrl: string|null, extra: Record<string, unknown>, cardBadges: Annotation[] }} Author
  */
+
+/**
+ * A host mark on a card (ContentAnnotator `annotations`, AuthorResolver `extra.badges`):
+ * `{ key, label, tone: 'info'|'warning'|'success', url }`, or null without a label. A plain
+ * string is a label. A link must be http(s) or site-relative.
+ *
+ * @typedef {{ key: string, label: string, tone: 'info'|'warning'|'success', url: string|null }} Annotation
+ * @returns {Annotation|null}
+ */
+export function annotation(raw) {
+    const data = typeof raw === 'string' ? { label: raw } : raw;
+
+    if (!data || typeof data !== 'object' || String(data.label ?? '').trim() === '') {
+        return null;
+    }
+
+    const url = str(data.url);
+
+    return {
+        key: str(data.key, 'badge') || 'badge',
+        label: String(data.label).trim(),
+        tone: ['info', 'warning', 'success'].includes(data.tone) ? data.tone : 'info',
+        url: url !== null && (/^https?:\/\//i.test(url) || (url.startsWith('/') && !url.startsWith('//'))) ? url : null,
+    };
+}
+
+/** @returns {Annotation[]} */
+function annotations(raw) {
+    return list(raw).map(annotation).filter((entry) => entry !== null);
+}
 
 /** @returns {Author|null} */
 export function author(raw) {
@@ -24,12 +54,16 @@ export function author(raw) {
         return null;
     }
 
+    const extra = raw.extra && typeof raw.extra === 'object' ? raw.extra : {};
+
     return {
         id: raw.id,
         name: str(raw.name, ''),
         avatarUrl: str(raw.avatar_url),
         profileUrl: str(raw.profile_url),
-        extra: raw.extra && typeof raw.extra === 'object' ? raw.extra : {},
+        extra,
+        // `extra.badges` shown next to the name on the card (reliability, flair).
+        cardBadges: annotations(extra.badges),
     };
 }
 
@@ -253,6 +287,8 @@ export function review(raw) {
         officialReply: officialReply(data.official_reply),
         // Posted "as" a brand or shop (AttributionResolver).
         attribution: attribution(data.attribution),
+        // Host marks in the header (ContentAnnotator), e.g. a health claim warning.
+        annotations: annotations(data.annotations),
         // Answers to the review questions, in question order.
         answers: list(data.answers).map(reviewAnswer),
         followUp: followUp(data.follow_up),
@@ -519,6 +555,8 @@ export function comment(raw) {
         },
         // Posted "as" a brand or shop (AttributionResolver).
         attribution: attribution(data.attribution),
+        // Host marks in the header (ContentAnnotator).
+        annotations: annotations(data.annotations),
         isPinned: Boolean(data.is_pinned),
         // The author is in a block relation with the viewer: no reply, quote or vote.
         isBlocked: Boolean(data.is_blocked),

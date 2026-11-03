@@ -21,6 +21,7 @@ use RatingsAndReviews\Http\Requests\StoreReviewRequest;
 use RatingsAndReviews\Http\Requests\UpdateReviewRequest;
 use RatingsAndReviews\Http\Resources\ReviewResource;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Services\Annotations;
 use RatingsAndReviews\Services\Participation;
 use RatingsAndReviews\Services\RatingTopicCatalog;
 use RatingsAndReviews\Services\ReviewFacets;
@@ -59,6 +60,7 @@ class ReviewController extends Controller
         private readonly TrustLevels $trust,
         private readonly ToneNudge $tone,
         private readonly Participation $participation,
+        private readonly Annotations $annotations,
         private readonly ReviewQuestions $questions,
         private readonly ReviewFollowUps $followUps,
     ) {}
@@ -128,7 +130,10 @@ class ReviewController extends Controller
         $blocked = $this->participation->blockedWith($viewerId);
         $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject, ParticipationKind::REVIEW);
 
+        $marks = $this->annotations->forItems($items->concat(array_filter([$own])), $viewer);
+
         $present = fn (Review $review): array => $this->resource($review, $replies)
+            ->withAnnotations($marks[Annotations::keyOf($review)] ?? [])
             ->withContext($profiles[$review->user_id] ?? null, $choices[$review->id] ?? [], $viewerId)
             ->withModeratorCheck(fn (): bool => $this->moderates($viewer, $review))
             ->withParticipation($blocked, $review->user_id === $viewerId ? $this->followUps->reasonToRefuse($viewer, $review, $review->followUp !== null) === null : false)
@@ -296,6 +301,7 @@ class ReviewController extends Controller
 
         return new JsonResponse([
             'data' => $this->resource($review, $this->officialReplies([$review]))->withContext($profile, [], $viewerId)
+                ->withAnnotations($this->annotations->forItems([$review], $this->currentUser($request))[Annotations::keyOf($review)] ?? [])
                 ->withParticipation([], $this->followUps->reasonToRefuse($this->currentUser($request), $review, $review->followUp !== null) === null)
                 ->resolve($request),
             'quality' => $quality->toArray(),

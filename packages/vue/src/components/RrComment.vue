@@ -4,6 +4,7 @@ import { useRr } from '../context';
 import { flatten, useDiscussion } from '../composables/discussion';
 import { errorMessage } from '../composables/errors';
 import { formatDate, formatRelative } from '../shared';
+import RrAnnotations from './RrAnnotations.vue';
 import RrAttributionBadge from './RrAttributionBadge.vue';
 import RrAuthorName from './RrAuthorName.vue';
 import RrCardExtensions from './RrCardExtensions.vue';
@@ -83,6 +84,7 @@ async function saveEdit() {
                 <header class="rr-comment__header">
                     <RrAuthorName :author="comment.author" />
                     <RrAttributionBadge :attribution="comment.attribution" />
+                    <RrAnnotations :annotations="comment.annotations" :author="comment.author" />
                     <span v-if="comment.inReplyToAuthor" class="rr-comment__reply-to">↳ {{ rr.t('discussion.in_reply_to', { name: comment.inReplyToAuthor.name }) }}</span>
                     <span class="rr-comment__meta">
                         <a :href="`#${anchor}`" class="rr-comment__time">

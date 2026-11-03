@@ -19,11 +19,13 @@ use RatingsAndReviews\Contracts\AttributionResolver;
 use RatingsAndReviews\Contracts\AuthorResolver;
 use RatingsAndReviews\Contracts\BlockList;
 use RatingsAndReviews\Contracts\CardResolver;
+use RatingsAndReviews\Contracts\ContentAnnotator;
 use RatingsAndReviews\Contracts\ContributionCounter;
 use RatingsAndReviews\Contracts\OfficialReplyResolver;
 use RatingsAndReviews\Contracts\PriceAtReviewResolver;
 use RatingsAndReviews\Contracts\RiskSignals;
 use RatingsAndReviews\Contracts\SummaryExtension;
+use RatingsAndReviews\Contracts\UploadScanner;
 use RatingsAndReviews\Contracts\VoterIdentity;
 use RatingsAndReviews\Contracts\WantToTryList;
 use RatingsAndReviews\Defaults\AllowAllRiskSignals;
@@ -34,8 +36,10 @@ use RatingsAndReviews\Defaults\GateAbilityResolver;
 use RatingsAndReviews\Defaults\NullAttributionResolver;
 use RatingsAndReviews\Defaults\NullBlockList;
 use RatingsAndReviews\Defaults\NullCardResolver;
+use RatingsAndReviews\Defaults\NullContentAnnotator;
 use RatingsAndReviews\Defaults\NullOfficialReplyResolver;
 use RatingsAndReviews\Defaults\NullPriceAtReviewResolver;
+use RatingsAndReviews\Defaults\NullUploadScanner;
 use RatingsAndReviews\Defaults\NullWantToTryList;
 use RatingsAndReviews\Events\CommentDeleted;
 use RatingsAndReviews\Events\CommentEdited;
@@ -124,6 +128,8 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         OfficialReplyResolver::class => NullOfficialReplyResolver::class,
         BlockList::class => NullBlockList::class,
         AttributionResolver::class => NullAttributionResolver::class,
+        UploadScanner::class => NullUploadScanner::class,
+        ContentAnnotator::class => NullContentAnnotator::class,
         SectionSettingsRepository::class => SectionSettingsRepository::class,
     ];
 

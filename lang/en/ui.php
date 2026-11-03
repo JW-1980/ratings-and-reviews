@@ -385,6 +385,13 @@ return [
         'success' => 'Thank you. A moderator will look at your report.',
     ],
 
+    'annotations' => [
+        'label' => 'Notes',
+        'tone_info' => 'Note',
+        'tone_warning' => 'Warning',
+        'tone_success' => 'Confirmed',
+    ],
+
     'author' => [
         'card' => 'About :name',
         'reviews' => '{0} No reviews|{1} :count review|[2,*] :count reviews',

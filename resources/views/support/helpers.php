@@ -21,6 +21,7 @@ use Illuminate\Support\MessageBag;
 use Illuminate\Support\ViewErrorBag;
 use Illuminate\Validation\ValidationException;
 use RatingsAndReviews\Models\Upload;
+use RatingsAndReviews\Services\Uploads;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 $locale = fn (): string => str_replace('_', '-', (string) app()->getLocale());
@@ -147,7 +148,7 @@ $clientConfig = static fn (): array => [
         Upload::urlPrefix(),
         (string) config('ratings-and-reviews.stickers.url_prefix', '/storage/'),
     ])),
-    'uploadTypes' => array_values((array) config('ratings-and-reviews.uploads.mime_types', [])),
+    'uploadTypes' => Uploads::allowedMimeTypes(),
     'reportDetailsRequiredFor' => array_values((array) config('ratings-and-reviews.reports.details_required_for', [])),
     'authenticated' => auth(config('ratings-and-reviews.routes.guard'))->check(),
 ];

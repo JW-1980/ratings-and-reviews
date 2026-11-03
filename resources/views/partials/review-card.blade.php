@@ -17,6 +17,7 @@
     <header class="rr-review__header">
         @include('rr::partials.author', ['author' => $review['author'] ?? null])
         @include('rr::partials.attribution', ['attribution' => $review['attribution'] ?? null])
+        @include('rr::partials.annotations', ['annotations' => $review['annotations'] ?? [], 'author' => $review['author'] ?? null])
         <span class="rr-review__meta">
             @if ($review['created_at'])
                 <time datetime="{{ $review['created_at'] }}" title="{{ $rr['date']($review['created_at'], 'long') }}">{{ $rr['date']($review['created_at'], 'relative') }}</time>

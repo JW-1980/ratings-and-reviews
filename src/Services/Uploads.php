@@ -8,12 +8,16 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use RatingsAndReviews\Contracts\UploadScanner;
+use RatingsAndReviews\Events\UploadRejected;
 use RatingsAndReviews\Models\Report;
 use RatingsAndReviews\Models\Upload;
+use RatingsAndReviews\Support\GifSanitizer;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Throwable;
 
@@ -31,6 +35,8 @@ use Throwable;
  */
 class Uploads
 {
+    public function __construct(private readonly UploadScanner $scanner) {}
+
     /** Formats GD can re-encode without losing what the image is. */
     private const REENCODED = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -55,6 +61,12 @@ class Uploads
         if ($info === false) {
             throw ValidationException::withMessages(['image' => __('ratings-and-reviews::messages.upload_unreadable')]);
         }
+
+        if ($mime === 'image/gif' && ! self::gifAllowed()) {
+            throw ValidationException::withMessages(['image' => __('ratings-and-reviews::messages.upload_gif_disabled')]);
+        }
+
+        $this->assertClean($file, $userId, (string) $file->getClientOriginalName(), $mime, (int) $file->getSize(), 'upload');
 
         [$bytes, $width, $height] = $this->processed($file, $mime, (int) $info[0], (int) $info[1]);
 
@@ -125,11 +137,13 @@ class Uploads
         $bytes = (string) $storage->get($path);
         $info = @getimagesizefromstring($bytes);
         $mime = is_array($info) ? (string) $info['mime'] : '';
-        $allowed = array_values(array_diff((array) config('ratings-and-reviews.uploads.mime_types', ['image/jpeg', 'image/png', 'image/webp', 'image/gif']), ['image/svg+xml']));
+        $allowed = array_values(array_diff(self::allowedMimeTypes(), ['image/svg+xml']));
 
         if ($info === false || ! in_array($mime, $allowed, true)) {
             throw ValidationException::withMessages(['path' => __('ratings-and-reviews::messages.upload_unreadable')]);
         }
+
+        $this->assertCleanBytes($bytes, $userId, basename($path), $mime, 'import');
 
         $targetDisk = $disk;
         $targetPath = $path;
@@ -186,6 +200,69 @@ class Uploads
         ])->save();
 
         return $upload;
+    }
+
+    /**
+     * The image types accepted: `uploads.mime_types`, without GIF when `uploads.allow_gif`
+     * is off.
+     *
+     * @return list<string>
+     */
+    public static function allowedMimeTypes(): array
+    {
+        $types = array_values(array_filter((array) config('ratings-and-reviews.uploads.mime_types', ['image/jpeg', 'image/png', 'image/webp', 'image/gif']), 'is_string'));
+
+        return self::gifAllowed() ? $types : array_values(array_diff($types, ['image/gif']));
+    }
+
+    public static function gifAllowed(): bool
+    {
+        return (bool) config('ratings-and-reviews.uploads.allow_gif', true);
+    }
+
+    /**
+     * Asks the UploadScanner; refuses an infected file, and a file that could not be scanned
+     * unless `uploads.scanner.fail_open`. Dispatches UploadRejected for either.
+     *
+     * @throws ValidationException
+     */
+    private function assertClean(UploadedFile|string $file, int $userId, string $name, string $mime, int $size, string $source): void
+    {
+        try {
+            $result = $this->scanner->scan($file);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            if (config('ratings-and-reviews.uploads.scanner.fail_open', false)) {
+                return;
+            }
+
+            Event::dispatch(new UploadRejected($userId, UploadRejected::SCANNER_ERROR, $exception->getMessage(), $name, $mime, $size, $source));
+
+            throw ValidationException::withMessages([$source === 'upload' ? 'image' : 'path' => __('ratings-and-reviews::messages.upload_scan_unavailable')]);
+        }
+
+        if (! $result->clean) {
+            Event::dispatch(new UploadRejected($userId, UploadRejected::INFECTED, $result->reason, $name, $mime, $size, $source));
+
+            throw ValidationException::withMessages([$source === 'upload' ? 'image' : 'path' => __('ratings-and-reviews::messages.upload_infected')]);
+        }
+    }
+
+    /** Scans bytes that are not on the local disk through a temporary file, removed afterwards. */
+    private function assertCleanBytes(string $bytes, int $userId, string $name, string $mime, string $source): void
+    {
+        $temporary = tempnam(sys_get_temp_dir(), 'rr-scan-');
+
+        if ($temporary === false || file_put_contents($temporary, $bytes) === false) {
+            throw ValidationException::withMessages(['path' => __('ratings-and-reviews::messages.upload_failed')]);
+        }
+
+        try {
+            $this->assertClean($temporary, $userId, $name, $mime, strlen($bytes), $source);
+        } finally {
+            @unlink($temporary);
+        }
     }
 
     public function dailyQuota(): int
@@ -438,7 +515,9 @@ class Uploads
     /**
      * The bytes to store, with width and height. With `strip_metadata` and GD, JPEG, PNG and
      * WebP are re-encoded so EXIF (location, device) is not published; a JPEG is first turned
-     * upright by its EXIF orientation. Without GD the original is stored.
+     * upright by its EXIF orientation. Without GD the original is stored. A GIF is rewritten
+     * without GD (GifSanitizer: animation kept, comments, application data and trailing bytes
+     * removed); one that cannot be parsed is refused.
      *
      * @return array{0: string, 1: int, 2: int}
      *
@@ -447,6 +526,17 @@ class Uploads
     private function processed(UploadedFile $file, string $mime, int $width, int $height): array
     {
         $original = (string) file_get_contents((string) $file->getRealPath());
+
+        if ($mime === 'image/gif' && config('ratings-and-reviews.uploads.strip_metadata', true)) {
+            // GD would keep only the first frame; the block-level rewrite keeps the animation.
+            $clean = GifSanitizer::sanitize($original);
+
+            if ($clean === null) {
+                throw ValidationException::withMessages(['image' => __('ratings-and-reviews::messages.upload_unreadable')]);
+            }
+
+            return [$clean['bytes'], $width, $height];
+        }
 
         if (! config('ratings-and-reviews.uploads.strip_metadata', true) || ! in_array($mime, self::REENCODED, true) || ! extension_loaded('gd')) {
             return [$original, $width, $height];

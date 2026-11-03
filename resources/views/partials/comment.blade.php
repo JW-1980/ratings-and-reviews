@@ -23,6 +23,7 @@
             <header class="rr-comment__header">
                 @include('rr::partials.author', ['author' => $comment['author']])
                 @include('rr::partials.attribution', ['attribution' => $comment['attribution'] ?? null])
+                @include('rr::partials.annotations', ['annotations' => $comment['annotations'] ?? [], 'author' => $comment['author'] ?? null])
                 @if (! empty($comment['in_reply_to_author']))
                     <span class="rr-comment__reply-to">↳ {{ __('ratings-and-reviews::ui.discussion.in_reply_to', ['name' => $comment['in_reply_to_author']['name']]) }}</span>
                 @endif

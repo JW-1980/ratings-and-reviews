@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useRr } from '../context';
 import { errorMessage } from '../composables/errors';
 import { formatDate, formatMoney, formatRelative } from '../shared';
+import RrAnnotations from './RrAnnotations.vue';
 import RrAttributionBadge from './RrAttributionBadge.vue';
 import RrAuthorName from './RrAuthorName.vue';
 import RrCardExtensions from './RrCardExtensions.vue';
@@ -67,6 +68,7 @@ async function addToList() {
         <header class="rr-review__header">
             <RrAuthorName :author="review.author" />
             <RrAttributionBadge :attribution="review.attribution" />
+            <RrAnnotations :annotations="review.annotations" :author="review.author" />
             <span class="rr-review__meta">
                 <time v-if="review.createdAt" :datetime="review.createdAt" :title="formatDate(review.createdAt, rr.locale, { dateStyle: 'long' })">{{ formatRelative(review.createdAt, rr.locale) }}</time>
                 <span v-if="review.isEdited" class="rr-tag" :title="formatDate(review.editedAt, rr.locale, { dateStyle: 'long', timeStyle: 'short' })">{{ rr.t('common.edited') }}</span>

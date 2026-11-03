@@ -164,6 +164,15 @@ dialog.rr:not([open]), dialog.rr-dialog:not([open]) { display: none; }
 .rr-tag--pending { color: var(--rr-color-warning); border-color: var(--rr-color-warning); }
 .rr-tag--button { cursor: pointer; font: inherit; font-size: var(--rr-font-size-small); min-block-size: 1.75rem; }
 .rr-tag--comparison a { color: inherit; }
+.rr-annotations { display: inline-flex; flex-wrap: wrap; gap: var(--rr-space-1); list-style: none; margin: 0; padding: 0; }
+.rr-annotations > li { display: inline-flex; margin: 0; }
+.rr-tag--annotation { white-space: normal; }
+.rr-tag--annotation a { color: inherit; text-decoration: underline; }
+.rr-tag--annotation[data-tone="info"] { color: var(--rr-color-text); }
+.rr-tag--annotation[data-tone="warning"] { color: var(--rr-color-text); background: var(--rr-color-warning-soft); border-color: var(--rr-color-warning); }
+.rr-tag--annotation[data-tone="success"] { color: var(--rr-color-text); border-color: var(--rr-color-success); }
+.rr-tag--annotation[data-tone="success"] .rr-tag__icon { color: var(--rr-color-success); }
+.rr-tag--annotation[data-tone="warning"] .rr-tag__icon { color: var(--rr-color-warning); }
 .rr-badge { display: inline-flex; padding: 0.1rem var(--rr-space-2); border-radius: var(--rr-radius-pill); background: var(--rr-color-primary-soft); font-size: var(--rr-font-size-small); }
 
 .rr-chips { display: flex; flex-wrap: wrap; gap: var(--rr-space-2); align-items: center; }

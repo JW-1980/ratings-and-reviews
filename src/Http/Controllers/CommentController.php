@@ -15,6 +15,7 @@ use RatingsAndReviews\Http\Requests\UpdateCommentRequest;
 use RatingsAndReviews\Http\Resources\CommentResource;
 use RatingsAndReviews\Http\Resources\RevisionResource;
 use RatingsAndReviews\Models\Comment;
+use RatingsAndReviews\Services\Annotations;
 use RatingsAndReviews\Services\DiscussionService;
 use RatingsAndReviews\Services\DiscussionStates;
 use RatingsAndReviews\Services\DiscussionTree;
@@ -45,6 +46,7 @@ class CommentController extends Controller
         private readonly TrustLevels $trust,
         private readonly ToneNudge $tone,
         private readonly Participation $participation,
+        private readonly Annotations $annotations,
     ) {}
 
     /**
@@ -77,8 +79,11 @@ class CommentController extends Controller
         $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject, ParticipationKind::COMMENT);
         $pinned = $discussion->roots->first(fn (Comment $comment): bool => $comment->pinned_at !== null && $comment->isPubliclyVisible());
 
+        $marks = $this->annotations->forItems(Annotations::flattenComments($discussion->roots), $viewer);
+
         return new JsonResponse([
             'data' => $discussion->roots->map(fn (Comment $comment): array => (new CommentResource($comment))
+                ->withAnnotations($marks)
                 ->withContext($discussion->authors, $discussion->viewerVotes, $viewerId, $moderates, $discussion->settings, $discussion->topCommentId)
                 ->withExtras($discussion->quotes, $discussion->pollChoices, $discussion->newSince)
                 ->withParticipation($blocked, $pins)
@@ -281,8 +286,11 @@ class CommentController extends Controller
 
         $blocked = $this->participation->blockedWith($viewerId);
 
+        $marks = $this->annotations->forItems(Annotations::flattenComments($page->replies), $viewer);
+
         return new JsonResponse([
             'data' => $page->replies->map(fn (Comment $reply): array => (new CommentResource($reply))
+                ->withAnnotations($marks)
                 ->withContext($page->authors, $page->viewerVotes, $viewerId, $moderates, $page->settings)
                 ->withExtras($page->quotes, $page->pollChoices, $page->newSince)
                 ->withParticipation($blocked, false)
@@ -306,6 +314,7 @@ class CommentController extends Controller
 
         return new JsonResponse([
             'data' => (new CommentResource($comment))
+                ->withAnnotations($this->annotations->forItems([$comment], $user))
                 ->withContext($profiles, [], $this->userId($user), $this->moderates($user, $comment), $settings)
                 ->withExtras($quotes, [], null)
                 ->withParticipation([], $this->discussions->mayPin($user, $comment))

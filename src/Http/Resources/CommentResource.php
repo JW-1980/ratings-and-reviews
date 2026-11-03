@@ -7,6 +7,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Carbon;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Poll;
+use RatingsAndReviews\Services\Annotations;
 use RatingsAndReviews\Services\PollService;
 use RatingsAndReviews\Support\Attribution;
 use RatingsAndReviews\Support\AuthorProfile;
@@ -27,6 +28,9 @@ class CommentResource extends JsonResource
 {
     /** @var array<int, AuthorProfile> */
     private array $authors = [];
+
+    /** @var array<string, list<array{key: string, label: string, tone: string, url: string|null}>> by Services\Annotations::keyOf() */
+    private array $annotations = [];
 
     /** @var array<int, array<string, int>> */
     private array $viewerVotes = [];
@@ -51,6 +55,18 @@ class CommentResource extends JsonResource
     private array $blockedIds = [];
 
     private bool $viewerPins = false;
+
+    /**
+     * The ContentAnnotator's result for the whole list (Services\Annotations::forItems()); passed on to the replies.
+     *
+     * @param  array<string, list<array{key: string, label: string, tone: string, url: string|null}>>  $annotations
+     */
+    public function withAnnotations(array $annotations): static
+    {
+        $this->annotations = $annotations;
+
+        return $this;
+    }
 
     /**
      * @param  array<int, AuthorProfile>  $authors
@@ -139,6 +155,8 @@ class CommentResource extends JsonResource
             },
             // Posted "as" a brand or shop (AttributionResolver); shown as a badge.
             'attribution' => $removed ? null : Attribution::present($comment->attribution),
+            // Host marks in the card header (ContentAnnotator); none on a removed comment.
+            'annotations' => $removed ? [] : ($this->annotations[Annotations::keyOf($comment)] ?? []),
             'is_pinned' => $comment->pinned_at !== null && $comment->parent_id === null,
             'pinned_at' => $comment->parent_id === null ? $comment->pinned_at?->toIso8601String() : null,
             // The author is in a block relation with the viewer: no reply, quote or vote.
@@ -167,6 +185,7 @@ class CommentResource extends JsonResource
             'edited_at' => $comment->edited_at?->toIso8601String(),
             'replies' => $comment->relationLoaded('replies')
                 ? $comment->replies->map(fn (Comment $reply): array => (new self($reply))
+                    ->withAnnotations($this->annotations)
                     ->withContext($this->authors, $this->viewerVotes, $this->viewerId, $this->viewerModerates, $this->settings, $this->topCommentId)
                     ->withExtras($this->quotes, $this->pollChoices, $this->newSince)
                     ->withParticipation($this->blockedIds, $this->viewerPins)
