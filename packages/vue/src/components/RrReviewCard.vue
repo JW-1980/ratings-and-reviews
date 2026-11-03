@@ -62,7 +62,7 @@ async function addToList() {
         <div class="rr-review__score">
             <RrScoreBadge :value="review.rating" :max="review.scaleMax" size="md" />
         </div>
-        <h3 :id="headingId" class="rr-review__title">{{ review.title || rr.t('reviews.rating', { rating: review.rating, max: review.scaleMax }) }}</h3>
+        <h3 :id="headingId" :class="['rr-review__title', { 'rr-visually-hidden': !review.title }]">{{ review.title || rr.t('reviews.rating', { rating: review.rating, max: review.scaleMax }) }}</h3>
 
         <ul v-if="review.topicRatings.length" class="rr-review__topics" :aria-label="rr.t('reviews.topic_scores')">
             <li v-for="rating in review.topicRatings" :key="rating.topicId" class="rr-review__topic">

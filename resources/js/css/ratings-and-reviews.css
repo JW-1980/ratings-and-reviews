@@ -59,6 +59,8 @@
 
 .rr *, .rr *::before, .rr *::after, .rr-dialog * { box-sizing: border-box; }
 .rr { display: grid; gap: var(--rr-space-4); }
+/* A closed <dialog> must stay hidden even when it also carries .rr. */
+dialog.rr:not([open]), dialog.rr-dialog:not([open]) { display: none; }
 .rr h2, .rr h3, .rr h4, .rr p, .rr ul, .rr ol, .rr-dialog h2, .rr-dialog p { margin: 0; }
 .rr ul, .rr ol { padding: 0; list-style: none; }
 .rr-prose ul, .rr-prose ol, .rr-points ul { padding-inline-start: 1.25em; list-style: revert; }

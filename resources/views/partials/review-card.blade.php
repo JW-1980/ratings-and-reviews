@@ -24,7 +24,7 @@
     @endif
 
     <div class="rr-review__score">@include('rr::partials.score', ['value' => $review['rating'], 'max' => $review['scale_max'], 'size' => 'md'])</div>
-    <h3 id="{{ $headingId }}" class="rr-review__title">{{ $review['title'] ?: __('ratings-and-reviews::ui.reviews.rating', ['rating' => $review['rating'], 'max' => $review['scale_max']]) }}</h3>
+    <h3 id="{{ $headingId }}" @class(['rr-review__title', 'rr-visually-hidden' => blank($review['title'])])>{{ $review['title'] ?: __('ratings-and-reviews::ui.reviews.rating', ['rating' => $review['rating'], 'max' => $review['scale_max']]) }}</h3>
 
     @if (! empty($review['topic_ratings']))
         <ul class="rr-review__topics" aria-label="{{ __('ratings-and-reviews::ui.reviews.topic_scores') }}">
