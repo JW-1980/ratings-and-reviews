@@ -58,6 +58,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property string|null $network_hash
  * @property string|null $device_hash
  * @property bool $counted
+ * @property string|null $uncounted_reason why it does not count (RiskSignals or ReviewService::setCounted()); see config reviews.uncounted_reasons
  * @property Carbon|null $approved_at
  * @property Carbon|null $follow_up_invited_at when ReviewFollowUpDue was fired
  * @property Carbon|null $edited_at
@@ -86,7 +87,7 @@ class Review extends Model implements Commentable, HasDiscussionContext, HasDisc
         'reviewable_type', 'reviewable_id', 'user_id', 'section', 'status', 'rating', 'scale_max', 'title', 'body_html', 'body_text',
         'pros', 'cons', 'attribution', 'facets', 'price_cents', 'price_currency', 'compared_type', 'compared_id', 'comparison',
         'quality_score', 'helpful_count', 'flags_count', 'ip_hash', 'network_hash', 'device_hash', 'counted',
-        'approved_at', 'edited_at', 'erasure_withheld_at', 'follow_up_invited_at',
+        'uncounted_reason', 'approved_at', 'edited_at', 'erasure_withheld_at', 'follow_up_invited_at',
     ];
 
     protected $hidden = ['ip_hash', 'network_hash', 'device_hash'];

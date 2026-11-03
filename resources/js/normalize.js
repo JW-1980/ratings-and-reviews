@@ -260,6 +260,9 @@ export function review(raw) {
         followUpWindow: data.follow_up_window ? { opensAt: str(data.follow_up_window.opens_at), closesAt: str(data.follow_up_window.closes_at) } : null,
         // The author is in a block relation with the viewer: no vote or reply.
         isBlocked: Boolean(data.is_blocked),
+        // Why it does not count in the averages (ReviewResource `uncounted_*`): for the author
+        // and moderators, or for everyone when the reason is public; null otherwise.
+        uncounted: data.uncounted_label ? { reason: str(data.uncounted_reason), label: str(data.uncounted_label, ''), isPublic: Boolean(data.uncounted_public) } : null,
         helpfulCount: num(data.helpful_count, 0),
         // Public replies to the review (reviews.replies); null when replies are switched off.
         repliesCount: data.replies_count === null || data.replies_count === undefined ? null : num(data.replies_count, 0),

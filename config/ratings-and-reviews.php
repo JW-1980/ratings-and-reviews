@@ -247,6 +247,20 @@ return [
             'deal' => ['on_offer', 'regular_price'],
         ],
 
+        /*
+        | Why a review does not count in the averages (`rr_reviews.uncounted_reason`, from a
+        | RiskSignals verdict or ReviewService::setCounted()): reason key => labels per locale.
+        | `public` true shows the label on the review card to everyone (a disclosure such as
+        | a free sample); otherwise only the author and moderators see it. `keep_on_edit`
+        | true keeps the review uncounted when the author edits it, whatever RiskSignals
+        | answers then (a host decision, not a check). A reason without an entry is shown to
+        | the author and moderators with ratings-and-reviews::enums.uncounted_reason.<key>,
+        | or the generic label.
+        */
+        'uncounted_reasons' => [
+            'sample_campaign' => ['nl' => 'Gekregen van het merk', 'en' => 'Received from the brand', 'public' => true, 'keep_on_edit' => true],
+        ],
+
         /** Below this many counted reviews the summary flags "few reviews". */
         'few_reviews_below' => 5,
 

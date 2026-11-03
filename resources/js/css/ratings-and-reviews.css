@@ -160,6 +160,7 @@ dialog.rr:not([open]), dialog.rr-dialog:not([open]) { display: none; }
 .rr-tag--attribution { color: var(--rr-color-primary-contrast); background: var(--rr-color-primary); border-color: var(--rr-color-primary); font-weight: var(--rr-font-weight-strong); }
 .rr-tag--attribution a { color: inherit; }
 .rr-notice--muted { background: var(--rr-color-surface-alt); }
+.rr-tag--uncounted { color: var(--rr-color-muted); border-style: dashed; }
 .rr-tag--pending { color: var(--rr-color-warning); border-color: var(--rr-color-warning); }
 .rr-tag--button { cursor: pointer; font: inherit; font-size: var(--rr-font-size-small); min-block-size: 1.75rem; }
 .rr-tag--comparison a { color: inherit; }

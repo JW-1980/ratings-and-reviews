@@ -20,6 +20,7 @@ use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Support\Attribution;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ModerationScope;
+use RatingsAndReviews\Support\UncountedReasons;
 
 /**
  * One moderation inbox for reviews and comments.
@@ -77,6 +78,10 @@ class ModerationController extends Controller
                 'follow_up' => $item instanceof Review && $item->followUp !== null
                     ? ['rating' => $item->followUp->rating, 'scale_max' => $item->followUp->scale_max, 'body' => $item->followUp->body_text, 'created_at' => $item->followUp->created_at?->toIso8601String()]
                     : null,
+                'counted' => (bool) $item->counted,
+                // Why a review does not count (a moderator always sees it).
+                'uncounted_reason' => $item instanceof Review && ! $item->counted ? $item->uncounted_reason : null,
+                'uncounted_label' => $item instanceof Review && ! $item->counted ? UncountedReasons::label($item->uncounted_reason) : null,
                 'flags_count' => $item->flags_count,
                 'created_at' => $item->created_at?->toIso8601String(),
             ])->values()->all(),

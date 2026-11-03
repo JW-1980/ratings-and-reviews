@@ -129,6 +129,7 @@ class ReviewController extends Controller
 
         $present = fn (Review $review): array => $this->resource($review, $replies)
             ->withContext($profiles[$review->user_id] ?? null, $choices[$review->id] ?? [], $viewerId)
+            ->withModeratorCheck(fn (): bool => $this->moderates($viewer, $review))
             ->withParticipation($blocked, $review->user_id === $viewerId ? $this->followUps->reasonToRefuse($viewer, $review, $review->followUp !== null) === null : false)
             ->resolve($request);
 

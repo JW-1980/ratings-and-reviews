@@ -8,6 +8,8 @@
     $followUpForm = 'follow-up:'.$review['id'];
     $followUpErrors = $rr['isForm']($followUpForm) ? $rr['formErrors']('rr_review') : new \Illuminate\Support\MessageBag;
     $followUpAction = $rr['webRoute']('reviews.follow-up.store', ['review' => $review['id']]);
+    $uncountedLabel = $review['uncounted_label'] ?? null;
+    $uncountedPublic = (bool) ($review['uncounted_public'] ?? false);
 @endphp
 <article id="rr-review-{{ $review['id'] }}" class="rr-review {{ $review['is_own'] ? 'is-own' : '' }} {{ $approved ? '' : 'is-pending' }}" aria-labelledby="{{ $headingId }}" data-rr-review="{{ $review['id'] }}">
     <header class="rr-review__header">
@@ -20,6 +22,9 @@
             @if ($review['edited_at'])
                 <span class="rr-tag" title="{{ $rr['date']($review['edited_at'], 'datetime') }}">{{ __('ratings-and-reviews::ui.common.edited') }}</span>
             @endif
+            @if ($uncountedLabel && $uncountedPublic)
+                <span class="rr-tag rr-tag--uncounted" data-reason="{{ $review['uncounted_reason'] }}" title="{{ __('ratings-and-reviews::ui.reviews.uncounted_public') }}">{{ $uncountedLabel }}<span class="rr-visually-hidden"> · {{ __('ratings-and-reviews::ui.reviews.uncounted_public') }}</span></span>
+            @endif
         </span>
     </header>
 
@@ -27,6 +32,9 @@
         <p class="rr-notice rr-notice--pending" role="status">{{ __('ratings-and-reviews::ui.reviews.own_pending') }}</p>
     @elseif ($review['is_own'] && in_array($review['status'], ['rejected', 'spam'], true))
         <p class="rr-notice rr-notice--warning">{{ __('ratings-and-reviews::ui.reviews.own_rejected') }}</p>
+    @endif
+    @if ($uncountedLabel && ! $uncountedPublic)
+        <p class="rr-notice rr-notice--muted" data-rr-uncounted>{{ __($review['is_own'] ? 'ratings-and-reviews::ui.reviews.own_uncounted' : 'ratings-and-reviews::ui.reviews.uncounted_moderator', ['reason' => $uncountedLabel]) }}</p>
     @endif
 
     <div class="rr-review__score">@include('rr::partials.score', ['value' => $review['rating'], 'max' => $review['scale_max'], 'size' => 'md'])</div>

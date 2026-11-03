@@ -7,6 +7,11 @@ return [
         'rejected' => 'Afgewezen',
         'spam' => 'Spam',
     ],
+    'uncounted_reason' => [
+        'default' => 'Geen reden opgegeven',
+        'held_by_subject' => 'Vastgehouden door de beheerder van deze pagina',
+        'imported' => 'Geïmporteerd',
+    ],
     'vote_dimension' => [
         'agreement' => 'Eens of oneens',
         'helpfulness' => 'Nuttig of niet nuttig',

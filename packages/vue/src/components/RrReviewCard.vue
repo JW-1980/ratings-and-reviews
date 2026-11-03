@@ -56,11 +56,13 @@ async function addToList() {
             <span class="rr-review__meta">
                 <time v-if="review.createdAt" :datetime="review.createdAt" :title="formatDate(review.createdAt, rr.locale, { dateStyle: 'long' })">{{ formatRelative(review.createdAt, rr.locale) }}</time>
                 <span v-if="review.isEdited" class="rr-tag" :title="formatDate(review.editedAt, rr.locale, { dateStyle: 'long', timeStyle: 'short' })">{{ rr.t('common.edited') }}</span>
+                <span v-if="review.uncounted?.isPublic" class="rr-tag rr-tag--uncounted" :data-reason="review.uncounted.reason ?? undefined" :title="rr.t('reviews.uncounted_public')">{{ review.uncounted.label }}<span class="rr-visually-hidden"> · {{ rr.t('reviews.uncounted_public') }}</span></span>
             </span>
         </header>
 
         <p v-if="review.isOwn && review.status === 'pending'" class="rr-notice rr-notice--pending" role="status">{{ rr.t('reviews.own_pending') }}</p>
         <p v-else-if="review.isOwn && (review.status === 'rejected' || review.status === 'spam')" class="rr-notice rr-notice--warning">{{ rr.t('reviews.own_rejected') }}</p>
+        <p v-if="review.uncounted && !review.uncounted.isPublic" class="rr-notice rr-notice--muted" data-rr-uncounted>{{ rr.t(review.isOwn ? 'reviews.own_uncounted' : 'reviews.uncounted_moderator', { reason: review.uncounted.label }) }}</p>
 
         <div class="rr-review__score">
             <RrScoreBadge :value="review.rating" :max="review.scaleMax" size="md" />

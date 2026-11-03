@@ -7,6 +7,11 @@ return [
         'rejected' => 'Rejected',
         'spam' => 'Spam',
     ],
+    'uncounted_reason' => [
+        'default' => 'No reason given',
+        'held_by_subject' => 'Held by the manager of this page',
+        'imported' => 'Imported',
+    ],
     'vote_dimension' => [
         'agreement' => 'Agree or disagree',
         'helpfulness' => 'Helpful or not helpful',

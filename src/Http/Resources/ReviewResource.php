@@ -2,6 +2,7 @@
 
 namespace RatingsAndReviews\Http\Resources;
 
+use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use RatingsAndReviews\Contracts\Reviewable;
@@ -15,6 +16,7 @@ use RatingsAndReviews\Support\Attribution;
 use RatingsAndReviews\Support\AuthorProfile;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\OfficialReply;
+use RatingsAndReviews\Support\UncountedReasons;
 
 /**
  * @property Review $resource
@@ -38,6 +40,9 @@ class ReviewResource extends JsonResource
 
     private bool $canFollowUp = false;
 
+    /** @var (Closure(): bool)|null whether the viewer moderates this review, asked only when needed */
+    private ?Closure $moderates = null;
+
     /**
      * @param  array<string, int>  $viewerVotes
      */
@@ -59,6 +64,19 @@ class ReviewResource extends JsonResource
     {
         $this->blockedIds = $blockedIds;
         $this->canFollowUp = $canFollowUp;
+
+        return $this;
+    }
+
+    /**
+     * Whether the viewer moderates the review, asked only for an uncounted review with a
+     * reason that is not public (so a list does not ask per row).
+     *
+     * @param  Closure(): bool  $moderates
+     */
+    public function withModeratorCheck(Closure $moderates): static
+    {
+        $this->moderates = $moderates;
 
         return $this;
     }
@@ -118,11 +136,26 @@ class ReviewResource extends JsonResource
                 'vote' => ! $own && ! $blocked && $review->isPubliclyVisible(),
                 'follow_up' => $own && $this->canFollowUp,
             ],
+            // Why it does not count in the averages: for the author and moderators, or for
+            // everyone when the reason is public (config reviews.uncounted_reasons).
+            ...$this->uncounted($own),
             // Only for the author: when a follow-up can be added (null: follow-ups off or not live yet).
             'follow_up_window' => $own ? $this->followUpWindow() : null,
             'created_at' => $review->created_at?->toIso8601String(),
             'edited_at' => $review->edited_at?->toIso8601String(),
         ] + ($this->officialReplies ? ['official_reply' => $this->officialReply?->toArray()] : []);
+    }
+
+    /**
+     * @return array{uncounted_reason: string|null, uncounted_label: string|null, uncounted_public: bool}
+     */
+    private function uncounted(bool $own): array
+    {
+        $review = $this->resource;
+        $privileged = $own || (! $review->counted && ! UncountedReasons::isPublic($review->uncounted_reason) && $this->moderates !== null && ($this->moderates)());
+
+        return UncountedReasons::present((bool) $review->counted, $review->uncounted_reason, $privileged)
+            ?? ['uncounted_reason' => null, 'uncounted_label' => null, 'uncounted_public' => false];
     }
 
     /**

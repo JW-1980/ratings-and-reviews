@@ -230,6 +230,8 @@ export interface Review {
     photos: Photo[];
     /** Null without one, or when the host has no OfficialReplyResolver (the `brand-reply` slot overrides it). */
     officialReply: OfficialReply | null;
+    /** Why the review does not count in the averages; null when it counts or the viewer may not see why. */
+    uncounted: { reason: string | null; label: string; isPublic: boolean } | null;
     helpfulCount: number;
     /** Public replies (`reviews.replies`); null when replies to reviews are off. */
     repliesCount: number | null;

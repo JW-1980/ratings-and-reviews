@@ -9,6 +9,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 use RatingsAndReviews\Contracts\PriceAtReviewResolver;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Contracts\RiskSignals;
@@ -26,7 +27,9 @@ use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ContributionContext;
 use RatingsAndReviews\Support\Money;
+use RatingsAndReviews\Support\RiskVerdict;
 use RatingsAndReviews\Support\SectionSettings;
+use RatingsAndReviews\Support\UncountedReasons;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Throwable;
 
@@ -139,9 +142,8 @@ class ReviewService
                     'user_id' => $authorId,
                 ]);
 
-                $review->fill($content['attributes'] + [
+                $review->fill($content['attributes'] + $this->countedState($existing, $risk) + [
                     'status' => $status,
-                    'counted' => $risk->counted,
                     'attribution' => $attribution,
                     'ip_hash' => $this->identity->ipHash($request),
                     'network_hash' => $this->identity->networkHash($request),
@@ -236,9 +238,8 @@ class ReviewService
 
             $status = $hold || $locked->status !== ContentStatus::Approved ? ContentStatus::Pending : ContentStatus::Approved;
 
-            $review->fill($content['attributes'] + [
+            $review->fill($content['attributes'] + $this->countedState($locked, $risk) + [
                 'status' => $status,
-                'counted' => $risk->counted,
                 'edited_at' => now(),
             ] + ($attribution === null ? [] : ['attribution' => $attribution['value']]));
 
@@ -315,6 +316,66 @@ class ReviewService
         }
 
         return $review;
+    }
+
+    /**
+     * The host decides whether a review counts in the averages, for example a review of a
+     * free sample (`sample_campaign`) or after a fraud check. Uncounted needs a reason (a key
+     * of config `reviews.uncounted_reasons`, or any short key); counting again clears it.
+     * Refreshes the aggregates when something changed. A reason with `keep_on_edit` survives
+     * the author's edits; any other is replaced by the RiskSignals verdict of the next edit.
+     *
+     * @throws InvalidArgumentException for an uncounted review without a reason
+     */
+    public function setCounted(Review $review, bool $counted, ?string $reason = null): Review
+    {
+        $reason = self::reason($reason);
+
+        if (! $counted && $reason === null) {
+            throw new InvalidArgumentException('An uncounted review needs a reason.');
+        }
+
+        $changed = DB::transaction(function () use ($review, $counted, $reason): bool {
+            $locked = Review::query()->withoutGlobalScopes()->withTrashed()->whereKey($review->id)->lockForUpdate()->firstOrFail();
+            $state = ['counted' => $counted, 'uncounted_reason' => $counted ? null : $reason];
+
+            if ($locked->counted === $state['counted'] && $locked->uncounted_reason === $state['uncounted_reason']) {
+                return false;
+            }
+
+            Review::query()->withoutGlobalScopes()->withTrashed()->whereKey($review->id)->update($state + ['updated_at' => now()]);
+            $review->forceFill($state)->syncOriginalAttributes(['counted', 'uncounted_reason']);
+
+            return true;
+        });
+
+        if ($changed) {
+            $this->refreshAggregates($review);
+        }
+
+        return $review;
+    }
+
+    /**
+     * `counted` and `uncounted_reason` for a submission or edit: the RiskSignals verdict,
+     * unless the review is uncounted for a reason that `keep_on_edit` (a host decision).
+     *
+     * @return array{counted: bool, uncounted_reason: string|null}
+     */
+    private function countedState(?Review $current, RiskVerdict $risk): array
+    {
+        if ($current !== null && ! $current->counted && UncountedReasons::keepsOnEdit($current->uncounted_reason)) {
+            return ['counted' => false, 'uncounted_reason' => $current->uncounted_reason];
+        }
+
+        return ['counted' => $risk->counted, 'uncounted_reason' => $risk->counted ? null : self::reason($risk->uncountedReason)];
+    }
+
+    private static function reason(?string $reason): ?string
+    {
+        $reason = $reason === null ? null : mb_substr(trim($reason), 0, 64);
+
+        return $reason === '' ? null : $reason;
     }
 
     /**
