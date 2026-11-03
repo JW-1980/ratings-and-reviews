@@ -46,7 +46,7 @@ describe('<RrVoteButtons>', () => {
         expect(button(wrapper, 'agreement', 1).attributes('aria-pressed')).toBe('true');
         expect(button(wrapper, 'agreement', 1).find('.rr-vote__count').text()).toBe('3');
 
-        resolve({ dimension: 'agreement', value: 1, counted: true, counts: { up: 7, down: 1 } });
+        resolve({ dimension: 'agreement', value: 1, counted: true, counts: { up: 7, down: 1 }, allCounts: {} });
         await flush();
         expect(api.voteComment).toHaveBeenCalledWith(9, 'agreement', 1);
         expect(button(wrapper, 'agreement', 1).find('.rr-vote__count').text()).toBe('7');
@@ -56,8 +56,8 @@ describe('<RrVoteButtons>', () => {
 
     it('switches from agree to disagree and withdraws on a second press', async () => {
         const results = [
-            { dimension: 'agreement', value: -1, counted: true, counts: { up: 1, down: 2 } },
-            { dimension: 'agreement', value: 0, counted: true, counts: { up: 1, down: 1 } },
+            { dimension: 'agreement', value: -1, counted: true, counts: { up: 1, down: 2 }, allCounts: {} },
+            { dimension: 'agreement', value: 0, counted: true, counts: { up: 1, down: 1 }, allCounts: {} },
         ];
         const api = fakeApi({ voteComment: () => Promise.resolve(results.shift()) });
         const { wrapper } = mountWithRr(RrVoteButtons, { props: { ...props, viewerVotes: { agreement: 1 } }, rr: { api } });
@@ -89,7 +89,7 @@ describe('<RrVoteButtons>', () => {
     });
 
     it('says when a stored vote does not count', async () => {
-        const api = fakeApi({ voteComment: () => Promise.resolve({ dimension: 'agreement', value: 1, counted: false, counts: { up: 2, down: 1 } }) });
+        const api = fakeApi({ voteComment: () => Promise.resolve({ dimension: 'agreement', value: 1, counted: false, counts: { up: 2, down: 1 }, allCounts: {} }) });
         const { wrapper } = mountWithRr(RrVoteButtons, { props, rr: { api } });
 
         await button(wrapper, 'agreement', 1).trigger('click');
@@ -114,7 +114,7 @@ describe('<RrVoteButtons>', () => {
     });
 
     it('lets guests vote where the section allows it', async () => {
-        const api = fakeApi({ voteComment: () => Promise.resolve({ dimension: 'agreement', value: 1, counted: true, counts: { up: 3, down: 1 } }) });
+        const api = fakeApi({ voteComment: () => Promise.resolve({ dimension: 'agreement', value: 1, counted: true, counts: { up: 3, down: 1 }, allCounts: {} }) });
         const { wrapper } = mountWithRr(RrVoteButtons, { props: { ...props, guestVotes: true }, rr: { api, isAuthenticated: false } });
 
         await button(wrapper, 'agreement', 1).trigger('click');

@@ -88,7 +88,7 @@ describe('Blade components, enhanced', () => {
     });
 
     it('votes through the API with the CSRF header and shows the server counts', async () => {
-        const { calls } = setup({ 'POST /rr/comments/\\d+/votes': () => json(200, { data: { dimension: 'helpfulness', value: 1, counted: true, counts: { up: 5, down: 0 } } }) });
+        const { calls } = setup({ 'POST /rr/comments/\\d+/votes': () => json(200, { data: { dimension: 'helpfulness', value: 1, counted: true, count: { up: 5, down: 0 }, counts_by_dimension: { agreement: { up: 0, down: 0 }, helpfulness: { up: 5, down: 0 }, needs_source: { up: 0, down: 0 } }, counts: { agree_count: 0, disagree_count: 0, helpful_count: 5, unhelpful_count: 0, needs_source_count: 0 } } }) });
         const button = discussion().querySelector<HTMLButtonElement>('[data-rr-votes] button[data-dimension="helpfulness"][data-value="1"]')!;
 
         button.click();
@@ -100,6 +100,31 @@ describe('Blade components, enhanced', () => {
         expect(call.headers['X-CSRF-TOKEN']).toBe('test-token');
         expect(button.getAttribute('aria-pressed')).toBe('true');
         expect(button.querySelector('.rr-vote__count')!.textContent).toBe('5');
+    });
+
+    it('shows the server count after a review helpful vote (VoteResult `count`, not the raw columns)', async () => {
+        setup({ 'POST /rr/reviews/\\d+/votes': () => json(200, { data: { dimension: 'helpfulness', value: 1, counted: true, count: { up: 8, down: 0 }, counts_by_dimension: { helpfulness: { up: 8, down: 0 } }, counts: { helpful_count: 8 } } }) });
+        const button = document.querySelector<HTMLButtonElement>('[data-rr-votes][data-target="review"] button[data-dimension="helpfulness"][data-value="1"]')!;
+
+        button.click();
+        await until(() => button.querySelector('.rr-vote__count')!.textContent === '8');
+        expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(button.getAttribute('aria-label')).toContain('8');
+    });
+
+    it('updates the other dimensions of a comment from `counts_by_dimension`', async () => {
+        setup({ 'POST /rr/comments/\\d+/votes': () => json(200, { data: { dimension: 'helpfulness', value: 1, counted: true, count: { up: 3, down: 0 }, counts_by_dimension: { agreement: { up: 4, down: 2 }, helpfulness: { up: 3, down: 0 }, needs_source: { up: 0, down: 0 } }, counts: { agree_count: 4, disagree_count: 2, helpful_count: 3, unhelpful_count: 0, needs_source_count: 0 } } }) });
+        const group = discussion().querySelector<HTMLElement>('[data-rr-votes][data-target="comment"][data-id="1"]')!;
+        const agree = group.querySelector<HTMLButtonElement>('button[data-dimension="agreement"][data-value="1"]')!;
+        const pressed = agree.getAttribute('aria-pressed');
+
+        group.querySelector<HTMLButtonElement>('button[data-dimension="helpfulness"][data-value="1"]')!.click();
+        await until(() => group.querySelector('button[data-dimension="helpfulness"][data-value="1"] .rr-vote__count')!.textContent === '3');
+
+        expect(agree.querySelector('.rr-vote__count')!.textContent).toBe('4');
+        expect(group.querySelector('button[data-dimension="agreement"][data-value="-1"] .rr-vote__count')!.textContent).toBe('2');
+        // The viewer's own choice on another dimension is left as it was.
+        expect(agree.getAttribute('aria-pressed')).toBe(pressed);
     });
 
     it('refuses a too short comment without a request', async () => {

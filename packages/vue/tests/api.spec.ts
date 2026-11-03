@@ -13,7 +13,7 @@ describe('API client', () => {
 
     it('sends the encrypted XSRF cookie as X-XSRF-TOKEN on writes, nothing on reads', async () => {
         document.cookie = 'XSRF-TOKEN=abc%3D%3D';
-        const fetch = vi.fn().mockResolvedValue(response(200, { data: { dimension: 'helpfulness', value: 1, counted: true, counts: { up: 1, down: 0 } } }));
+        const fetch = vi.fn().mockResolvedValue(response(200, { data: { dimension: 'helpfulness', value: 1, counted: true, count: { up: 1, down: 0 }, counts_by_dimension: { helpfulness: { up: 1, down: 0 } }, counts: { helpful_count: 1 } } }));
         const api = createApiClient({ baseUrl: '/rr/', fetch });
 
         await api.voteReview(4, 'helpfulness', 1);

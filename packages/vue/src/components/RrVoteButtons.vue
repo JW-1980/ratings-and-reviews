@@ -92,6 +92,13 @@ async function vote(dimension: string, value: number) {
 
         state.value[dimension] = { value: result.value, up: result.counts.up, down: result.counts.down };
 
+        // The other dimensions of the item, as the server counted them just now.
+        Object.entries(result.allCounts ?? {}).forEach(([other, count]) => {
+            if (other !== dimension && state.value[other]) {
+                state.value[other] = { ...state.value[other], up: count.up, down: count.down };
+            }
+        });
+
         if (!result.counted && result.value !== 0) {
             note.value = rr.t('votes.not_counted');
         }

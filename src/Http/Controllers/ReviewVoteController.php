@@ -27,13 +27,13 @@ class ReviewVoteController extends Controller
         return self::result($this->votes->toggle($request, $viewer, $model, $request->dimension(), (int) $request->validated('value')));
     }
 
+    /**
+     * The vote response, see VoteResult::toArray(): `count` ({up, down} of the voted
+     * dimension), `counts_by_dimension` (every dimension of the item) and `counts` (the raw
+     * counter columns, kept for existing clients).
+     */
     public static function result(VoteResult $result): JsonResponse
     {
-        return new JsonResponse(['data' => [
-            'dimension' => $result->dimension->value,
-            'value' => $result->value,
-            'counted' => $result->counted,
-            'counts' => $result->counts,
-        ]]);
+        return new JsonResponse(['data' => $result->toArray()]);
     }
 }

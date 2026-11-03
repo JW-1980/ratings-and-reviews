@@ -140,7 +140,10 @@ class VoteService
 
         $this->events->dispatch(new VoteCast($votable, $dimension, $current, $previous, $voterKey, $userId, $counted, $reason));
 
-        return new VoteResult($dimension, $current, $current !== null && $counted, $reason, $counts);
+        // Per dimension as the item's resource shows them: only the section's dimensions.
+        $shown = array_intersect_key($votable->voteCounterColumns(), array_flip(array_map(fn (VoteDimension $case): string => $case->value, $settings->voteDimensions)));
+
+        return new VoteResult($dimension, $current, $current !== null && $counted, $reason, $counts, VoteResult::byDimension($shown, $counts));
     }
 
     /**

@@ -428,11 +428,17 @@ export interface Revision {
     editedAt: string | null;
 }
 
+/**
+ * The answer of a vote (VoteResult::toArray() on the server). `counts` is the voted
+ * dimension's `{ up, down }`; `allCounts` every dimension of the item.
+ */
 export interface VoteResult {
     dimension: string;
+    /** The viewer's value now: 1, -1 or 0 (withdrawn). */
     value: number;
     counted: boolean;
     counts: VoteCount;
+    allCounts: Record<string, VoteCount>;
 }
 
 export interface DigestEntry {

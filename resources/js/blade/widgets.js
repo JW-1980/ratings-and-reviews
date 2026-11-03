@@ -83,6 +83,23 @@ export async function vote(button, env) {
             : await env.api.voteComment(group.dataset.id, dimension, value);
         write({ value: result.value, up: result.counts.up, down: result.counts.down });
 
+        // The other dimensions of the item, as the server counted them just now.
+        Object.entries(result.allCounts ?? {}).forEach(([other, count]) => {
+            if (other === dimension) {
+                return;
+            }
+
+            group.querySelectorAll(`button[data-dimension="${other}"]`).forEach((item) => {
+                const total = item.dataset.value === '1' ? count.up : count.down;
+                const label = item.querySelector('.rr-vote__count');
+
+                if (label) {
+                    label.textContent = String(total);
+                    item.setAttribute('aria-label', env.t('votes.count', { label: item.dataset.label, count: total }));
+                }
+            });
+        });
+
         if (!result.counted && result.value !== 0) {
             note.textContent = env.t('votes.not_counted');
         }

@@ -66,7 +66,7 @@ afterEach(() => {
 
 describe('Blade forms with JavaScript', () => {
     it('a vote button inside its no-JS form votes through the API and does not submit the form', async () => {
-        const { calls, submitted } = setup({ 'POST /rr/comments/\\d+/votes': () => json(200, { data: { dimension: 'agreement', value: 1, counted: true, counts: { up: 1, down: 0 } } }) });
+        const { calls, submitted } = setup({ 'POST /rr/comments/\\d+/votes': () => json(200, { data: { dimension: 'agreement', value: 1, counted: true, count: { up: 1, down: 0 }, counts_by_dimension: { agreement: { up: 1, down: 0 } }, counts: { agree_count: 1, disagree_count: 0 } } }) });
         const button = document.querySelector<HTMLButtonElement>('[data-rr="discussion"] form.rr-inline-form .rr-vote--agreement.rr-vote--up')!;
         expect(button.type).toBe('submit');
 

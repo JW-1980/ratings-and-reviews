@@ -614,12 +614,47 @@ export function revision(raw) {
     };
 }
 
+/** Counter columns per dimension, to read the raw `counts` of a server without `count` (before 0.1 round five). */
+const VOTE_COLUMNS = {
+    agreement: ['agree_count', 'disagree_count'],
+    helpfulness: ['helpful_count', 'unhelpful_count'],
+    needs_source: ['needs_source_count', null],
+};
+
+const tally = (raw) => ({ up: num(raw?.up, 0), down: num(raw?.down, 0) });
+
+/**
+ * VoteResult::toArray(), the answer of `POST reviews/{id}/votes` and `POST comments/{id}/votes`:
+ * `{ dimension, value, counted, count: {up, down}, counts_by_dimension: {dim: {up, down}}, counts: {column: n} }`.
+ * `counts` here is the voted dimension's `{ up, down }` (as before), `allCounts` every dimension
+ * of the item. A response without `count` is read from the raw counter columns.
+ */
 export function voteResult(raw) {
+    const dimension = str(raw?.dimension, '');
+    const columns = raw?.counts ?? {};
+    const fromColumns = (name) => {
+        const [up, down] = VOTE_COLUMNS[name] ?? [];
+
+        return { up: num(up ? columns[up] : undefined, 0), down: num(down ? columns[down] : undefined, 0) };
+    };
+    const allCounts = {};
+
+    if (raw?.counts_by_dimension && typeof raw.counts_by_dimension === 'object') {
+        Object.entries(raw.counts_by_dimension).forEach(([name, value]) => {
+            allCounts[name] = tally(value);
+        });
+    } else {
+        Object.keys(VOTE_COLUMNS).filter((name) => VOTE_COLUMNS[name].some((column) => column && columns[column] !== undefined)).forEach((name) => {
+            allCounts[name] = fromColumns(name);
+        });
+    }
+
     return {
-        dimension: str(raw?.dimension, ''),
+        dimension,
         value: num(raw?.value, 0),
         counted: Boolean(raw?.counted ?? true),
-        counts: { up: num(raw?.counts?.up ?? raw?.counts?.['1'], 0), down: num(raw?.counts?.down ?? raw?.counts?.['-1'], 0) },
+        counts: raw?.count ? tally(raw.count) : allCounts[dimension] ?? fromColumns(dimension),
+        allCounts,
     };
 }
 
