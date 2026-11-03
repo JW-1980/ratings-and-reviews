@@ -36,6 +36,7 @@ use RatingsAndReviews\Services\VoteService;
 use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\OfficialReply;
+use RatingsAndReviews\Support\ParticipationKind;
 use RatingsAndReviews\Support\ReviewSort;
 use RatingsAndReviews\Support\SqlDialect;
 use RatingsAndReviews\Support\VoterKeys;
@@ -125,7 +126,7 @@ class ReviewController extends Controller
 
         $replies = $this->officialReplies($items->concat(array_filter([$own]))->all());
         $blocked = $this->participation->blockedWith($viewerId);
-        $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject);
+        $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject, ParticipationKind::REVIEW);
 
         $present = fn (Review $review): array => $this->resource($review, $replies)
             ->withContext($profiles[$review->user_id] ?? null, $choices[$review->id] ?? [], $viewerId)

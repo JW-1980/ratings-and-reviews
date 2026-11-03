@@ -26,6 +26,7 @@ use RatingsAndReviews\Services\ToneNudge;
 use RatingsAndReviews\Services\TrustLevels;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\DiscussionSort;
+use RatingsAndReviews\Support\ParticipationKind;
 use RatingsAndReviews\Support\VoterKeys;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -73,7 +74,7 @@ class CommentController extends Controller
         $blocked = $this->participation->blockedWith($viewerId);
         $ownerId = $this->participation->ownerId($subject);
         $pins = $viewerId !== null && ($moderates || $ownerId === $viewerId);
-        $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject);
+        $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject, ParticipationKind::COMMENT);
         $pinned = $discussion->roots->first(fn (Comment $comment): bool => $comment->pinned_at !== null && $comment->isPubliclyVisible());
 
         return new JsonResponse([

@@ -12,6 +12,7 @@ use RatingsAndReviews\RatingsAndReviewsServiceProvider;
 use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Tests\Fixtures\Article;
+use RatingsAndReviews\Tests\Fixtures\Branch;
 use RatingsAndReviews\Tests\Fixtures\GroupPost;
 use RatingsAndReviews\Tests\Fixtures\Product;
 use RatingsAndReviews\Tests\Fixtures\User;
@@ -53,8 +54,9 @@ abstract class TestCase extends Orchestra
     {
         parent::setUp();
 
-        Relation::morphMap(['product' => Product::class, 'article' => Article::class, 'user' => User::class, 'group_post' => GroupPost::class]);
+        Relation::morphMap(['product' => Product::class, 'article' => Article::class, 'user' => User::class, 'group_post' => GroupPost::class, 'branch' => Branch::class]);
         GroupPost::reset();
+        Branch::reset();
 
         foreach (Ability::all() as $ability) {
             Gate::define($ability, fn (User $user): bool => (bool) $user->is_moderator);

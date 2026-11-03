@@ -12,6 +12,7 @@ use RatingsAndReviews\Contracts\Commentable;
 use RatingsAndReviews\Contracts\HasDiscussionContext;
 use RatingsAndReviews\Contracts\HasDiscussionOwner;
 use RatingsAndReviews\Contracts\HidesBlockedMembers;
+use RatingsAndReviews\Contracts\KindAwareParticipationRules;
 use RatingsAndReviews\Contracts\ParticipationRules;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Contracts\ScopedModeration;
@@ -20,12 +21,13 @@ use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Models\ReviewFollowUp;
 use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Support\Attribution;
+use RatingsAndReviews\Support\ParticipationKind;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Throwable;
 
 /**
  * The subject's optional participation hooks in one place: who may write
- * (ParticipationRules), forced or skipped pre-moderation, scoped moderators
+ * (KindAwareParticipationRules per kind, else ParticipationRules), forced or skipped pre-moderation, scoped moderators
  * (ScopedModeration, combined with `rr.moderate`), the discussion owner, the context URL,
  * member blocks (BlockList) and whether blocked members are hidden (HidesBlockedMembers).
  * Each hook is optional; without it the package behaves as before.
@@ -76,17 +78,35 @@ class Participation
         return $subject instanceof Model && ($subject instanceof Commentable || $subject instanceof Reviewable) ? $subject : null;
     }
 
-    public function canParticipate(Authenticatable $user, Model $subject): bool
+    /**
+     * Whether the member may write a contribution of this kind on the subject: the subject's
+     * KindAwareParticipationRules when it has them, else ParticipationRules::canParticipate(),
+     * else yes. A comment on a package Review is a `review_reply` (the Review asks its
+     * reviewed subject).
+     *
+     * @param  ParticipationKind::*  $kind
+     */
+    public function canParticipate(Authenticatable $user, Model $subject, string $kind = ParticipationKind::COMMENT): bool
     {
+        if ($subject instanceof Review && $kind === ParticipationKind::COMMENT) {
+            $kind = ParticipationKind::REVIEW_REPLY;
+        }
+
+        if ($subject instanceof KindAwareParticipationRules) {
+            return $subject->canParticipateIn($user, $kind);
+        }
+
         return ! $subject instanceof ParticipationRules || $subject->canParticipate($user);
     }
 
     /**
+     * @param  ParticipationKind::*  $kind
+     *
      * @throws AccessDeniedHttpException when the member may not write on the subject
      */
-    public function assertCanParticipate(Authenticatable $user, Model $subject): void
+    public function assertCanParticipate(Authenticatable $user, Model $subject, string $kind = ParticipationKind::COMMENT): void
     {
-        if (! $this->canParticipate($user, $subject)) {
+        if (! $this->canParticipate($user, $subject, $kind)) {
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.participation_denied'));
         }
     }

@@ -27,6 +27,7 @@ use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ContributionContext;
 use RatingsAndReviews\Support\Money;
+use RatingsAndReviews\Support\ParticipationKind;
 use RatingsAndReviews\Support\RiskVerdict;
 use RatingsAndReviews\Support\SectionSettings;
 use RatingsAndReviews\Support\UncountedReasons;
@@ -93,7 +94,7 @@ class ReviewService
     {
         $settings = $this->settings->for($subject->reviewSectionKey());
         $this->assertOpen($subject, $settings);
-        $this->participation->assertCanParticipate($author, $subject);
+        $this->participation->assertCanParticipate($author, $subject, ParticipationKind::REVIEW);
 
         $authorId = (int) $author->getAuthIdentifier();
         $content = $this->content($settings, $subject, $data, $author, null);

@@ -20,6 +20,7 @@ use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Models\ReviewFollowUp;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ContributionContext;
+use RatingsAndReviews\Support\ParticipationKind;
 use RatingsAndReviews\Support\SectionSettings;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
@@ -121,7 +122,7 @@ class ReviewFollowUps
         $subject = $review->reviewable;
 
         if ($subject instanceof Reviewable) {
-            $this->participation->assertCanParticipate($author, $subject);
+            $this->participation->assertCanParticipate($author, $subject, ParticipationKind::FOLLOW_UP);
         }
 
         $reason = $this->reasonToRefuse($author, $review);

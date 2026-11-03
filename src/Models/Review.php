@@ -18,6 +18,7 @@ use RatingsAndReviews\Contracts\Commentable;
 use RatingsAndReviews\Contracts\HasDiscussionContext;
 use RatingsAndReviews\Contracts\HasDiscussionOwner;
 use RatingsAndReviews\Contracts\HidesBlockedMembers;
+use RatingsAndReviews\Contracts\KindAwareParticipationRules;
 use RatingsAndReviews\Contracts\Moderatable;
 use RatingsAndReviews\Contracts\ParticipationRules;
 use RatingsAndReviews\Contracts\Reviewable;
@@ -28,6 +29,7 @@ use RatingsAndReviews\Models\Scopes\ExcludeErasureWithheld;
 use RatingsAndReviews\Services\ReviewService;
 use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
+use RatingsAndReviews\Support\ParticipationKind;
 use RatingsAndReviews\Support\VoteDimension;
 
 /**
@@ -72,7 +74,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * subject (ParticipationRules, ScopedModeration, HidesBlockedMembers); its author owns the
  * thread (HasDiscussionOwner) and the subject's page is the context.
  */
-class Review extends Model implements Commentable, HasDiscussionContext, HasDiscussionOwner, HidesBlockedMembers, Moderatable, ParticipationRules, ScopedModeration, Votable
+class Review extends Model implements Commentable, HasDiscussionContext, HasDiscussionOwner, HidesBlockedMembers, KindAwareParticipationRules, Moderatable, ParticipationRules, ScopedModeration, Votable
 {
     use HasComments;
 
@@ -318,9 +320,23 @@ class Review extends Model implements Commentable, HasDiscussionContext, HasDisc
         return $this->user_id;
     }
 
+    /** Who may reply to this review: the reviewed subject decides, as `review_reply`. */
     public function canParticipate(Authenticatable $user): bool
     {
+        return $this->canParticipateIn($user, ParticipationKind::REVIEW_REPLY);
+    }
+
+    /**
+     * The reviewed subject decides: with KindAwareParticipationRules per kind (a comment on
+     * the review is a `review_reply`), else with ParticipationRules::canParticipate().
+     */
+    public function canParticipateIn(Authenticatable $user, string $kind): bool
+    {
         $subject = $this->reviewable;
+
+        if ($subject instanceof KindAwareParticipationRules) {
+            return $subject->canParticipateIn($user, $kind === ParticipationKind::COMMENT ? ParticipationKind::REVIEW_REPLY : $kind);
+        }
 
         return ! $subject instanceof ParticipationRules || $subject->canParticipate($user);
     }

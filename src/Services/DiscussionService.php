@@ -25,6 +25,7 @@ use RatingsAndReviews\Models\Poll;
 use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ContributionContext;
+use RatingsAndReviews\Support\ParticipationKind;
 use RatingsAndReviews\Support\SanitizedHtml;
 use RatingsAndReviews\Support\SectionSettings;
 use RatingsAndReviews\Support\TrustProfile;
@@ -93,7 +94,7 @@ class DiscussionService
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comments_closed')]);
         }
 
-        $this->participation->assertCanParticipate($author, $subject);
+        $this->participation->assertCanParticipate($author, $subject, ParticipationKind::COMMENT);
 
         $authorId = (int) $author->getAuthIdentifier();
         $moderator = $this->participation->mayModerate($author, $subject);

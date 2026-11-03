@@ -18,6 +18,7 @@ use RatingsAndReviews\Jobs\RefreshRatingAggregates;
 use RatingsAndReviews\Models\RatingTopic;
 use RatingsAndReviews\Models\TopicRating;
 use RatingsAndReviews\Support\ContributionContext;
+use RatingsAndReviews\Support\ParticipationKind;
 
 /**
  * Rating topics of a subject without writing a review (section setting
@@ -69,7 +70,7 @@ class TopicRatings
             throw ValidationException::withMessages(['ratings' => __('ratings-and-reviews::messages.topic_ratings_closed')]);
         }
 
-        $this->participation->assertCanParticipate($user, $subject);
+        $this->participation->assertCanParticipate($user, $subject, ParticipationKind::TOPIC_RATING);
         $userId = (int) $user->getAuthIdentifier();
         $removed = [];
 
