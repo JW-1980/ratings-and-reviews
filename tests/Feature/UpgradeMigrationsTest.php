@@ -90,4 +90,46 @@ class UpgradeMigrationsTest extends CommittedTestCase
         $this->assertTrue(Schema::hasTable('rr_review_follow_ups'));
         $this->assertNull(DB::table('rr_comments')->value('pinned_at'), 'Existing comments stay unpinned.');
     }
+
+    /** @return list<string> the names of the indexes whose first column is user_id */
+    private function userIndexes(string $table): array
+    {
+        return array_values(array_map(fn (array $index): string => $index['name'], array_filter(Schema::getIndexes($table), fn (array $index): bool => ($index['columns'][0] ?? null) === 'user_id')));
+    }
+
+    public function test_the_uncounted_reason_migration_upgrades_rolls_back_and_runs_again(): void
+    {
+        $migration = require __DIR__.'/../../database/migrations/2026_11_03_000016_add_uncounted_reason_to_rr_reviews.php';
+        $this->assertTrue($this->nullable('rr_reviews', 'uncounted_reason'), 'Fresh installs have the column.');
+
+        $migration->down();
+        $this->assertFalse(Schema::hasColumn('rr_reviews', 'uncounted_reason'));
+        DB::table('rr_reviews')->insert(['reviewable_type' => 'product', 'reviewable_id' => 1, 'user_id' => 1, 'section' => 'product', 'status' => 'approved', 'rating' => 4, 'scale_max' => 5, 'body_html' => '', 'body_text' => '', 'counted' => false, 'created_at' => now(), 'updated_at' => now()]);
+
+        $migration->up();
+        $migration->up();
+        $this->assertTrue($this->nullable('rr_reviews', 'uncounted_reason'));
+        $this->assertSame(0, (int) DB::table('rr_reviews')->value('counted'), 'An existing uncounted review stays uncounted.');
+        $this->assertNull(DB::table('rr_reviews')->value('uncounted_reason'));
+    }
+
+    public function test_the_vote_user_indexes_exist_and_are_added_to_an_upgraded_database(): void
+    {
+        $migration = require __DIR__.'/../../database/migrations/2026_11_03_000017_add_user_indexes_to_rr_votes.php';
+        $this->assertSame(['rr_votes_user_id_index'], $this->userIndexes('rr_votes'));
+        $this->assertSame(['rr_poll_votes_user_id_index'], $this->userIndexes('rr_poll_votes'));
+
+        $migration->down();
+        Schema::table('rr_votes', fn ($table) => $table->dropIndex('rr_votes_user_id_index'));
+        $this->assertSame([], $this->userIndexes('rr_votes'));
+        $this->assertSame([], $this->userIndexes('rr_poll_votes'));
+
+        $migration->up();
+        $migration->up();
+        $this->assertSame(['rr_votes_user_id_index'], $this->userIndexes('rr_votes'));
+        $this->assertSame(['rr_poll_votes_user_id_index'], $this->userIndexes('rr_poll_votes'));
+
+        $plan = DB::select('EXPLAIN SELECT id FROM rr_poll_votes WHERE user_id = 1');
+        $this->assertSame('rr_poll_votes_user_id_index', $plan[0]->possible_keys);
+    }
 }
