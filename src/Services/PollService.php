@@ -229,6 +229,69 @@ class PollService
     }
 
     /**
+     * Re-evaluates the poll votes of these members with RiskSignals::forPollVote()
+     * (PollVoteContext::$vote is the stored row) and recounts each poll they voted in, under
+     * the poll's row lock; see VoteService::recountForUsers().
+     *
+     * @param  list<int>  $userIds
+     * @return array{poll_votes: int, poll_votes_changed: int, polls: int}
+     */
+    public function recountForUsers(array $userIds): array
+    {
+        $totals = ['poll_votes' => 0, 'poll_votes_changed' => 0, 'polls' => 0];
+
+        if ($userIds === []) {
+            return $totals;
+        }
+
+        $pollIds = PollVote::query()->whereIn('user_id', $userIds)->distinct()->orderBy('poll_id')->pluck('poll_id')->all();
+
+        foreach (Poll::query()->whereKey($pollIds)->orderBy('id')->get() as $poll) {
+            [$seen, $changed] = DB::transaction(function () use ($poll, $userIds): array {
+                Poll::query()->whereKey($poll->id)->lockForUpdate()->first(['id']);
+                $votes = PollVote::query()->where('poll_id', $poll->id)->whereIn('user_id', $userIds)->orderBy('id')->lockForUpdate()->get();
+                $options = PollOption::query()->where('poll_id', $poll->id)->get()->keyBy('id');
+                $changed = 0;
+
+                foreach ($votes as $vote) {
+                    $option = $options->get($vote->option_id);
+
+                    if (! $option instanceof PollOption) {
+                        continue;
+                    }
+
+                    $verdict = $this->risk->forPollVote(new PollVoteContext($poll, $option, $vote->user_id, $vote->voter_key, $vote->network_hash, $vote->device_hash, $vote));
+                    $reason = $verdict->counted ? null : $verdict->uncountedReason;
+                    $update = [];
+
+                    if ($vote->counted !== $verdict->counted || $vote->uncounted_reason !== $reason) {
+                        $update = ['counted' => $verdict->counted, 'uncounted_reason' => $reason];
+                        $changed++;
+                    }
+
+                    if ($verdict->meta !== null) {
+                        $update['meta'] = $verdict->meta;
+                    }
+
+                    if ($update !== []) {
+                        $vote->forceFill($update)->save();
+                    }
+                }
+
+                $this->recount($poll);
+
+                return [$votes->count(), $changed];
+            }, 3);
+
+            $totals['poll_votes'] += $seen;
+            $totals['poll_votes_changed'] += $changed;
+            $totals['polls']++;
+        }
+
+        return $totals;
+    }
+
+    /**
      * The option each poll's voter chose: [poll id => option id].
      *
      * @param  list<int>  $pollIds

@@ -5,7 +5,6 @@ namespace RatingsAndReviews\Services;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
-use RatingsAndReviews\Contracts\Votable;
 use RatingsAndReviews\Events\UserErasureProcessed;
 use RatingsAndReviews\Jobs\RefreshRatingAggregates;
 use RatingsAndReviews\Models\Comment;
@@ -325,13 +324,9 @@ class Erasure
 
     private function recountVotable(string $type, int $id): void
     {
-        $model = match ($type) {
-            (new Review)->getMorphClass() => Review::query()->withoutGlobalScopes()->withTrashed()->find($id),
-            (new Comment)->getMorphClass() => Comment::query()->withTrashed()->find($id),
-            default => null,
-        };
+        $model = $this->votes->votableByKey($type, $id);
 
-        if ($model instanceof Model && $model instanceof Votable) {
+        if ($model !== null) {
             $this->votes->recount($model);
         }
     }

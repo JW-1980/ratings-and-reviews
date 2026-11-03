@@ -13,6 +13,8 @@ use RatingsAndReviews\Contracts\RiskSignals;
 use RatingsAndReviews\Contracts\Votable;
 use RatingsAndReviews\Contracts\VoterIdentity;
 use RatingsAndReviews\Events\VoteCast;
+use RatingsAndReviews\Models\Comment;
+use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Models\Vote;
 use RatingsAndReviews\Support\VoteContext;
 use RatingsAndReviews\Support\VoteDimension;
@@ -40,6 +42,7 @@ class VoteService
         private readonly RiskSignals $risk,
         private readonly Dispatcher $events,
         private readonly Participation $participation,
+        private readonly PollService $polls,
     ) {}
 
     /**
@@ -192,6 +195,115 @@ class VoteService
 
             return $counters;
         });
+    }
+
+    /**
+     * Re-evaluates every vote and poll vote of these members with RiskSignals and recounts
+     * the items they voted on. For a host whose fraud picture changed, e.g. when an account
+     * cluster forms (its votes should stop counting) or breaks up (they may count again).
+     *
+     * Per item, under its row lock: each of the members' votes, oldest first, is asked again
+     * with forVote() (VoteContext::$vote is the stored row, `existingVotes` the votes on the
+     * item and dimension cast before it); `counted` and `uncounted_reason` change when the
+     * verdict does, `meta` when the verdict brings new meta. The counters are recounted from
+     * the rows either way. Polls go the same way through PollService::recountForUsers().
+     * Nothing is refused or deleted. Run it from a queued job for large clusters.
+     *
+     * @param  list<int|string>  $userIds
+     * @return array{votes: int, votes_changed: int, items: int, poll_votes: int, poll_votes_changed: int, polls: int}
+     */
+    public function recountForUsers(array $userIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $userIds), fn (int $id): bool => $id > 0)));
+        $totals = ['votes' => 0, 'votes_changed' => 0, 'items' => 0];
+
+        if ($ids !== []) {
+            $items = Vote::query()->whereIn('user_id', $ids)->toBase()->distinct()
+                ->orderBy('votable_type')->orderBy('votable_id')->get(['votable_type', 'votable_id']);
+
+            foreach ($items as $item) {
+                $votable = $this->votableByKey((string) $item->votable_type, (int) $item->votable_id);
+
+                if ($votable === null) {
+                    continue;
+                }
+
+                [$seen, $changed] = DB::transaction(fn (): array => $this->reevaluate($votable, $ids), 3);
+                $totals['votes'] += $seen;
+                $totals['votes_changed'] += $changed;
+                $totals['items']++;
+            }
+        }
+
+        return $totals + $this->polls->recountForUsers($ids);
+    }
+
+    /**
+     * The package item behind a vote's morph type and id (also soft-deleted or withheld), or
+     * null when it no longer exists.
+     *
+     * @return (Model&Votable)|null
+     */
+    public function votableByKey(string $type, int $id): ?Model
+    {
+        $model = match ($type) {
+            (new Review)->getMorphClass() => Review::query()->withoutGlobalScopes()->withTrashed()->find($id),
+            (new Comment)->getMorphClass() => Comment::query()->withoutGlobalScopes()->withTrashed()->find($id),
+            default => null,
+        };
+
+        return $model instanceof Model && $model instanceof Votable ? $model : null;
+    }
+
+    /**
+     * @param  list<int>  $userIds
+     * @return array{0: int, 1: int} votes seen, votes whose verdict changed
+     */
+    private function reevaluate(Model&Votable $votable, array $userIds): array
+    {
+        $votable->newQueryWithoutScopes()->whereKey($votable->getKey())->lockForUpdate()->first([$votable->getKeyName()]);
+
+        $votes = Vote::query()
+            ->where('votable_type', $votable->getMorphClass())
+            ->where('votable_id', $votable->getKey())
+            ->whereIn('user_id', $userIds)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+        $changed = 0;
+
+        foreach ($votes as $vote) {
+            $verdict = $this->risk->forVote(new VoteContext(
+                votable: $votable,
+                dimension: $vote->dimension,
+                value: (int) $vote->value,
+                userId: $vote->user_id,
+                voterKey: $vote->voter_key,
+                networkHash: $vote->network_hash,
+                deviceHash: $vote->device_hash,
+                existingVotes: $this->votesOn($votable, $vote->dimension)->where('id', '<', $vote->id),
+                vote: $vote,
+            ));
+            $reason = $verdict->counted ? null : $verdict->uncountedReason;
+            $update = [];
+
+            if ($vote->counted !== $verdict->counted || $vote->uncounted_reason !== $reason) {
+                $update = ['counted' => $verdict->counted, 'uncounted_reason' => $reason];
+                $changed++;
+            }
+
+            if ($verdict->meta !== null) {
+                $update['meta'] = $verdict->meta;
+            }
+
+            if ($update !== []) {
+                $vote->forceFill($update)->save();
+            }
+        }
+
+        $this->recount($votable);
+
+        return [$votes->count(), $changed];
     }
 
     /**
