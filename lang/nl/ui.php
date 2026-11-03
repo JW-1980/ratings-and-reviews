@@ -28,6 +28,7 @@ return [
         'delete' => 'Verwijderen',
         'save' => 'Opslaan',
         'deleted' => 'Verwijderd.',
+        'honeypot' => 'Website',
     ],
 
     'summary' => [

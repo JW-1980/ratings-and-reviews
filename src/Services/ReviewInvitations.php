@@ -121,6 +121,9 @@ class ReviewInvitations
             }
 
             if (! $subject->acceptsReviews()) {
+                // Move the invitation out of the way of later ones, so a long run of closed
+                // subjects cannot starve invitations that are ready. It stays due for a later run.
+                $invitation->forceFill(['due_at' => now()->addMinutes(max(1, (int) config('ratings-and-reviews.invitations.waiting_retry_minutes', 60)))])->save();
                 $result['waiting']++;
 
                 continue;

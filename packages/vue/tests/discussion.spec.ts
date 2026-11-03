@@ -49,6 +49,7 @@ describe('<RrDiscussion>', () => {
         const toast = wrapper.find('.rr-toast');
         expect(toast.exists()).toBe(true);
         expect(toast.text()).toMatch(/Your comment will be posted in (9|10) seconds\./);
+        expect(document.activeElement).toBe(toast.find('button').element);
 
         await toast.find('button').trigger('click');
         await settle();
@@ -81,6 +82,38 @@ describe('<RrDiscussion>', () => {
         await jump.trigger('click');
         await settle();
         expect(document.activeElement?.getAttribute('data-rr-comment')).toBe('3');
+        wrapper.unmount();
+    });
+
+    it('puts a selected quote into the reply composer', async () => {
+        const api = fakeApi({
+            comments: () => Promise.resolve(page([{ id: 3, body_html: '<p>Romig en niet te zoet.</p>', body_text: 'Romig en niet te zoet.', status: 'approved', author: { id: 1, name: 'A' }, can: { reply: true } }], {
+                settings: { editor_tools: ['bold', 'quote'], vote_dimensions: ['agreement'], min_length: 2, max_length: 500, undo_window_seconds: 10, tone_check: false, polls: { enabled: false } },
+            })),
+            digest: () => Promise.resolve(null),
+        });
+        const { wrapper } = mountWithRr(RrDiscussion, { props: { subject, searchable: false }, rr: { api } });
+        await settle();
+
+        const body = wrapper.find('[data-rr-comment="3"] [data-rr-quote-source]').element;
+        const text = body.querySelector('p')!.firstChild!;
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        await wrapper.find('.rr-discussion__thread').trigger('mouseup');
+        const offer = wrapper.find('.rr-quote-offer');
+        expect(offer.exists()).toBe(true);
+
+        await offer.trigger('click');
+        await settle();
+
+        const editors = wrapper.findAllComponents({ name: 'RrEditor' });
+        const html = editors.map((editor) => (editor.vm as unknown as { editor(): { getHTML(): string } }).editor().getHTML());
+        expect(html.some((value) => value.includes('<blockquote'))).toBe(true);
+        expect(html.some((value) => value.includes('Romig en niet te zoet.'))).toBe(true);
         wrapper.unmount();
     });
 

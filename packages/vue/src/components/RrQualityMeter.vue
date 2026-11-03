@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, useId } from 'vue';
 import { useRr } from '../context';
 import type { QualityResult } from '../types';
 
 const props = defineProps<{ result: QualityResult }>();
 const rr = useRr();
-const uid = `rr-quality-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-quality-${useId()}`;
 const levelLabel = computed(() => props.result.levelLabel ?? (props.result.level ? rr.t(`quality.level.${props.result.level}`) : ''));
 const hintText = (hint: QualityResult['hints'][number]) => hint.label ?? rr.t(`quality.hint.${hint.hint}`);
 </script>

@@ -26,8 +26,8 @@ final readonly class AuthorProfile
         return [
             'id' => $this->id,
             'name' => $this->displayName,
-            'avatar_url' => $this->avatarUrl,
-            'profile_url' => $this->profileUrl,
+            'avatar_url' => SafeUrl::sanitize($this->avatarUrl),
+            'profile_url' => SafeUrl::sanitize($this->profileUrl),
             'extra' => $this->extra,
         ];
     }

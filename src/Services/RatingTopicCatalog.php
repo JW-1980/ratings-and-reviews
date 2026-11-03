@@ -135,9 +135,19 @@ class RatingTopicCatalog
                 $this->assertRoom($scopeRows, $current->category_key);
             }
 
+            $before = $current->only(['scale_max', 'is_active', 'parent_id']);
+
             $current->fill(array_intersect_key($data, array_flip(['name', 'scale_max', 'sort_order', 'is_active', 'parent_id'])))->save();
 
-            $this->refreshSubjectsRatedOn($current->id);
+            // Only a change that alters which scores count (scale, active state, inheritance)
+            // needs new aggregates; a rename or reorder does not.
+            $affectsAggregates = (array_key_exists('scale_max', $data) && (int) $data['scale_max'] !== (int) $before['scale_max'])
+                || (array_key_exists('is_active', $data) && (bool) $data['is_active'] !== (bool) $before['is_active'])
+                || (array_key_exists('parent_id', $data) && (int) $data['parent_id'] !== (int) $before['parent_id']);
+
+            if ($affectsAggregates) {
+                $this->refreshSubjectsRatedOn($current->id);
+            }
 
             return $current;
         }, $this->attempts());

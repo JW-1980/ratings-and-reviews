@@ -92,4 +92,18 @@ describe('<RrPollBuilder> and <RrPoll>', () => {
         expect(second.emitted('message')![0]).toEqual(['Something went wrong. Please try again.']);
         second.unmount();
     });
+
+    it('does not vote as a guest and leaves the poll unchanged', async () => {
+        const poll: Poll = { id: 5, question: 'Warm?', options: [{ id: 1, label: 'Ja', votes: 1 }, { id: 2, label: 'Nee', votes: 1 }], totalVotes: 2, viewerOptionId: null, closesAt: null, isClosed: false };
+        const api = fakeApi();
+        const { wrapper } = mountWithRr(RrPoll, { props: { poll }, rr: { api, isAuthenticated: false } });
+
+        await wrapper.findAll('button')[0].trigger('click');
+        await flush();
+
+        expect(api.votePoll).not.toHaveBeenCalled();
+        expect(wrapper.findAll('button')[0].attributes('aria-pressed')).toBe('false');
+        expect(wrapper.emitted('message')![0]).toEqual(['Log in to vote.']);
+        wrapper.unmount();
+    });
 });

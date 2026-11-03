@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, useId, watch } from 'vue';
 import { useRr } from '../context';
 import { useAnnouncer } from '../composables/useAnnouncer';
 import { errorMessage } from '../composables/errors';
@@ -22,7 +22,7 @@ const draft = ref<Record<string, number | null>>({});
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
-const uid = `rr-topic-ratings-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-topic-ratings-${useId()}`;
 
 const changed = computed(() => {
     const own = state.value?.own ?? {};

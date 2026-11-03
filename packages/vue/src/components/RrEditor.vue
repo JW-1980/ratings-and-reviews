@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue';
 import { useRr } from '../context';
 import { uploadErrorMessage } from '../composables/errors';
 import { DEFAULT_EMOJIS, createEditor, formatMoney } from '../shared';
@@ -34,7 +34,7 @@ const cardQuery = ref<{ query: string; from: number; to: number } | null>(null);
 const cardResults = ref<ProductCard[]>([]);
 const cardLoading = ref(false);
 const cardIndex = ref(0);
-const uid = `rr-editor-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-editor-${useId()}`;
 let lastEmitted = props.modelValue;
 let cardTimer: ReturnType<typeof setTimeout> | null = null;
 let cardRequest = 0;
@@ -410,7 +410,7 @@ defineExpose({
             <p v-else-if="!stickers.length" class="rr-help">{{ rr.t('editor.stickers_empty') }}</p>
         </div>
 
-        <input v-if="tools.includes('image')" ref="fileInput" type="file" accept="image/*" class="rr-visually-hidden" tabindex="-1" aria-hidden="true" @change="onFile">
+        <input v-if="tools.includes('image')" ref="fileInput" type="file" :accept="rr.uploadTypes.join(',')" class="rr-visually-hidden" tabindex="-1" aria-hidden="true" @change="onFile">
 
         <div :id="`${uid}-content`" ref="mount" class="rr-editor__surface" :data-placeholder="placeholder" />
 

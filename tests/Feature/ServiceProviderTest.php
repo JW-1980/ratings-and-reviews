@@ -10,6 +10,7 @@ use RatingsAndReviews\Contracts\AbilityResolver;
 use RatingsAndReviews\Contracts\AuthorResolver;
 use RatingsAndReviews\Contracts\CardResolver;
 use RatingsAndReviews\Contracts\ContributionCounter;
+use RatingsAndReviews\Contracts\OfficialReplyResolver;
 use RatingsAndReviews\Contracts\PriceAtReviewResolver;
 use RatingsAndReviews\Contracts\RiskSignals;
 use RatingsAndReviews\Contracts\VoterIdentity;
@@ -33,13 +34,14 @@ class ServiceProviderTest extends TestCase
 
     public function test_every_contract_has_a_safe_default_binding(): void
     {
-        foreach ([AuthorResolver::class, AbilityResolver::class, RiskSignals::class, VoterIdentity::class, PriceAtReviewResolver::class, CardResolver::class, WantToTryList::class, ContributionCounter::class] as $contract) {
+        foreach ([AuthorResolver::class, AbilityResolver::class, RiskSignals::class, VoterIdentity::class, PriceAtReviewResolver::class, CardResolver::class, WantToTryList::class, ContributionCounter::class, OfficialReplyResolver::class] as $contract) {
             $this->assertInstanceOf($contract, $this->app->make($contract));
         }
 
         $this->assertFalse($this->app->make(PriceAtReviewResolver::class)->isEnabled());
         $this->assertFalse($this->app->make(CardResolver::class)->isEnabled());
         $this->assertFalse($this->app->make(WantToTryList::class)->isEnabled());
+        $this->assertFalse($this->app->make(OfficialReplyResolver::class)->isEnabled());
         $this->assertFalse($this->app->make(AbilityResolver::class)->allows(null, Ability::MODERATE));
         $this->assertFalse($this->app->make(AbilityResolver::class)->allows($this->user(), 'rr.not-defined-by-the-host'));
     }

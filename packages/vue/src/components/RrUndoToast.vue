@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRr } from '../context';
 import { createUndoCountdown } from '../shared';
 
@@ -26,6 +26,7 @@ function undo() {
     }
 }
 
+onMounted(() => button.value?.focus());
 onBeforeUnmount(() => countdown.dispose());
 defineExpose({ focus: () => button.value?.focus() });
 </script>

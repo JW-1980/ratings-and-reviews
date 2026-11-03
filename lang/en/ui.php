@@ -28,6 +28,7 @@ return [
         'delete' => 'Delete',
         'save' => 'Save',
         'deleted' => 'Deleted.',
+        'honeypot' => 'Website',
     ],
 
     'summary' => [

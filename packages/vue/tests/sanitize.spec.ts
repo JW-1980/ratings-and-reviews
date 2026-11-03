@@ -23,10 +23,19 @@ describe('sanitizing user HTML before it reaches the page', () => {
     });
 
     it('keeps images only from the upload and sticker prefixes', () => {
-        const html = clean('<img src="https://tracker.example/pixel.gif"><img src="/storage/rr/own.jpg" alt="mine"><img src="//evil.example/x.png">');
+        const html = clean('<img src="https://tracker.example/pixel.gif"><img src="/storage/rr/own.jpg" alt="mine"><img src="//evil.example/x.png"><img src="\\\\evil.example\\storage\\x.png"><img src="/storage/../elsewhere/x.png">');
 
         expect(html).toContain('src="/storage/rr/own.jpg"');
         expect(html).toContain('loading="lazy"');
+        expect(html).not.toContain('tracker.example');
+        expect(html).not.toContain('evil.example');
+        expect(html).not.toContain('/elsewhere/');
+    });
+
+    it('without configured prefixes keeps same-origin images and drops remote ones', () => {
+        const html = sanitizeHtml('<img src="/storage/a.jpg"><img src="https://tracker.example/pixel.gif"><img src="//evil.example/a.jpg">');
+
+        expect(html).toContain('src="/storage/a.jpg"');
         expect(html).not.toContain('tracker.example');
         expect(html).not.toContain('evil.example');
     });

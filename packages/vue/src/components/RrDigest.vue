@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, useId } from 'vue';
 import { useRr } from '../context';
 import type { Digest, DigestEntry } from '../types';
 
 const props = defineProps<{ digest: Digest }>();
 const emit = defineEmits<{ jump: [commentId: number] }>();
 const rr = useRr();
-const uid = `rr-digest-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-digest-${useId()}`;
 
 const votes = computed(() => (props.digest.agreement ? props.digest.agreement.agree + props.digest.agreement.disagree : 0));
 const agreePercent = computed(() => (props.digest.agreement?.agreeShare === null || props.digest.agreement?.agreeShare === undefined ? 0 : Math.round(props.digest.agreement.agreeShare * 100)));

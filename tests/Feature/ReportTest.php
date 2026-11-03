@@ -4,13 +4,17 @@ namespace RatingsAndReviews\Tests\Feature;
 
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use RatingsAndReviews\Events\ContentReported;
 use RatingsAndReviews\Events\ReportResolved;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Report;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Support\ContentStatus;
+use RatingsAndReviews\Support\ModerationScope;
 use RatingsAndReviews\Support\ReportStatus;
+use RatingsAndReviews\Tests\Fixtures\User;
 use RatingsAndReviews\Tests\TestCase;
 
 class ReportTest extends TestCase
@@ -106,6 +110,23 @@ class ReportTest extends TestCase
         $this->actingAs($moderator)->patchJson("/rr/admin/reports/{$report->id}", ['status' => 'dismissed'])
             ->assertUnprocessable()
             ->assertJsonPath('errors.status.0', 'This report has already been handled.');
+    }
+
+    public function test_a_moderator_cannot_resolve_a_report_outside_their_sections(): void
+    {
+        Gate::define(Ability::MODERATE, fn (User $user, mixed $subject = null): bool => $subject instanceof ModerationScope
+            ? $subject->section === 'product' && in_array($subject->contentType, [null, 'rr_review'], true)
+            : (bool) $user->is_moderator);
+
+        $review = Review::factory()->forSubject($this->product(['section' => 'forum']))->create();
+        $report = Report::factory()->forSubject($review)->create();
+        $moderator = $this->moderator();
+
+        $this->actingAs($moderator)->patchJson("/rr/admin/reports/{$report->id}", ['status' => 'resolved', 'take_down' => true])
+            ->assertForbidden();
+
+        $this->assertSame(ReportStatus::Open, $report->fresh()->status);
+        $this->assertSame(ContentStatus::Approved, $review->fresh()->status);
     }
 
     public function test_dismissing_leaves_the_content_alone_and_the_inbox_lists_open_reports(): void

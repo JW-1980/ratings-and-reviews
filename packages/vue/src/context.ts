@@ -20,6 +20,8 @@ export interface RatingsAndReviewsOptions {
     reportDetailsRequiredFor?: string[];
     /** URL prefixes of own uploads and stickers (config `uploads.url_prefix`, `stickers.url_prefix`). */
     mediaPrefixes?: string[];
+    /** Image MIME types the host accepts (config `uploads.mime_types`), for file inputs. */
+    uploadTypes?: string[];
     /** The active sticker library; without it the picker loads it from GET stickers when first opened. */
     stickers?: Sticker[];
     /** Emoji choices for the emoji tool. */
@@ -40,6 +42,7 @@ export interface RatingsAndReviewsContext {
     reportReasons: Option[];
     reportDetailsRequiredFor: string[];
     mediaPrefixes: string[];
+    uploadTypes: string[];
     stickers: Sticker[];
     /** The sticker library loaded from the API (empty until loadStickers() resolved; unused when `stickers` was given). */
     loadedStickers: Ref<Sticker[]>;
@@ -61,6 +64,7 @@ export function createContext(options: RatingsAndReviewsOptions): RatingsAndRevi
     const { t, tc } = createTranslator(options.messages ?? {});
     const api = isClient(options.api) ? options.api : createApiClient({ locale: options.locale, ...(options.api ?? {}) });
     const mediaPrefixes = options.mediaPrefixes ?? ['/storage/'];
+    const uploadTypes = options.uploadTypes ?? ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     const loadedStickers = shallowRef<Sticker[]>([]);
     let pendingStickers: Promise<Sticker[]> | null = null;
     const loadStickers = (): Promise<Sticker[]> => {
@@ -90,6 +94,7 @@ export function createContext(options: RatingsAndReviewsOptions): RatingsAndRevi
         reportReasons: options.reportReasons ?? [],
         reportDetailsRequiredFor: options.reportDetailsRequiredFor ?? ['other'],
         mediaPrefixes,
+        uploadTypes,
         stickers: options.stickers ?? [],
         loadedStickers,
         loadStickers,

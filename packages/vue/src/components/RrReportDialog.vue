@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, useId, watch } from 'vue';
 import { useRr } from '../context';
 import { errorMessage, fieldErrors } from '../composables/errors';
 import RrDialog from './RrDialog.vue';
@@ -23,7 +23,7 @@ const error = ref('');
 const errors = ref<Record<string, string>>({});
 const reasons = computed(() => (props.reasons?.length ? props.reasons : rr.reportReasons));
 const detailsRequired = computed(() => rr.reportDetailsRequiredFor.includes(reason.value));
-const uid = `rr-report-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-report-${useId()}`;
 
 watch(() => props.open, (open) => {
     if (open) {

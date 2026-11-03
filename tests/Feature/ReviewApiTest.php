@@ -179,6 +179,17 @@ class ReviewApiTest extends TestCase
         $this->assertSame(0, RatingAggregate::query()->sole()->review_count, 'A pending review does not count.');
     }
 
+    public function test_an_approved_review_stays_approved_on_edit_when_the_section_requires_approval(): void
+    {
+        config(['ratings-and-reviews.section_defaults.review_requires_approval' => true]);
+        $user = $this->user();
+        $review = Review::factory()->forSubject($this->product())->status(ContentStatus::Approved)->create(['user_id' => $user->id]);
+
+        $this->actingAs($user)->patchJson("/rr/reviews/{$review->id}", $this->valid(['body' => 'Na de edit nog steeds romig en niet te zoet.']))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'approved');
+    }
+
     public function test_spam_signals_refuse_or_hold(): void
     {
         $product = $this->product();

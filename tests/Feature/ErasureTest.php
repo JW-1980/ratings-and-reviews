@@ -244,4 +244,27 @@ class ErasureTest extends TestCase
         $this->assertSame($leaver->id, $comment->user_id);
         $this->assertNotNull($comment->erasure_withheld_at);
     }
+
+    public function test_a_reply_to_a_review_held_as_evidence_keeps_the_review_and_the_reply(): void
+    {
+        $product = $this->product();
+        $leaver = $this->user();
+        $other = $this->user();
+        $review = Review::factory()->forSubject($product)->create(['user_id' => $leaver->id]);
+        $reply = Comment::factory()->forSubject($review)->create([
+            'user_id' => $other->id,
+            'section' => 'review_replies',
+            'held_as_evidence' => true,
+        ]);
+
+        $counts = $this->erasure()->purge($leaver->id);
+
+        $this->assertSame(1, $counts['reviews_kept_as_evidence']);
+        $kept = Review::query()->withErasureWithheld()->withTrashed()->findOrFail($review->id);
+        $this->assertTrue($kept->trashed());
+        $this->assertNotNull($kept->erasure_withheld_at);
+        $this->assertNotNull(Comment::query()->withTrashed()->find($reply->id), 'The evidence reply stays reachable.');
+        $this->assertFalse(Comment::query()->withTrashed()->findOrFail($reply->id)->trashed());
+        $this->assertSame(0, $this->summaryCount($product));
+    }
 }

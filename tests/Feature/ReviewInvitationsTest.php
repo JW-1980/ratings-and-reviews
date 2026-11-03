@@ -76,6 +76,7 @@ class ReviewInvitationsTest extends TestCase
         $this->assertNull($dismissed->fresh()->sent_at);
         $this->assertNotNull($reviewedLater->fresh()->completed_at);
         $this->assertNull($closed->fresh()->sent_at, 'A subject that does not accept reviews waits.');
+        $this->assertTrue($closed->fresh()->due_at->isFuture(), 'A waiting invitation moves aside so it cannot starve later ones.');
 
         $this->travel(6)->days();
         $this->artisan('rr:send-review-invitations')->assertSuccessful();

@@ -37,7 +37,8 @@ use RatingsAndReviews\Models\Vote;
  *   - deletes their reviews with everything attached (topic scores, votes, photos, the
  *     replies to the review); a review an open report holds as evidence is kept, withheld,
  *     soft-deleted and stripped of its hashes, so a moderator can still judge it (purge
- *     again after the report is handled);
+ *     again after the report is handled); the same happens when a reply to the review is held
+ *     as evidence, so that reply stays reachable;
  *   - deletes their comments (with votes, poll, revisions and images); a comment that still
  *     holds replies becomes an anonymous placeholder (no text, no author, `user_id` null);
  *     one held as evidence (`held_as_evidence` or an open report) is kept like a review;
@@ -202,8 +203,32 @@ class Erasure
                 continue;
             }
 
-            // The replies to the review have no subject once it is gone.
-            foreach (Comment::query()->withTrashed()->forSubject($review)->orderByDesc('depth')->get() as $reply) {
+            // The replies to the review have no subject once it is gone, but a reply held as
+            // evidence (an open report or `held_as_evidence`) must stay judgeable: keep the
+            // review as the evidence container and withhold it.
+            $replies = Comment::query()->withTrashed()->forSubject($review)->orderByDesc('depth')->get();
+            $replyHeld = $replies->contains(fn (Comment $reply): bool => $reply->held_as_evidence || $this->uploads->heldAsEvidence($reply));
+
+            if ($replyHeld) {
+                $review->forceFill([
+                    'erasure_withheld_at' => $review->erasure_withheld_at ?? now(),
+                    'deleted_at' => $review->deleted_at ?? now(),
+                    'ip_hash' => null,
+                    'network_hash' => null,
+                    'device_hash' => null,
+                ])->save();
+                $keep[] = [$review->getMorphClass(), (int) $review->id];
+
+                foreach ($replies as $reply) {
+                    $keep[] = [$reply->getMorphClass(), (int) $reply->id];
+                }
+
+                $kept++;
+
+                continue;
+            }
+
+            foreach ($replies as $reply) {
                 $this->deleteComment($reply);
                 $removedContent[] = $reply;
             }

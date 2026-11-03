@@ -17,7 +17,7 @@
     <input type="hidden" name="quoted_comment_id" value="" data-rr-quote-id disabled>
     <input type="hidden" name="quote_text" value="" data-rr-quote-text disabled>
     <input type="hidden" name="{{ config('ratings-and-reviews.spam.started_at_field', 'form_started_at') }}" value="{{ time() }}">
-    <div class="rr-visually-hidden" aria-hidden="true"><label>Website <input type="text" name="{{ config('ratings-and-reviews.spam.honeypot_field', 'website') }}" tabindex="-1" autocomplete="off"></label></div>
+    <div class="rr-visually-hidden" aria-hidden="true"><label>{{ __('ratings-and-reviews::ui.common.honeypot') }} <input type="text" name="{{ config('ratings-and-reviews.spam.honeypot_field', 'website') }}" tabindex="-1" autocomplete="off"></label></div>
 
     <p id="{{ $formId }}-label" class="rr-label">{{ $label }}</p>
     @if ($parentId)

@@ -252,10 +252,11 @@ export async function wantToTry(button, env, root) {
 export function confirmAction(env, message, confirmLabel) {
     return new Promise((resolve) => {
         const titleId = 'rr-confirm-title';
-        const dialog = el('dialog', { class: 'rr rr-dialog', 'aria-labelledby': titleId }, [
+        const messageId = 'rr-confirm-message';
+        const dialog = el('dialog', { class: 'rr rr-dialog', 'aria-labelledby': titleId, 'aria-describedby': messageId }, [
             el('div', { class: 'rr-dialog__panel' }, [
                 el('h2', { id: titleId, class: 'rr-dialog__title', text: confirmLabel }),
-                el('p', { class: 'rr-help', text: message }),
+                el('p', { id: messageId, class: 'rr-help', text: message }),
                 el('div', { class: 'rr-actions' }, [
                     el('button', { type: 'button', class: 'rr-button rr-button--ghost', 'data-answer': 'no', text: env.t('common.cancel') }),
                     el('button', { type: 'button', class: 'rr-button rr-button--danger', 'data-answer': 'yes', text: confirmLabel }),

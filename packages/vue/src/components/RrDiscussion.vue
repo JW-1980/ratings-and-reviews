@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, useId } from 'vue';
 import { useRr } from '../context';
 import { useAnnouncer } from '../composables/useAnnouncer';
 import { errorMessage } from '../composables/errors';
@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
 
 const rr = useRr();
 const { message: live, announce } = useAnnouncer();
-const uid = `rr-discussion-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-discussion-${useId()}`;
 
 const items = ref<Comment[]>([]);
 const meta = ref<CommentPage['meta'] | null>(null);
@@ -281,9 +281,14 @@ provide(RR_DISCUSSION, {
     lockedTools,
     acceptsComments,
     replyTo,
+    quote,
     waitSeconds,
     restore,
     openReply: (comment: Comment) => {
+        if (replyTo.value !== comment.id) {
+            quote.value = null;
+        }
+
         replyTo.value = replyTo.value === comment.id ? null : comment.id;
     },
     closeReply: () => {
@@ -364,13 +369,14 @@ defineExpose({ reload: () => load(), jumpTo });
         <template v-if="acceptsComments">
             <RrComposer
                 v-if="rr.isAuthenticated"
-                v-model:quote="quote"
+                :quote="replyTo === null ? quote : null"
                 :subject="subject"
                 :settings="settings"
                 :locked-tools="lockedTools"
                 :wait-seconds="waitSeconds"
                 :restore-html="restore?.parentId === null ? restore.html : null"
                 @posted="posted($event, null)"
+                @update:quote="quote = null"
                 @wait="waitSeconds = $event"
             />
             <p v-else class="rr-notice">

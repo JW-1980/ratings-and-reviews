@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 import { useRr } from '../context';
 import { errorMessage } from '../composables/errors';
 import { ApiError, codePointLength, createDraftStore, createToneChecker, toneSuggestionFromError, validatePoll } from '../shared';
@@ -22,7 +22,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ posted: [payload: { item: Comment; message: string | null; bodyHtml: string }]; cancel: []; 'update:quote': [value: null]; wait: [seconds: number] }>();
 const rr = useRr();
-const uid = `rr-composer-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-composer-${useId()}`;
 
 const editorRef = ref<InstanceType<typeof RrEditor> | null>(null);
 const body = ref('');

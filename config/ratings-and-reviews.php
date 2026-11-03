@@ -318,6 +318,9 @@ return [
     'invitations' => [
         'max_delay_days' => 365,
         'batch_size' => 500,
+        // A due invitation whose subject does not accept reviews now moves this far ahead,
+        // so it cannot block other due invitations run after run.
+        'waiting_retry_minutes' => 60,
     ],
 
     /*

@@ -53,6 +53,12 @@ class RatingTopicConcurrencyTest extends Orchestra
 
     protected function tearDown(): void
     {
+        if (! function_exists('pcntl_fork')) {
+            parent::tearDown();
+
+            return;
+        }
+
         RatingTopic::query()->where('scope', self::SCOPE)->delete();
         parent::tearDown();
     }

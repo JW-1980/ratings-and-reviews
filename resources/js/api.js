@@ -167,7 +167,8 @@ export function createApiClient(options = {}) {
                 throw error;
             }
 
-            throw new ApiError(error?.message || 'Network error', { status: 0 });
+            // The UI translates a network failure from status 0; keep the technical message empty.
+            throw new ApiError(error?.message ?? '', { status: 0 });
         }
 
         if (response.status === 204) {

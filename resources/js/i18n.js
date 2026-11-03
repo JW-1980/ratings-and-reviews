@@ -85,7 +85,9 @@ export function choose(line, count) {
     const plain = segments.filter((segment) => !/^\s*(\{-?\d+\}|\[(-?\d+|\*),\s*(-?\d+|\*)\])/.test(segment));
 
     if (plain.length === 0) {
-        return segments[segments.length - 1];
+        // No branch matched (for example count 0 with only {1} and [2,*]): show the last
+        // branch without its range marker instead of leaking "[2,*] " into the text.
+        return segments[segments.length - 1].replace(/^\s*(?:\{-?\d+\}|\[(-?\d+|\*),\s*(-?\d+|\*)\])\s?/, '');
     }
 
     return plain.length === 1 || count === 1 ? plain[0] : plain[1];

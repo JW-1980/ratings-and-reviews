@@ -16,7 +16,8 @@ use RatingsAndReviews\Services\RatingAggregator;
 /**
  * Recomputes the stored aggregates of one subject. Unique per subject until it starts
  * processing, so a burst of reviews queues one job, while a review arriving during the run
- * still queues the next one. Dispatched after the surrounding transaction commits.
+ * still queues the next one (and is not lost). Dispatched after the surrounding transaction
+ * commits.
  */
 class RefreshRatingAggregates implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {

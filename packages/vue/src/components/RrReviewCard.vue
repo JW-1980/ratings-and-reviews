@@ -140,7 +140,7 @@ async function addToList() {
                     type="button"
                     class="rr-button rr-button--small rr-button--ghost"
                     :aria-expanded="showReplies ? 'true' : 'false'"
-                    :aria-controls="repliesId"
+                    :aria-controls="showReplies ? repliesId : undefined"
                     @click="showReplies = !showReplies"
                 >
                     {{ showReplies ? rr.t('reviews.hide_replies') : (review.repliesCount > 0 ? rr.t('reviews.show_replies', { count: review.repliesCount }) : rr.tc('reviews.replies', 0)) }}

@@ -24,6 +24,8 @@ async function vote(optionId: number) {
 
     if (!rr.isAuthenticated) {
         emit('message', rr.t('votes.login'));
+
+        return;
     }
 
     const before = state.value;

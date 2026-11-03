@@ -30,7 +30,11 @@
         "pretypecheck": "node scripts/sync-shared.mjs",
         "typecheck": "vue-tsc --noEmit -p tsconfig.json",
         "prebuild": "node scripts/sync-shared.mjs",
-        "build": "vite build && vue-tsc -p tsconfig.build.json && node scripts/copy-themes.mjs"
+        "build": "vite build && vue-tsc -p tsconfig.build.json && node scripts/copy-themes.mjs",
+        "prepack": "npm run build"
+    },
+    "publishConfig": {
+        "access": "public"
     },
     "peerDependencies": {
         "@tiptap/core": "~3.31.0",

@@ -87,7 +87,7 @@ async function saveEdit() {
                     <button type="button" class="rr-button rr-button--link" :aria-controls="`${anchor}-body`" aria-expanded="false" @click="expanded = true">{{ rr.t('discussion.show_collapsed') }}</button>
                 </div>
 
-                <div v-else :id="`${anchor}-body`" class="rr-comment__content">
+                <div v-show="expanded" :id="`${anchor}-body`" class="rr-comment__content">
                     <blockquote v-if="comment.quote && !bodyHasQuote" class="rr-quote">
                         <p>{{ comment.quote.text }}</p>
                         <footer v-if="comment.quote.available" class="rr-quote__source">
@@ -138,10 +138,12 @@ async function saveEdit() {
             :settings="discussion.settings.value"
             :locked-tools="discussion.lockedTools.value"
             :parent="comment"
+            :quote="discussion.quote.value && String(discussion.quote.value.commentId) === String(comment.id) ? discussion.quote.value : null"
             :wait-seconds="discussion.waitSeconds.value"
             :restore-html="discussion.restore.value?.parentId === comment.id ? discussion.restore.value.html : null"
             autofocus
             @posted="discussion.posted($event, comment.id)"
+            @update:quote="discussion.quote.value = null"
             @cancel="discussion.closeReply()"
             @wait="discussion.setWait"
         />

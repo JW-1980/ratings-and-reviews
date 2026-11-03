@@ -38,27 +38,40 @@ export const ALL_TOOLS = Object.keys(TOOL_ELEMENTS);
  * @param {string[]} prefixes
  */
 function startsWithPrefix(url, prefixes) {
-    if (prefixes.length === 0) {
-        return true;
+    // A network-path reference (`//host/…`, also with backslashes) resolves to another origin.
+    if (/^(?:\/\/|\\\\|\/\\|\\)/.test(url)) {
+        return false;
     }
 
-    let path = url;
+    let parsed;
 
     try {
         const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
-        const parsed = new URL(url, base);
-
-        // Absolute URLs to another origin are never own uploads.
-        if (/^https?:\/\//i.test(url) && parsed.origin !== base) {
-            return prefixes.some((prefix) => /^https?:\/\//i.test(prefix) && url.startsWith(prefix));
-        }
-
-        path = parsed.pathname;
+        parsed = new URL(url, base);
     } catch {
         return false;
     }
 
-    return prefixes.some((prefix) => path.startsWith(prefix) || url.startsWith(prefix));
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return false;
+    }
+
+    const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+    const sameOrigin = parsed.origin === base;
+    const location = parsed.pathname + parsed.search + parsed.hash;
+
+    // No prefixes configured: only own, same-origin images (never a remote tracker).
+    if (prefixes.length === 0) {
+        return sameOrigin;
+    }
+
+    return prefixes.some((prefix) => {
+        if (/^https?:\/\//i.test(prefix)) {
+            return parsed.href.startsWith(prefix);
+        }
+
+        return sameOrigin && prefix.startsWith('/') && location.startsWith(prefix);
+    });
 }
 
 /**

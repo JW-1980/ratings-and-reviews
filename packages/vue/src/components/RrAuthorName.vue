@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, useId } from 'vue';
 import { useRr } from '../context';
 import { formatDate } from '../shared';
 import { authorCardCache as cache } from '../composables/cache';
@@ -16,7 +16,7 @@ const open = ref(false);
 const card = ref<AuthorCard | null>(null);
 const failed = ref(false);
 const trigger = ref<HTMLButtonElement | null>(null);
-const id = `rr-author-${Math.random().toString(36).slice(2)}`;
+const id = `rr-author-${useId()}`;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 const name = computed(() => props.author?.name || rr.t('reviews.anonymous'));

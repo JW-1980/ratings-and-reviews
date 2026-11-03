@@ -81,7 +81,7 @@
                 @endif
                 <input type="hidden" name="{{ config('ratings-and-reviews.spam.started_at_field', 'form_started_at') }}" value="{{ time() }}">
                 <div class="rr-visually-hidden" aria-hidden="true">
-                    <label>Website <input type="text" name="{{ config('ratings-and-reviews.spam.honeypot_field', 'website') }}" tabindex="-1" autocomplete="off"></label>
+                    <label>{{ __('ratings-and-reviews::ui.common.honeypot') }} <input type="text" name="{{ config('ratings-and-reviews.spam.honeypot_field', 'website') }}" tabindex="-1" autocomplete="off"></label>
                 </div>
 
                 <p class="rr-visually-hidden" aria-live="polite" role="status" data-rr-live></p>

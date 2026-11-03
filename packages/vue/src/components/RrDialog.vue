@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { useRr } from '../context';
 
 /**
@@ -10,7 +10,7 @@ const props = defineProps<{ open: boolean; title: string; describedBy?: string }
 const emit = defineEmits<{ 'update:open': [value: boolean]; close: [] }>();
 const rr = useRr();
 const dialog = ref<HTMLDialogElement | null>(null);
-const titleId = `rr-dialog-${Math.random().toString(36).slice(2)}`;
+const titleId = `rr-dialog-${useId()}`;
 let returnFocus: HTMLElement | null = null;
 
 function show() {

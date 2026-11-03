@@ -204,7 +204,9 @@ class ReviewService
             isEdit: true,
         ));
 
-        $hold = $verdict->hold || $risk->hold || $settings->reviewRequiresApproval
+        // An approved review stays approved on an edit: it already passed moderation. Only a
+        // held text, a held risk verdict or a new photo that needs approval sends it back.
+        $hold = $verdict->hold || $risk->hold
             || ($content['photo_ids'] !== null && $this->photosNeedApproval() && array_diff($content['photo_ids'], $review->photos()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all()) !== []);
 
         $published = DB::transaction(function () use ($review, $content, $hold, $risk): bool {

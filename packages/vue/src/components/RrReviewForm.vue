@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, useId } from 'vue';
 import { useRr } from '../context';
 import { errorMessage, fieldErrors, uploadErrorMessage } from '../composables/errors';
 import { useAnnouncer } from '../composables/useAnnouncer';
@@ -45,7 +45,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ saved: [payload: { item: Review; message: string | null }]; cancel: [] }>();
 const rr = useRr();
 const { message: live, announce } = useAnnouncer();
-const uid = `rr-review-form-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-review-form-${useId()}`;
 
 // Explicit props win; otherwise the section's values from the reviews meta.
 const scaleMax = computed(() => props.scale ?? props.meta?.reviewScale ?? props.meta?.scaleMax ?? 5);
@@ -284,7 +284,7 @@ const describedBy = (field: string, help?: string) => [help, errors.value[field]
                 </ul>
                 <div v-if="form.photos.length < photoLimit" class="rr-field">
                     <label :for="`${uid}-photos-add`" class="rr-label rr-label--minor">{{ rr.t('form.photos_add') }}</label>
-                    <input :id="`${uid}-photos-add`" type="file" class="rr-input rr-input--file" accept="image/jpeg,image/png,image/webp,image/gif" multiple :disabled="uploadingPhotos" :aria-describedby="describedBy('photos', `${uid}-photos-help`)" @change="addPhotos">
+                    <input :id="`${uid}-photos-add`" type="file" class="rr-input rr-input--file" :accept="rr.uploadTypes.join(',')" multiple :disabled="uploadingPhotos" :aria-describedby="describedBy('photos', `${uid}-photos-help`)" @change="addPhotos">
                 </div>
                 <p class="rr-help" role="status">{{ photoStatus }}</p>
                 <p v-if="errors.photos" :id="`${uid}-photos-error`" class="rr-field-error" role="alert">{{ errors.photos }}</p>

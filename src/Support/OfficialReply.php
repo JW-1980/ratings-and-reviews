@@ -33,7 +33,11 @@ final readonly class OfficialReply
         ));
 
         return [
-            'author' => ['name' => $this->authorName, 'url' => $this->authorUrl, 'avatar_url' => $this->avatarUrl],
+            'author' => [
+                'name' => $this->authorName,
+                'url' => SafeUrl::sanitize($this->authorUrl),
+                'avatar_url' => SafeUrl::sanitize($this->avatarUrl),
+            ],
             'label' => $this->label,
             'body' => $body,
             'body_html' => $html,

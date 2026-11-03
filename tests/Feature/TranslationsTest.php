@@ -29,7 +29,7 @@ class TranslationsTest extends TestCase
 
     public function test_dutch_and_english_have_the_same_non_empty_lines(): void
     {
-        foreach (['messages', 'enums', 'validation'] as $file) {
+        foreach (['messages', 'enums', 'validation', 'ui'] as $file) {
             $en = require __DIR__."/../../lang/en/{$file}.php";
             $nl = require __DIR__."/../../lang/nl/{$file}.php";
 

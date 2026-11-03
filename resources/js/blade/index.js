@@ -128,7 +128,7 @@ async function refresh(env, url = window.location.href, { push = false, focusRoo
         });
 
         if (push) {
-            history.replaceState(history.state, '', url);
+            history.pushState(history.state, '', url);
         }
 
         swapped.forEach((root) => enhanceRoot(root, env));

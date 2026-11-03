@@ -206,7 +206,9 @@ class FormController extends Controller
     /** The page the form was posted from (falls back to the site root), without its fragment. */
     private function previousUrl(Request $request): string
     {
-        $previous = url()->previous();
+        // The session value, not url()->previous(): Laravel prefers the client's Referer
+        // header, which would let a crafted Referer redirect the user off-site.
+        $previous = (string) $request->session()->previousUrl();
 
         return $previous !== '' ? (string) preg_replace('/#.*$/', '', $previous) : url('/');
     }

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick } from 'vue';
+import { computed, nextTick, useId } from 'vue';
 import { useRr } from '../context';
 import { POLL_MAX_OPTIONS, POLL_MAX_OPTION, POLL_MAX_QUESTION, POLL_MIN_OPTIONS, validatePoll } from '../shared';
 
 const props = withDefaults(defineProps<{ modelValue: { question: string; options: string[] }; showErrors?: boolean; minOptions?: number; maxOptions?: number }>(), { showErrors: false, minOptions: POLL_MIN_OPTIONS, maxOptions: POLL_MAX_OPTIONS });
 const emit = defineEmits<{ 'update:modelValue': [value: { question: string; options: string[] }]; remove: [] }>();
 const rr = useRr();
-const uid = `rr-poll-builder-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-poll-builder-${useId()}`;
 
 const validation = computed(() => validatePoll(props.modelValue, { minOptions: props.minOptions, maxOptions: props.maxOptions }));
 const errorsFor = (field: string) => validation.value.errors.filter((error: { field: string }) => error.field === field || (field === 'options' && error.field.startsWith('options.')));
@@ -23,8 +23,9 @@ function setOption(index: number, value: string) {
 
 function addOption() {
     if (props.modelValue.options.length < props.maxOptions) {
+        const index = props.modelValue.options.length;
         update({ options: [...props.modelValue.options, ''] });
-        nextTick(() => document.getElementById(`${uid}-option-${props.modelValue.options.length}`)?.focus());
+        nextTick(() => document.getElementById(`${uid}-option-${index}`)?.focus());
     }
 }
 

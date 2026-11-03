@@ -114,11 +114,23 @@ class ReportService
             throw ValidationException::withMessages(['status' => __('ratings-and-reviews::messages.report_status_invalid')]);
         }
 
-        DB::transaction(function () use ($report, $moderatorId, $status, $note): void {
+        $item = $this->reportedItem($report);
+        $tookDown = false;
+
+        // The status, the takedown and the flag recount are one unit: a failing takedown must
+        // not leave the report handled while the content is still up (and unretryable).
+        DB::transaction(function () use ($report, $moderatorId, $status, $note, $takeDown, $item, &$tookDown): void {
             $locked = Report::query()->whereKey($report->id)->lockForUpdate()->firstOrFail();
 
             if ($locked->status !== ReportStatus::Open) {
                 throw ValidationException::withMessages(['status' => __('ratings-and-reviews::messages.report_handled')]);
+            }
+
+            if ($item instanceof Moderatable) {
+                if ($takeDown && $status === ReportStatus::Resolved) {
+                    $item->takeDown($moderatorId, $note);
+                    $tookDown = true;
+                }
             }
 
             $report->forceFill([
@@ -127,19 +139,12 @@ class ReportService
                 'handled_at' => now(),
                 'resolution_note' => $note === null || trim($note) === '' ? null : trim($note),
             ])->save();
-        });
 
-        $item = $this->reportedItem($report);
-        $tookDown = false;
-
-        if ($item instanceof Moderatable) {
-            if ($takeDown && $status === ReportStatus::Resolved) {
-                $item->takeDown($moderatorId, $note);
-                $tookDown = true;
+            // After the status change: this report no longer counts as open.
+            if ($item instanceof Moderatable) {
+                $this->recountFlags($item);
             }
-
-            $this->recountFlags($item);
-        }
+        }, 3);
 
         $this->events->dispatch(new ReportResolved($report, $tookDown));
 

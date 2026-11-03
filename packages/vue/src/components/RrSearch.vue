@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, useId } from 'vue';
 import { useRr } from '../context';
 import { errorMessage } from '../composables/errors';
 import RrRichText from './RrRichText.vue';
@@ -8,7 +8,7 @@ import type { SearchResults, SubjectRef } from '../types';
 const props = withDefaults(defineProps<{ subject: SubjectRef; minLength?: number }>(), { minLength: 3 });
 const emit = defineEmits<{ open: [hit: { type: string; id: number }] }>();
 const rr = useRr();
-const uid = `rr-search-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-search-${useId()}`;
 
 const query = ref('');
 const results = ref<SearchResults | null>(null);

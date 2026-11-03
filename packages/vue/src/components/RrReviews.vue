@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, useId, watch } from 'vue';
 import { useRr } from '../context';
 import { useAnnouncer } from '../composables/useAnnouncer';
 import { errorMessage } from '../composables/errors';
@@ -31,7 +31,7 @@ const error = ref('');
 const reportTarget = ref<Review | null>(null);
 const deleteTarget = ref<Review | null>(null);
 const deleting = ref(false);
-const uid = `rr-reviews-${Math.random().toString(36).slice(2)}`;
+const uid = `rr-reviews-${useId()}`;
 let controller: AbortController | null = null;
 
 const topicNames = computed(() => Object.fromEntries(props.topics.map((topic) => [String(topic.id), topic.name])));
@@ -43,12 +43,12 @@ const ratingOptions = computed(() => Array.from({ length: meta.value?.scaleMax ?
 
 async function load(page = 1) {
     controller?.abort();
-    controller = new AbortController();
+    const current = (controller = new AbortController());
     page === 1 ? (loading.value = true) : (loadingMore.value = true);
     error.value = '';
 
     try {
-        const result = (await rr.api.reviews(props.subject, { sort: sort.value || undefined, rating: props.rating, facets: props.facets, withPhotos: withPhotos.value, page }, controller.signal)) as ReviewPage;
+        const result = (await rr.api.reviews(props.subject, { sort: sort.value || undefined, rating: props.rating, facets: props.facets, withPhotos: withPhotos.value, page }, current.signal)) as ReviewPage;
         items.value = page === 1 ? result.items : [...items.value, ...result.items.filter((item) => !items.value.some((existing) => existing.id === item.id))];
         meta.value = result.meta;
         sort.value = result.meta.sort;
@@ -59,8 +59,11 @@ async function load(page = 1) {
             error.value = errorMessage(failure, rr.t);
         }
     } finally {
-        loading.value = false;
-        loadingMore.value = false;
+        // A newer request (sort/filter change) owns the loading flags now.
+        if (controller === current) {
+            loading.value = false;
+            loadingMore.value = false;
+        }
     }
 }
 
@@ -98,6 +101,11 @@ async function confirmDelete() {
 
         if (meta.value?.ownReview?.id === removed.id) {
             meta.value = { ...meta.value, ownReview: null };
+        }
+
+        if (meta.value !== null) {
+            const total = Math.max(0, meta.value.total - 1);
+            meta.value = { ...meta.value, total, lastPage: Math.max(1, Math.ceil(total / Math.max(1, meta.value.perPage))) };
         }
 
         emit('deleted', removed);

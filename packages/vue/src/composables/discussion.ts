@@ -7,6 +7,7 @@ export interface DiscussionContext {
     lockedTools: Ref<Record<string, number>>;
     acceptsComments: Ref<boolean>;
     replyTo: Ref<number | null>;
+    quote: Ref<{ commentId: number | string; text: string; authorName?: string } | null>;
     waitSeconds: Ref<number>;
     restore: Ref<{ parentId: number | null; html: string } | null>;
     openReply: (comment: Comment) => void;

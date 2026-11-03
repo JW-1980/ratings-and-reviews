@@ -6,6 +6,7 @@ use DateTimeInterface;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -95,18 +96,49 @@ class TopicRatings
             'device_hash' => $this->identity->deviceHash($request),
         ];
 
-        DB::transaction(function () use ($subject, $userId, $valid, $removed, $counted, $reason, $hashes): void {
-            if ($removed !== []) {
-                TopicRating::query()->forSubject($subject)->where('user_id', $userId)->whereIn('topic_id', $removed)->delete();
-            }
+        $save = function () use ($subject, $userId, $valid, $removed, $counted, $reason, $hashes): void {
+            DB::transaction(function () use ($subject, $userId, $valid, $removed, $counted, $reason, $hashes): void {
+                if ($removed !== []) {
+                    TopicRating::query()->withoutGlobalScopes()->forSubject($subject)->where('user_id', $userId)->whereIn('topic_id', $removed)->delete();
+                }
 
-            foreach ($valid as $topicId => $rating) {
-                TopicRating::query()->updateOrCreate(
-                    ['reviewable_type' => $subject->getMorphClass(), 'reviewable_id' => $subject->getKey(), 'user_id' => $userId, 'topic_id' => $topicId],
-                    ['value' => $rating['value'], 'scale_max' => $rating['scale_max'], 'counted' => $counted, 'uncounted_reason' => $reason] + $hashes,
-                );
-            }
-        }, 3);
+                foreach ($valid as $topicId => $rating) {
+                    $existing = TopicRating::query()
+                        ->withoutGlobalScopes()
+                        ->forSubject($subject)
+                        ->where('user_id', $userId)
+                        ->where('topic_id', $topicId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($existing !== null) {
+                        $existing->forceFill(['value' => $rating['value'], 'scale_max' => $rating['scale_max'], 'counted' => $counted, 'uncounted_reason' => $reason] + $hashes)->save();
+
+                        continue;
+                    }
+
+                    TopicRating::query()->create([
+                        'reviewable_type' => $subject->getMorphClass(),
+                        'reviewable_id' => $subject->getKey(),
+                        'user_id' => $userId,
+                        'topic_id' => $topicId,
+                        'value' => $rating['value'],
+                        'scale_max' => $rating['scale_max'],
+                        'counted' => $counted,
+                        'uncounted_reason' => $reason,
+                    ] + $hashes);
+                }
+            }, 3);
+        };
+
+        // Two first scores for the same member and topic can pass the existence check at the
+        // same time; the loser hits the unique index, so retry that one time (the row is then
+        // there and the second attempt updates it).
+        try {
+            $save();
+        } catch (UniqueConstraintViolationException) {
+            $save();
+        }
 
         $this->refresh($subject);
         $own = $this->forUser($subject, $userId);

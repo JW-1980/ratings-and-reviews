@@ -55,6 +55,7 @@ describe('translations', () => {
         expect(tc('summary.based_on', 1)).toBe('Op basis van 1 review');
         expect(tc('summary.based_on', 12)).toBe('Op basis van 12 reviews');
         expect(tc('editor.locked', 3, { tool: 'Link' })).toBe('Link komt vrij na 3 goedgekeurde bijdragen');
+        expect(tc('undo.message', 0)).toBe('Je reactie wordt over 0 seconden geplaatst.');
     });
 
     it('shows a missing key as the key, reports it, and never falls back to another language', () => {
