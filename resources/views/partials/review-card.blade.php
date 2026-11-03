@@ -10,6 +10,8 @@
     $followUpAction = $rr['webRoute']('reviews.follow-up.store', ['review' => $review['id']]);
     $uncountedLabel = $review['uncounted_label'] ?? null;
     $uncountedPublic = (bool) ($review['uncounted_public'] ?? false);
+    // Host extensions (Support\CardExtensions): the list's renderer, or one for this card alone.
+    $cardExtensions ??= \RatingsAndReviews\Support\CardExtensions::forList('review', [$review], $rr['viewer']());
 @endphp
 <article id="rr-review-{{ $review['id'] }}" class="rr-review {{ $review['is_own'] ? 'is-own' : '' }} {{ $approved ? '' : 'is-pending' }}" aria-labelledby="{{ $headingId }}" data-rr-review="{{ $review['id'] }}">
     <header class="rr-review__header">
@@ -25,6 +27,7 @@
             @if ($uncountedLabel && $uncountedPublic)
                 <span class="rr-tag rr-tag--uncounted" data-reason="{{ $review['uncounted_reason'] }}" title="{{ __('ratings-and-reviews::ui.reviews.uncounted_public') }}">{{ $uncountedLabel }}<span class="rr-visually-hidden"> · {{ __('ratings-and-reviews::ui.reviews.uncounted_public') }}</span></span>
             @endif
+            {{ $cardExtensions->render('review.meta', $review) }}
         </span>
     </header>
 
@@ -194,6 +197,8 @@
                 'viewerVotes' => $review['viewer_votes'] ?? [], 'isOwn' => $review['is_own'], 'positiveOnly' => true, 'blocked' => $blocked,
             ])
         @endif
+        {{-- Host extensions (reactions, kudos, …): HtmlString from CardExtensionList, host output escaped unless Htmlable. --}}
+        {{ $cardExtensions->render('review.footer', $review) }}
         <div class="rr-review__actions rr-js-only">
             @if (! empty($features['want_to_try']) && ! $review['is_own'])
                 <button type="button" class="rr-button rr-button--small" aria-pressed="false" data-rr-want-to-try="{{ $review['id'] }}" data-added-label="{{ __('ratings-and-reviews::ui.reviews.want_to_try_added') }}">{{ __('ratings-and-reviews::ui.reviews.want_to_try') }}</button>

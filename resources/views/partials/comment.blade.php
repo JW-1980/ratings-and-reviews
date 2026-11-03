@@ -10,6 +10,8 @@
     $editErrors = $rr['isForm']($editForm) ? $rr['formErrors']('rr_comment') : new \Illuminate\Support\MessageBag;
     $blocked = (bool) ($comment['is_blocked'] ?? false);
     $pinned = (bool) ($comment['is_pinned'] ?? false);
+    // Host extensions (Support\CardExtensions): the discussion's renderer, or one for this comment alone.
+    $cardExtensions ??= \RatingsAndReviews\Support\CardExtensions::forList('comment', [$comment], $rr['viewer']());
 @endphp
 <li class="rr-thread__item" data-depth="{{ $depth }}">
     <article id="{{ $anchor }}" tabindex="-1" data-rr-comment="{{ $comment['id'] }}"
@@ -34,6 +36,7 @@
                         <button type="button" class="rr-tag rr-tag--button rr-js-only" data-rr-revisions="{{ $comment['id'] }}" aria-label="{{ __('ratings-and-reviews::ui.discussion.revisions') }}">{{ __('ratings-and-reviews::ui.common.edited') }}</button>
                         <span class="rr-tag rr-nojs-only">{{ __('ratings-and-reviews::ui.common.edited') }}</span>
                     @endif
+                    {{ $cardExtensions->render('comment.meta', $comment) }}
                 </span>
             </header>
 
@@ -82,6 +85,8 @@
                             'isOwn' => $comment['is_own'], 'guestVotes' => $settings['guest_votes'], 'blocked' => $blocked,
                         ])
                     @endif
+                    {{-- Host extensions (reactions, kudos, …): HtmlString from CardExtensionList, host output escaped unless Htmlable. --}}
+                    {{ $cardExtensions->render('comment.footer', $comment) }}
                     @if ($blocked)
                         <p class="rr-help rr-comment__blocked" data-rr-blocked>{{ __('ratings-and-reviews::ui.discussion.blocked') }}</p>
                     @endif

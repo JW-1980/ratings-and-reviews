@@ -73,6 +73,7 @@ use RatingsAndReviews\Summary\FollowUpSummary;
 use RatingsAndReviews\Summary\ReviewQuestionSummary;
 use RatingsAndReviews\Summary\ScoreTrend;
 use RatingsAndReviews\Summary\UncertaintyBand;
+use RatingsAndReviews\Support\CardExtensionRegistry;
 
 class RatingsAndReviewsServiceProvider extends ServiceProvider
 {
@@ -141,6 +142,8 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         // Scoped: it caches the BlockList per request (and per job under Octane or a queue worker).
         $this->app->scoped(Participation::class);
         $this->app->scoped(ReviewQuestions::class);
+        // Boot-time registrations of the host (like routes and listeners): one per process.
+        $this->app->singleton(CardExtensionRegistry::class);
     }
 
     public function boot(): void

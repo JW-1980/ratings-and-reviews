@@ -511,4 +511,24 @@ return [
         'ipv6_prefix_bits' => 48,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Card extensions (host features on review and comment cards)
+    |--------------------------------------------------------------------------
+    |
+    | Host views rendered on every review or comment card of the Blade
+    | components, per position: review.meta, review.footer, comment.meta,
+    | comment.footer. Each view gets $item (the API array of the review or
+    | comment, also as $review or $comment), $viewer (null for a guest),
+    | $preloaded (the result of CardExtensions::preload() without key at that
+    | position) and $position. Closures go through
+    | RatingsAndReviews\Support\CardExtensions::register() instead.
+    |
+    */
+    'card_extensions' => [
+        'views' => [
+            // 'review.footer' => ['reactions.review-bar'],
+        ],
+    ],
+
 ];

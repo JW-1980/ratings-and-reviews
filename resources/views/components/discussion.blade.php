@@ -9,7 +9,9 @@
     (`web_routes.enabled`); `action` overrides the posting URL with a host route.
     The pinned comment leads the list (moderators and the discussion owner pin and unpin);
     attribution badges, a "post as" select (AttributionResolver), blocked members' notices and
-    a notice for members the subject's participation rules keep out.
+    a notice for members the subject's participation rules keep out. Host features on every
+    comment and reply come from Support\CardExtensions (comment.meta, comment.footer), with their
+    preloads run once for the page.
 --}}
 @props(['subject', 'action' => null, 'prefix' => 'rr_c', 'loginUrl' => null, 'searchable' => true])
 @php
@@ -82,6 +84,8 @@
         };
         $agree = $digest['agreement'] ?? null;
         $agreePercent = $agree && $agree['agree_share'] !== null ? (int) round($agree['agree_share'] * 100) : null;
+        // One renderer for every comment of the page, replies included (removed placeholders show no extensions).
+        $cardExtensions = \RatingsAndReviews\Support\CardExtensions::forList('comment', array_values(array_filter($rr['flattenReplies']($items), fn (array $comment): bool => ! ($comment['is_removed'] ?? false))), $rr['viewer']());
     @endphp
     @include('rr::partials.client')
     <section {{ $attributes->merge(['class' => 'rr rr-nojs rr-discussion']) }} id="{{ $rootId }}" data-rr="discussion" data-rr-subject-type="{{ $type }}" data-rr-subject-id="{{ $key }}"

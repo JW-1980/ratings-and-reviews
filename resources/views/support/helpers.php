@@ -230,6 +230,9 @@ $flattenReplies = static function (array $replies) use (&$flattenReplies): array
     return $flat;
 };
 
+/** The signed-in user of the package guard, or null for a guest (card extensions get it). */
+$viewer = static fn (): ?Illuminate\Contracts\Auth\Authenticatable => auth(config('ratings-and-reviews.routes.guard'))->user();
+
 $reportReasons = static fn (): array => array_map(
     fn (string $reason): array => ['value' => $reason, 'label' => (string) __('ratings-and-reviews::enums.report_reason.'.$reason)],
     array_values((array) config('ratings-and-reviews.reports.reasons', [])),
@@ -249,4 +252,5 @@ return [
     'formErrors' => $formErrors,
     'replyTree' => $replyTree,
     'flattenReplies' => $flattenReplies,
+    'viewer' => $viewer,
 ];

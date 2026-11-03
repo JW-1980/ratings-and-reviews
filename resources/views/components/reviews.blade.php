@@ -8,7 +8,9 @@
     (?rr_rthread=ID), shown below the list as a discussion of the review (:login-url passes on).
     Every card shows the attribution badge, the answers to the review questions and the
     author's follow-up; the author adds or removes a follow-up from their card. Renders nothing
-    when the section's `reviews_enabled` is off (topic ratings only).
+    when the section's `reviews_enabled` is off (topic ratings only). Host features on the cards
+    (reactions, kudos) come from Support\CardExtensions (review.meta, review.footer), with their
+    preloads run once for the whole list.
 --}}
 @props(['subject', 'prefix' => 'rr_', 'brandReply' => null, 'loginUrl' => null])
 @php
@@ -41,6 +43,8 @@
             ? \RatingsAndReviews\Models\Review::query()->forSubject($subject)->approved()->find($threadReviewId)
             : null;
         $scale = (int) $meta['scale_max'];
+        // One renderer for the whole list: a host preload runs once with every card of the page.
+        $cardExtensions = \RatingsAndReviews\Support\CardExtensions::forList('review', $own === null ? $list : [$own, ...$list], $rr['viewer']());
     @endphp
     @include('rr::partials.client')
     <section {{ $attributes->merge(['class' => 'rr rr-nojs rr-reviews']) }} id="{{ $rootId }}" data-rr="reviews" data-rr-subject-type="{{ $type }}" data-rr-subject-id="{{ $key }}" aria-labelledby="{{ $rootId }}-title">
