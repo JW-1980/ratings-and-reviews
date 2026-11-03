@@ -15,6 +15,7 @@ use RatingsAndReviews\Models\PollOption;
 use RatingsAndReviews\Models\PollVote;
 use RatingsAndReviews\Support\PollVoteContext;
 use RatingsAndReviews\Support\VoterKeys;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 use Throwable;
 
@@ -33,6 +34,7 @@ class PollService
         private readonly SectionSettingsRepository $settings,
         private readonly VoterIdentity $identity,
         private readonly RiskSignals $risk,
+        private readonly Participation $participation,
     ) {}
 
     public function isEnabled(): bool
@@ -134,6 +136,7 @@ class PollService
      *
      * @throws ValidationException
      * @throws UnauthorizedHttpException
+     * @throws AccessDeniedHttpException on a poll of a member in a block relation with the voter
      */
     public function vote(Request $request, ?Authenticatable $user, Poll $poll, int $optionId): array
     {
@@ -155,6 +158,10 @@ class PollService
 
         if ($user === null && ! $settings->guestVotes) {
             throw new UnauthorizedHttpException('', (string) __('ratings-and-reviews::messages.login_to_vote'));
+        }
+
+        if ($user !== null && $this->participation->isBlocked((int) $user->getAuthIdentifier(), $comment->user_id)) {
+            throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.vote_blocked'));
         }
 
         $option = PollOption::query()->where('poll_id', $poll->id)->whereKey($optionId)->first();

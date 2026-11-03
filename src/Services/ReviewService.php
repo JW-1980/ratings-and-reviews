@@ -20,6 +20,7 @@ use RatingsAndReviews\Events\ReviewSubmitted;
 use RatingsAndReviews\Exceptions\ToneNudgeRequired;
 use RatingsAndReviews\Jobs\RefreshRatingAggregates;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Models\ReviewFollowUp;
 use RatingsAndReviews\Models\ReviewTopicRating;
 use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
@@ -49,6 +50,13 @@ use Throwable;
  * (`photos`: ids, at most `reviews.max_photos`); leaving `photos` out of an edit keeps the
  * current ones. Images in the text and photos are attached to the review on save; with
  * `reviews.photos_require_approval` a review that gains a photo waits for a moderator.
+ *
+ * Also: the answers to the subject's review questions (`answers`, ReviewQuestions; left out
+ * of an edit, the stored answers stay), an `attribution` the AttributionResolver allows
+ * (posting "as" a brand; left out of an edit, it stays; null clears it), the subject's
+ * ParticipationRules (who may write, forced or skipped pre-moderation) and the section's
+ * `reviews_enabled` (false: no written reviews at all, only standalone topic ratings).
+ * Resubmitting a deleted review removes its follow-up.
  */
 class ReviewService
 {
@@ -68,10 +76,12 @@ class ReviewService
         private readonly SubjectResolver $subjects,
         private readonly ReviewInvitations $invitations,
         private readonly Uploads $uploads,
+        private readonly Participation $participation,
+        private readonly ReviewQuestions $questions,
     ) {}
 
     /**
-     * @param  array<string, mixed>  $data  rating, title, body, pros, cons, topic_ratings, facets, compared_type, compared_id, comparison, photos, confirm_tone
+     * @param  array<string, mixed>  $data  rating, title, body, pros, cons, topic_ratings, facets, compared_type, compared_id, comparison, photos, answers, attribution, confirm_tone
      *
      * @throws ValidationException
      * @throws ToneNudgeRequired
@@ -80,9 +90,12 @@ class ReviewService
     {
         $settings = $this->settings->for($subject->reviewSectionKey());
         $this->assertOpen($subject, $settings);
+        $this->participation->assertCanParticipate($author, $subject);
 
         $authorId = (int) $author->getAuthIdentifier();
         $content = $this->content($settings, $subject, $data, $author, null);
+        $answers = $this->questions->validatedAnswers($subject, $data['answers'] ?? null, true);
+        $attribution = $this->participation->attribution($author, $subject, $data['attribution'] ?? null);
         $this->checkTone($content['tone_text'], (bool) ($data['confirm_tone'] ?? false));
         $verdict = $this->spam->inspect($request, $content['spam_text'], $authorId);
 
@@ -101,10 +114,11 @@ class ReviewService
         ));
         $price = $this->priceNow($subject);
 
-        $hold = $verdict->hold || $risk->hold || $settings->reviewRequiresApproval || (! empty($content['photo_ids']) && $this->photosNeedApproval());
+        $hold = $this->participation->holdOverride($subject, $author)
+            ?? ($verdict->hold || $risk->hold || $settings->reviewRequiresApproval || (! empty($content['photo_ids']) && $this->photosNeedApproval()));
 
         try {
-            [$review, $resubmission, $published] = DB::transaction(function () use ($request, $subject, $authorId, $content, $hold, $risk, $price): array {
+            [$review, $resubmission, $published] = DB::transaction(function () use ($request, $subject, $authorId, $content, $hold, $risk, $price, $answers, $attribution): array {
                 $existing = Review::query()->withTrashed()
                     ->forSubject($subject)
                     ->where('user_id', $authorId)
@@ -128,6 +142,7 @@ class ReviewService
                 $review->fill($content['attributes'] + [
                     'status' => $status,
                     'counted' => $risk->counted,
+                    'attribution' => $attribution,
                     'ip_hash' => $this->identity->ipHash($request),
                     'network_hash' => $this->identity->networkHash($request),
                     'device_hash' => $this->identity->deviceHash($request),
@@ -137,6 +152,8 @@ class ReviewService
                 if ($existing !== null) {
                     $review->deleted_at = null;
                     $review->edited_at = now();
+                    $review->follow_up_invited_at = null;
+                    ReviewFollowUp::query()->where('review_id', $existing->id)->delete();
                 }
 
                 $review->price_cents = $price?->cents;
@@ -144,6 +161,7 @@ class ReviewService
                 $published = $this->claimPublication($review);
                 $review->save();
                 $this->syncTopicRatings($review, $content['topic_ratings']);
+                $this->questions->sync($review, $answers ?? []);
                 $this->syncUploads($review, $content);
                 $this->invitations->complete($authorId, $review->reviewable_type, $review->reviewable_id);
 
@@ -186,6 +204,10 @@ class ReviewService
 
         $authorId = (int) $author->getAuthIdentifier();
         $content = $this->content($settings, $subject, $data, $author, $review);
+        $answers = $this->questions->validatedAnswers($subject, $data['answers'] ?? null, array_key_exists('answers', $data) && $data['answers'] !== null);
+        $attribution = array_key_exists('attribution', $data)
+            ? ['value' => $this->participation->attribution($author, $subject, $data['attribution'])]
+            : null;
         $this->checkTone($content['tone_text'], (bool) ($data['confirm_tone'] ?? false));
         $verdict = $this->spam->inspect($request, $content['spam_text'], $authorId, $review);
 
@@ -206,10 +228,10 @@ class ReviewService
 
         // An approved review stays approved on an edit: it already passed moderation. Only a
         // held text, a held risk verdict or a new photo that needs approval sends it back.
-        $hold = $verdict->hold || $risk->hold
-            || ($content['photo_ids'] !== null && $this->photosNeedApproval() && array_diff($content['photo_ids'], $review->photos()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all()) !== []);
+        $hold = $this->participation->holdOverride($subject, $author) ?? ($verdict->hold || $risk->hold
+            || ($content['photo_ids'] !== null && $this->photosNeedApproval() && array_diff($content['photo_ids'], $review->photos()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all()) !== []));
 
-        $published = DB::transaction(function () use ($review, $content, $hold, $risk): bool {
+        $published = DB::transaction(function () use ($review, $content, $hold, $risk, $answers, $attribution): bool {
             $locked = Review::query()->whereKey($review->id)->lockForUpdate()->firstOrFail();
 
             $status = $hold || $locked->status !== ContentStatus::Approved ? ContentStatus::Pending : ContentStatus::Approved;
@@ -218,11 +240,16 @@ class ReviewService
                 'status' => $status,
                 'counted' => $risk->counted,
                 'edited_at' => now(),
-            ]);
+            ] + ($attribution === null ? [] : ['attribution' => $attribution['value']]));
 
             $published = $this->claimPublication($review);
             $review->save();
             $this->syncTopicRatings($review, $content['topic_ratings']);
+
+            if ($answers !== null) {
+                $this->questions->sync($review, $answers);
+            }
+
             $this->syncUploads($review, $content, edit: true);
 
             return $published;
@@ -295,6 +322,10 @@ class ReviewService
      */
     private function assertOpen(Model&Reviewable $subject, SectionSettings $settings): void
     {
+        if (! $settings->reviewsEnabled) {
+            throw ValidationException::withMessages(['review' => __('ratings-and-reviews::messages.reviews_disabled')]);
+        }
+
         if (! $settings->enabled || ! $subject->acceptsReviews()) {
             throw ValidationException::withMessages(['review' => __('ratings-and-reviews::messages.reviews_closed')]);
         }

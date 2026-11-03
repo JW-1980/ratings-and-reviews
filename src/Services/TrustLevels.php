@@ -3,10 +3,8 @@
 namespace RatingsAndReviews\Services;
 
 use Illuminate\Contracts\Auth\Authenticatable;
-use RatingsAndReviews\Contracts\AbilityResolver;
 use RatingsAndReviews\Contracts\CardResolver;
 use RatingsAndReviews\Contracts\ContributionCounter;
-use RatingsAndReviews\Support\Ability;
 use RatingsAndReviews\Support\EditorTool;
 use RatingsAndReviews\Support\SectionSettings;
 use RatingsAndReviews\Support\TrustProfile;
@@ -21,7 +19,7 @@ use RatingsAndReviews\Support\TrustProfile;
  *   reply level by the normal placement, with `in_reply_to_id` kept.
  * - `poll` refuses a poll attached to a comment.
  *
- * Moderators are exempt. The product card tool is also removed while the host has no
+ * Moderators (also scoped ones, ScopedModeration) are exempt. The product card tool is also removed while the host has no
  * CardResolver. The count is only asked when a threshold above 0 applies; it is not
  * memoised, because this service can live longer than one request (long-running workers).
  */
@@ -29,7 +27,7 @@ class TrustLevels
 {
     public function __construct(
         private readonly ContributionCounter $counter,
-        private readonly AbilityResolver $abilities,
+        private readonly Participation $participation,
         private readonly CardResolver $cards,
     ) {}
 
@@ -45,7 +43,7 @@ class TrustLevels
             $tools = array_values(array_filter($tools, fn (EditorTool $tool): bool => $tool !== EditorTool::ProductCard));
         }
 
-        $exempt = $user !== null && $this->abilities->allows($user, Ability::MODERATE, $subject);
+        $exempt = $this->participation->mayModerate($user, $subject);
         $thresholds = array_filter($settings->trustLevels, fn (int $required): bool => $required > 0);
         $contributions = null;
         $locked = [];

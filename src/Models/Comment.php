@@ -39,6 +39,9 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property string $body_text
  * @property int|null $quoted_comment_id
  * @property string|null $quote_text
+ * @property array{key: string, label: string, url: string|null}|null $attribution posted "as" (AttributionResolver snapshot)
+ * @property Carbon|null $pinned_at
+ * @property int|null $pinned_by
  * @property int $agree_count
  * @property int $disagree_count
  * @property int $helpful_count
@@ -75,7 +78,7 @@ class Comment extends Model implements Moderatable, Votable
         'status', 'counted', 'body_html', 'body_text', 'quoted_comment_id', 'quote_text', 'agree_count', 'disagree_count',
         'helpful_count', 'unhelpful_count', 'needs_source_count', 'controversy_score', 'flags_count', 'is_edited',
         'edited_at', 'author_removed_at', 'held_as_evidence', 'publish_at', 'published_at', 'ip_hash', 'network_hash',
-        'device_hash', 'erasure_withheld_at',
+        'device_hash', 'erasure_withheld_at', 'attribution', 'pinned_at', 'pinned_by',
     ];
 
     protected $hidden = ['ip_hash', 'network_hash', 'device_hash'];
@@ -107,6 +110,9 @@ class Comment extends Model implements Moderatable, Votable
             'publish_at' => 'datetime',
             'published_at' => 'datetime',
             'erasure_withheld_at' => 'datetime',
+            'attribution' => 'array',
+            'pinned_at' => 'datetime',
+            'pinned_by' => 'integer',
         ];
     }
 
@@ -245,6 +251,23 @@ class Comment extends Model implements Moderatable, Votable
             ->orWhereExists(fn ($children) => $children->selectRaw('1')->from($table.' as rr_children')
                 ->whereColumn('rr_children.parent_id', $table.'.id')
                 ->whereNull('rr_children.deleted_at')));
+    }
+
+    /**
+     * Leaves out comments written by these members (for example members in a block relation
+     * with the viewer). Placeholders without an author stay.
+     *
+     * @param  Builder<Comment>  $query
+     * @param  list<int>  $userIds
+     */
+    public function scopeWithoutAuthors(Builder $query, array $userIds): void
+    {
+        if ($userIds === []) {
+            return;
+        }
+
+        $column = $query->qualifyColumn('user_id');
+        $query->where(fn (Builder $where) => $where->whereNull($column)->orWhereNotIn($column, $userIds));
     }
 
     /**
@@ -404,6 +427,7 @@ class Comment extends Model implements Moderatable, Votable
             'parent_id' => $this->parent_id,
             'body_html' => $this->body_html,
             'body_text' => $this->body_text,
+            'attribution' => $this->attribution,
             'created_at' => $this->created_at?->toIso8601String(),
             'edited_at' => $this->edited_at?->toIso8601String(),
         ];

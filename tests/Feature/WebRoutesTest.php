@@ -193,4 +193,29 @@ class WebRoutesTest extends TestCase
         $this->form('POST', "reviews/{$review->id}/votes", ['dimension' => 'helpfulness', 'value' => '1'])->assertRedirect(self::PAGE.'#rr-review-'.$review->id);
         $this->assertSame(1, $review->fresh()->helpful_count);
     }
+
+    public function test_pinning_and_follow_ups_work_without_javascript(): void
+    {
+        $product = $this->product();
+        $comment = $this->commentOn($product);
+        $this->actingAs($this->moderator());
+
+        $this->form('POST', "comments/{$comment->id}/pin")->assertRedirect(self::PAGE.'#rr-comment-'.$comment->id)
+            ->assertSessionHas('rr_status', __('ratings-and-reviews::messages.comment_pinned'));
+        $this->assertNotNull($comment->fresh()->pinned_at);
+        $this->form('DELETE', "comments/{$comment->id}/pin")->assertSessionHas('rr_status', __('ratings-and-reviews::messages.comment_unpinned'));
+        $this->assertNull($comment->fresh()->pinned_at);
+
+        $this->configureSection('product', ['review_follow_up_after_days' => 1]);
+        $author = $this->user();
+        $review = Review::factory()->forSubject($product)->create(['user_id' => $author->id, 'approved_at' => now()->subDays(2)]);
+        $this->actingAs($author);
+
+        $this->form('POST', "reviews/{$review->id}/follow-up", ['rating' => 9])->assertRedirect(self::PAGE)->assertSessionHasErrors('rating', null, 'rr_review');
+        $this->form('POST', "reviews/{$review->id}/follow-up", ['rating' => 2, 'body' => 'Minder lekker na een tijdje.'])
+            ->assertRedirect(self::PAGE.'#rr-review-'.$review->id)->assertSessionHas('rr_status', __('ratings-and-reviews::messages.follow_up_saved'));
+        $this->assertSame(2, $review->followUp()->value('rating'));
+        $this->form('DELETE', "reviews/{$review->id}/follow-up")->assertSessionHas('rr_status', __('ratings-and-reviews::messages.follow_up_deleted'));
+        $this->assertFalse($review->followUp()->exists());
+    }
 }

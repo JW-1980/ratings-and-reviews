@@ -22,6 +22,8 @@ use Illuminate\Support\Carbon;
  * @property array<string, array<string, int>>|null $facet_counts [group => [value => count]]
  * @property array<string, array{count: int, sum: float}>|null $monthly [YYYY-MM => totals]
  * @property list<array{type: string, id: int, better: int, worse: int, same: int, total: int}>|null $comparisons
+ * @property array<string, array{answered: int, values: array<string, int>, options: array<string, int>}>|null $question_counts [question id => totals]
+ * @property array{count: int, before_sum: float, after_sum: float}|null $follow_up_stats normalised sums over counted reviews with a follow-up
  * @property Carbon|null $last_review_at
  * @property Carbon|null $computed_at
  */
@@ -31,7 +33,7 @@ class RatingAggregate extends Model
 
     protected $fillable = [
         'reviewable_type', 'reviewable_id', 'scope', 'review_count', 'normalized_sum', 'normalized_sum_squares',
-        'histogram', 'topics', 'facet_counts', 'monthly', 'comparisons', 'last_review_at', 'computed_at',
+        'histogram', 'topics', 'facet_counts', 'monthly', 'comparisons', 'question_counts', 'follow_up_stats', 'last_review_at', 'computed_at',
     ];
 
     protected function casts(): array
@@ -46,6 +48,8 @@ class RatingAggregate extends Model
             'facet_counts' => 'array',
             'monthly' => 'array',
             'comparisons' => 'array',
+            'question_counts' => 'array',
+            'follow_up_stats' => 'array',
             'last_review_at' => 'datetime',
             'computed_at' => 'datetime',
         ];

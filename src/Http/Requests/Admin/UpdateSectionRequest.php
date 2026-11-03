@@ -55,6 +55,10 @@ class UpdateSectionRequest extends PackageRequest
             'review_min_length' => ['sometimes', 'integer', 'min:0', 'max:10000'],
             'review_requires_approval' => ['sometimes', 'boolean'],
             'standalone_topic_ratings' => ['sometimes', 'boolean'],
+            'reviews_enabled' => ['sometimes', 'boolean'],
+            'min_reviews_for_average' => ['sometimes', 'integer', 'min:0', 'max:1000'],
+            'review_follow_up_after_days' => ['sometimes', 'integer', 'min:0', 'max:3650'],
+            'review_follow_up_window_days' => ['sometimes', 'integer', 'min:1', 'max:3650'],
         ];
     }
 }

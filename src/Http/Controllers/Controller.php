@@ -5,9 +5,8 @@ namespace RatingsAndReviews\Http\Controllers;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Routing\Controller as BaseController;
-use RatingsAndReviews\Contracts\AbilityResolver;
 use RatingsAndReviews\Http\Concerns\ResolvesCurrentUser;
-use RatingsAndReviews\Support\Ability;
+use RatingsAndReviews\Services\Participation;
 
 abstract class Controller extends BaseController
 {
@@ -15,11 +14,12 @@ abstract class Controller extends BaseController
 
     /**
      * Whether the user may moderate this item or subject (a Review, a Comment, a Commentable
-     * or Reviewable subject, an Upload without content): rr.moderate with that subject.
+     * or Reviewable subject, an Upload without content): rr.moderate with that subject, or a
+     * scoped moderator of the subject (ScopedModeration).
      */
     protected function moderates(?Authenticatable $user, mixed $subject): bool
     {
-        return $user !== null && app(AbilityResolver::class)->allows($user, Ability::MODERATE, $subject);
+        return app(Participation::class)->mayModerate($user, $subject);
     }
 
     /**

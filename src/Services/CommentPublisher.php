@@ -20,7 +20,10 @@ use RatingsAndReviews\Support\ContentStatus;
  */
 class CommentPublisher
 {
-    public function __construct(private readonly Dispatcher $events) {}
+    public function __construct(
+        private readonly Dispatcher $events,
+        private readonly Participation $participation,
+    ) {}
 
     /** Whether this call published it. */
     public function publish(int $commentId): bool
@@ -45,7 +48,7 @@ class CommentPublisher
             return false;
         }
 
-        $this->events->dispatch(new CommentPosted($comment));
+        $this->events->dispatch(new CommentPosted($comment, $this->participation->recipientsFor($comment)));
 
         return true;
     }

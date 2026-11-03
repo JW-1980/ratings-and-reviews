@@ -8,13 +8,16 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use RatingsAndReviews\Console\PruneUploadsCommand;
 use RatingsAndReviews\Console\PublishDueCommentsCommand;
 use RatingsAndReviews\Console\SendReviewInvitationsCommand;
 use RatingsAndReviews\Contracts\AbilityResolver;
+use RatingsAndReviews\Contracts\AttributionResolver;
 use RatingsAndReviews\Contracts\AuthorResolver;
+use RatingsAndReviews\Contracts\BlockList;
 use RatingsAndReviews\Contracts\CardResolver;
 use RatingsAndReviews\Contracts\ContributionCounter;
 use RatingsAndReviews\Contracts\OfficialReplyResolver;
@@ -28,10 +31,17 @@ use RatingsAndReviews\Defaults\DatabaseContributionCounter;
 use RatingsAndReviews\Defaults\DefaultAuthorResolver;
 use RatingsAndReviews\Defaults\DefaultVoterIdentity;
 use RatingsAndReviews\Defaults\GateAbilityResolver;
+use RatingsAndReviews\Defaults\NullAttributionResolver;
+use RatingsAndReviews\Defaults\NullBlockList;
 use RatingsAndReviews\Defaults\NullCardResolver;
 use RatingsAndReviews\Defaults\NullOfficialReplyResolver;
 use RatingsAndReviews\Defaults\NullPriceAtReviewResolver;
 use RatingsAndReviews\Defaults\NullWantToTryList;
+use RatingsAndReviews\Events\CommentDeleted;
+use RatingsAndReviews\Events\CommentEdited;
+use RatingsAndReviews\Events\CommentModerated;
+use RatingsAndReviews\Events\CommentPosted;
+use RatingsAndReviews\Listeners\SyncSubjectCommentCount;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\CommentRevision;
 use RatingsAndReviews\Models\DiscussionState;
@@ -43,17 +53,24 @@ use RatingsAndReviews\Models\RatingTopic;
 use RatingsAndReviews\Models\ReadMarker;
 use RatingsAndReviews\Models\Report;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Models\ReviewAnswer;
+use RatingsAndReviews\Models\ReviewFollowUp;
 use RatingsAndReviews\Models\ReviewInvitation;
+use RatingsAndReviews\Models\ReviewQuestion;
 use RatingsAndReviews\Models\ReviewTopicRating;
 use RatingsAndReviews\Models\SectionSetting;
 use RatingsAndReviews\Models\Sticker;
 use RatingsAndReviews\Models\TopicRating;
 use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Models\Vote;
+use RatingsAndReviews\Services\Participation;
 use RatingsAndReviews\Services\RatingAggregator;
+use RatingsAndReviews\Services\ReviewQuestions;
 use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Summary\ComparisonSummary;
 use RatingsAndReviews\Summary\FacetSummary;
+use RatingsAndReviews\Summary\FollowUpSummary;
+use RatingsAndReviews\Summary\ReviewQuestionSummary;
 use RatingsAndReviews\Summary\ScoreTrend;
 use RatingsAndReviews\Summary\UncertaintyBand;
 
@@ -84,6 +101,9 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         'rr_review_invitation' => ReviewInvitation::class,
         'rr_upload' => Upload::class,
         'rr_sticker' => Sticker::class,
+        'rr_review_question' => ReviewQuestion::class,
+        'rr_review_answer' => ReviewAnswer::class,
+        'rr_review_follow_up' => ReviewFollowUp::class,
     ];
 
     /**
@@ -101,6 +121,8 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         WantToTryList::class => NullWantToTryList::class,
         ContributionCounter::class => DatabaseContributionCounter::class,
         OfficialReplyResolver::class => NullOfficialReplyResolver::class,
+        BlockList::class => NullBlockList::class,
+        AttributionResolver::class => NullAttributionResolver::class,
         SectionSettingsRepository::class => SectionSettingsRepository::class,
     ];
 
@@ -110,12 +132,15 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
      *
      * @var list<class-string<SummaryExtension>>
      */
-    public const SUMMARY_EXTENSIONS = [UncertaintyBand::class, ScoreTrend::class, FacetSummary::class, ComparisonSummary::class];
+    public const SUMMARY_EXTENSIONS = [UncertaintyBand::class, ScoreTrend::class, FacetSummary::class, ComparisonSummary::class, ReviewQuestionSummary::class, FollowUpSummary::class];
 
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/ratings-and-reviews.php', 'ratings-and-reviews');
         $this->app->tag(self::SUMMARY_EXTENSIONS, RatingAggregator::EXTENSION_TAG);
+        // Scoped: it caches the BlockList per request (and per job under Octane or a queue worker).
+        $this->app->scoped(Participation::class);
+        $this->app->scoped(ReviewQuestions::class);
     }
 
     public function boot(): void
@@ -127,6 +152,7 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
         $this->loadViewsFrom(__DIR__.'/../resources/views', 'rr');
 
         $this->registerRateLimiters();
+        $this->registerListeners();
         $this->registerRoutes();
         $this->registerSchedule();
 
@@ -136,6 +162,14 @@ class RatingsAndReviewsServiceProvider extends ServiceProvider
             $this->publishes([__DIR__.'/../database/migrations' => $this->app->databasePath('migrations')], 'ratings-and-reviews-migrations');
             $this->publishes([__DIR__.'/../lang' => $this->app->langPath('vendor/ratings-and-reviews')], 'ratings-and-reviews-translations');
             $this->publishes([__DIR__.'/../resources/views' => $this->app->resourcePath('views/vendor/rr')], 'ratings-and-reviews-views');
+        }
+    }
+
+    /** Keeps a host's own comment counter in step (SyncsCommentCount). */
+    private function registerListeners(): void
+    {
+        foreach ([CommentPosted::class, CommentDeleted::class, CommentModerated::class, CommentEdited::class] as $event) {
+            Event::listen($event, SyncSubjectCommentCount::class);
         }
     }
 

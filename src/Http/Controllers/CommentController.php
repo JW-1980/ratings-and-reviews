@@ -18,6 +18,7 @@ use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Services\DiscussionService;
 use RatingsAndReviews\Services\DiscussionStates;
 use RatingsAndReviews\Services\DiscussionTree;
+use RatingsAndReviews\Services\Participation;
 use RatingsAndReviews\Services\ReadMarkers;
 use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Services\SubjectResolver;
@@ -42,6 +43,7 @@ class CommentController extends Controller
         private readonly DiscussionStates $states,
         private readonly TrustLevels $trust,
         private readonly ToneNudge $tone,
+        private readonly Participation $participation,
     ) {}
 
     /**
@@ -68,11 +70,17 @@ class CommentController extends Controller
         $state = $this->states->find($subject);
         $locked = $state?->locked_at !== null;
         $trust = $this->trust->for($viewer, $discussion->settings, $subject);
+        $blocked = $this->participation->blockedWith($viewerId);
+        $ownerId = $this->participation->ownerId($subject);
+        $pins = $viewerId !== null && ($moderates || $ownerId === $viewerId);
+        $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject);
+        $pinned = $discussion->roots->first(fn (Comment $comment): bool => $comment->pinned_at !== null && $comment->isPubliclyVisible());
 
         return new JsonResponse([
             'data' => $discussion->roots->map(fn (Comment $comment): array => (new CommentResource($comment))
                 ->withContext($discussion->authors, $discussion->viewerVotes, $viewerId, $moderates, $discussion->settings, $discussion->topCommentId)
                 ->withExtras($discussion->quotes, $discussion->pollChoices, $discussion->newSince)
+                ->withParticipation($blocked, $pins)
                 ->resolve($request))->values()->all(),
             'meta' => [
                 'total' => $discussion->total,
@@ -82,8 +90,20 @@ class CommentController extends Controller
                 'sort' => $discussion->sort->value,
                 'sorts' => array_map(fn (DiscussionSort $case): array => ['value' => $case->value, 'label' => $case->label()], DiscussionSort::cases()),
                 'top_comment_id' => $discussion->topCommentId,
+                'pinned_comment_id' => $pinned?->id,
                 'truncated_threads' => (object) $discussion->truncatedThreads,
-                'accepts_comments' => $discussion->settings->enabled && $subject->acceptsComments() && (! $locked || $moderates),
+                'accepts_comments' => $discussion->settings->enabled && $subject->acceptsComments() && (! $locked || $moderates) && $participates !== false,
+                // Null for a guest; false: the subject's ParticipationRules keep this member out.
+                'can_participate' => $participates,
+                'can_pin' => $pins,
+                'attributions' => $viewer !== null && $participates !== false ? $this->participation->attributionOptions($viewer, $subject) : [],
+                'subject' => [
+                    'type' => $subject->getMorphClass(),
+                    'id' => $subject->getKey(),
+                    'title' => $subject->discussionTitle(),
+                    'url' => $subject->discussionUrl(),
+                    'context_url' => $this->participation->contextUrl($subject),
+                ],
                 'settings' => [
                     'max_depth' => $discussion->settings->maxDepth,
                     'editor_tools' => $trust->settings->toolKeys(),
@@ -128,9 +148,32 @@ class CommentController extends Controller
             'quote_text' => $request->validated('quote_text'),
             'poll' => $request->validated('poll'),
             'confirm_tone' => $request->boolean('confirm_tone'),
+            'attribution' => $request->validated('attribution'),
         ]);
 
         return $this->saved($request, $comment, $user, 201);
+    }
+
+    /** Pins a top-level comment to the top of its discussion (moderator or discussion owner). */
+    public function pin(Request $request, string $comment): JsonResponse
+    {
+        return $this->setPinned($request, $comment, true);
+    }
+
+    public function unpin(Request $request, string $comment): JsonResponse
+    {
+        return $this->setPinned($request, $comment, false);
+    }
+
+    private function setPinned(Request $request, string $comment, bool $pinned): JsonResponse
+    {
+        $user = $this->requireUser($request);
+        $model = $this->discussions->pin($this->findComment($comment, $user), $user, $pinned);
+
+        return new JsonResponse([
+            'data' => ['id' => $model->id, 'is_pinned' => $model->pinned_at !== null, 'pinned_at' => $model->pinned_at?->toIso8601String()],
+            'message' => $pinned ? __('ratings-and-reviews::messages.comment_pinned') : __('ratings-and-reviews::messages.comment_unpinned'),
+        ]);
     }
 
     /** The author takes back a comment inside its undo window. */
@@ -215,7 +258,8 @@ class CommentController extends Controller
         $subject = $root?->commentable;
         $moderates = $subject !== null && $this->moderates($viewer, $subject);
 
-        if ($root === null || ! $subject instanceof Commentable || ! $subject->commentsVisibleTo($viewer)) {
+        if ($root === null || ! $subject instanceof Commentable || ! $subject->commentsVisibleTo($viewer)
+            || ($root->user_id !== null && in_array($root->user_id, $this->participation->hiddenAuthorIds($subject, $viewerId), true))) {
             throw new NotFoundHttpException;
         }
 
@@ -234,10 +278,13 @@ class CommentController extends Controller
         $afterId = filter_var($request->query('after'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         $page = $this->tree->replies($root, new VoterKeys($this->identity, $request, $viewer), $viewerId, is_string($cursor) ? $cursor : null, $limit, $lastVisit, $afterId === false ? null : $afterId);
 
+        $blocked = $this->participation->blockedWith($viewerId);
+
         return new JsonResponse([
             'data' => $page->replies->map(fn (Comment $reply): array => (new CommentResource($reply))
                 ->withContext($page->authors, $page->viewerVotes, $viewerId, $moderates, $page->settings)
                 ->withExtras($page->quotes, $page->pollChoices, $page->newSince)
+                ->withParticipation($blocked, false)
                 ->resolve($request))->values()->all(),
             'meta' => [
                 'root_id' => $root->id,
@@ -260,6 +307,7 @@ class CommentController extends Controller
             'data' => (new CommentResource($comment))
                 ->withContext($profiles, [], $this->userId($user), $this->moderates($user, $comment), $settings)
                 ->withExtras($quotes, [], null)
+                ->withParticipation([], $this->discussions->mayPin($user, $comment))
                 ->resolve($request),
             'message' => match ($comment->visibility()) {
                 'public' => __('ratings-and-reviews::messages.comment_published'),

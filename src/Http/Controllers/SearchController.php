@@ -6,7 +6,9 @@ use Illuminate\Http\JsonResponse;
 use RatingsAndReviews\Contracts\Commentable;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Http\Requests\SearchRequest;
+use RatingsAndReviews\Services\Participation;
 use RatingsAndReviews\Services\SearchService;
+use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Services\SubjectResolver;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -27,14 +29,16 @@ class SearchController extends Controller
         $subject = $this->subjects->resolveAny($type, $id, [Reviewable::class, Commentable::class]);
         $in = (string) ($request->validated('in') ?? 'all');
 
-        $reviews = $subject instanceof Reviewable && $subject->reviewsVisibleTo($viewer) && $in !== 'comments';
+        $reviews = $subject instanceof Reviewable && $subject->reviewsVisibleTo($viewer) && $in !== 'comments'
+            && app(SectionSettingsRepository::class)->for($subject->reviewSectionKey())->reviewsEnabled;
         $comments = $subject instanceof Commentable && $subject->commentsVisibleTo($viewer) && $in !== 'reviews';
 
         if (! ($subject instanceof Reviewable && $subject->reviewsVisibleTo($viewer)) && ! ($subject instanceof Commentable && $subject->commentsVisibleTo($viewer))) {
             throw new NotFoundHttpException;
         }
 
-        $result = $this->search->search($subject, (string) $request->validated('q'), $reviews, $comments);
+        $hidden = app(Participation::class)->hiddenAuthorIds($subject, $this->userId($viewer));
+        $result = $this->search->search($subject, (string) $request->validated('q'), $reviews, $comments, $hidden);
 
         return new JsonResponse(['data' => ['reviews' => $result['reviews'], 'comments' => $result['comments']], 'meta' => $result['meta']]);
     }

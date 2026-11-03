@@ -60,4 +60,34 @@ class UpgradeMigrationsTest extends CommittedTestCase
         $this->assertTrue($this->nullable('rr_comments', 'user_id'));
         $this->assertTrue($this->nullable('rr_reviews', 'erasure_withheld_at'));
     }
+
+    public function test_the_participation_and_questionnaire_migrations_roll_back_and_upgrade_again(): void
+    {
+        $attribution = require __DIR__.'/../../database/migrations/2026_11_03_000014_add_attribution_and_pins.php';
+        $questions = require __DIR__.'/../../database/migrations/2026_11_03_000015_create_rr_review_questions_and_follow_ups.php';
+
+        $questions->down();
+        $attribution->down();
+        $this->assertFalse(Schema::hasColumn('rr_comments', 'pinned_at'));
+        $this->assertFalse(Schema::hasTable('rr_review_questions'));
+        $this->assertFalse(Schema::hasColumn('rr_reviews', 'follow_up_invited_at'));
+
+        DB::table('rr_comments')->insert(['commentable_type' => 'product', 'commentable_id' => 1, 'section' => 'product', 'user_id' => 1, 'status' => 'approved', 'body_html' => '<p>Oud</p>', 'body_text' => 'Oud', 'published_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+
+        $attribution->up();
+        $questions->up();
+        $attribution->up();
+        $questions->up();
+
+        foreach (['attribution', 'pinned_at', 'pinned_by'] as $column) {
+            $this->assertTrue(Schema::hasColumn('rr_comments', $column), $column);
+        }
+
+        $this->assertTrue(Schema::hasColumn('rr_reviews', 'attribution'));
+        $this->assertTrue(Schema::hasColumn('rr_reviews', 'follow_up_invited_at'));
+        $this->assertTrue(Schema::hasColumn('rr_rating_aggregates', 'question_counts'));
+        $this->assertTrue(Schema::hasTable('rr_review_answers'));
+        $this->assertTrue(Schema::hasTable('rr_review_follow_ups'));
+        $this->assertNull(DB::table('rr_comments')->value('pinned_at'), 'Existing comments stay unpinned.');
+    }
 }

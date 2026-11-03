@@ -12,6 +12,8 @@ use RatingsAndReviews\Contracts\SummaryExtension;
 use RatingsAndReviews\Events\RatingAggregatesRefreshed;
 use RatingsAndReviews\Models\RatingAggregate;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Models\ReviewAnswer;
+use RatingsAndReviews\Models\ReviewFollowUp;
 use RatingsAndReviews\Models\ReviewTopicRating;
 use RatingsAndReviews\Models\TopicRating;
 use RatingsAndReviews\Support\ContentStatus;
@@ -102,6 +104,8 @@ class RatingAggregator
                 'facet_counts' => $this->facetCounts($reviews),
                 'monthly' => $this->monthly($reviews),
                 'comparisons' => $this->comparisons($reviews),
+                'question_counts' => $this->questionCounts($reviews),
+                'follow_up_stats' => $this->followUpStats($reviews),
                 'last_review_at' => $latest,
                 'computed_at' => now(),
             ],
@@ -127,7 +131,8 @@ class RatingAggregator
 
         $scale = $settings->reviewScale;
         $count = $aggregate->review_count;
-        $mean = $count > 0 ? $aggregate->normalized_sum / $count : null;
+        $minimum = max(1, $settings->minReviewsForAverage);
+        $mean = $count >= $minimum ? $aggregate->normalized_sum / $count : null;
         $priors = $this->priors($subject->ratingScope());
 
         $summary = [
@@ -137,7 +142,9 @@ class RatingAggregator
             // No own reviews: no score at all, rather than showing the scope's prior as if it were one.
             'bayesian_average' => $mean === null ? null : $this->display($this->bayesian($mean, $count, $priors['mean'], $priors['weight']), $scale),
             'histogram' => $this->histogram((array) $aggregate->histogram, $scale),
-            'topics' => $this->topicSummaries($subject, (array) $aggregate->topics),
+            'topics' => $this->topicSummaries($subject, (array) $aggregate->topics, $minimum),
+            // Averages appear from this many counted ratings (section `min_reviews_for_average`).
+            'min_reviews_for_average' => $minimum,
             'computed_at' => $aggregate->computed_at?->toIso8601String(),
         ];
 
@@ -286,6 +293,65 @@ class RatingAggregator
     }
 
     /**
+     * Answers to the review questions of the counted reviews: per question how many reviews
+     * answered, and per scale value or option how often it was given.
+     *
+     * @param  Builder<Review>  $reviews
+     * @return array<string, array{answered: int, values: array<string, int>, options: array<string, int>}>
+     */
+    private function questionCounts(Builder $reviews): array
+    {
+        $counts = [];
+        $answers = ReviewAnswer::query()->whereIn('review_id', (clone $reviews)->select('id'));
+
+        foreach ((clone $answers)->toBase()->selectRaw('question_id, COUNT(DISTINCT review_id) as answered')->groupBy('question_id')->get() as $row) {
+            $counts[(string) $row->question_id] = ['answered' => (int) $row->answered, 'values' => [], 'options' => []];
+        }
+
+        foreach ((clone $answers)->toBase()->selectRaw('question_id, option_key, value, COUNT(*) as total')->groupBy('question_id', 'option_key', 'value')->get() as $row) {
+            $key = (string) $row->question_id;
+
+            if (! isset($counts[$key])) {
+                continue;
+            }
+
+            if ((string) $row->option_key === '') {
+                $counts[$key]['values'][(string) (int) $row->value] = (int) $row->total;
+            } else {
+                $counts[$key]['options'][(string) $row->option_key] = (int) $row->total;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * The counted reviews that have a follow-up: how many, and the normalised sums of the
+     * rating before (the review's rating when the follow-up was written) and after.
+     *
+     * @param  Builder<Review>  $reviews
+     * @return array{count: int, before_sum: float, after_sum: float}
+     */
+    private function followUpStats(Builder $reviews): array
+    {
+        $stats = ['count' => 0, 'before_sum' => 0.0, 'after_sum' => 0.0];
+
+        $rows = ReviewFollowUp::query()->whereIn('review_id', (clone $reviews)->select('id'))->toBase()
+            ->selectRaw('initial_rating, initial_scale_max, rating, scale_max, COUNT(*) as total')
+            ->groupBy('initial_rating', 'initial_scale_max', 'rating', 'scale_max')
+            ->get();
+
+        foreach ($rows as $row) {
+            $total = (int) $row->total;
+            $stats['count'] += $total;
+            $stats['before_sum'] += Review::normalize((int) $row->initial_rating, (int) $row->initial_scale_max) * $total;
+            $stats['after_sum'] += Review::normalize((int) $row->rating, (int) $row->scale_max) * $total;
+        }
+
+        return $stats;
+    }
+
+    /**
      * Counted topic ratings given without a review, per topic, scale and value; a member's
      * score is left out when they rated the same topic in one of the counted reviews.
      *
@@ -349,9 +415,9 @@ class RatingAggregator
      * @param  array<string, array{count: int, sum: float, sum_squares: float}>  $stored
      * @return list<array{id: int, name: string, scale_max: int, count: int, average: float|null}>
      */
-    private function topicSummaries(Model&Reviewable $subject, array $stored): array
+    private function topicSummaries(Model&Reviewable $subject, array $stored, int $minimum = 1): array
     {
-        return $this->topics->effectiveFor($subject)->map(function ($topic) use ($stored): array {
+        return $this->topics->effectiveFor($subject)->map(function ($topic) use ($stored, $minimum): array {
             $totals = $stored[(string) $topic->id] ?? ['count' => 0, 'sum' => 0.0];
             $count = (int) $totals['count'];
 
@@ -360,7 +426,7 @@ class RatingAggregator
                 'name' => $topic->localizedName(),
                 'scale_max' => $topic->scale_max,
                 'count' => $count,
-                'average' => $count > 0 ? $this->display((float) $totals['sum'] / $count, $topic->scale_max) : null,
+                'average' => $count >= max(1, $minimum) ? $this->display((float) $totals['sum'] / $count, $topic->scale_max) : null,
             ];
         })->values()->all();
     }

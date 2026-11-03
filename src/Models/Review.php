@@ -8,14 +8,20 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use RatingsAndReviews\Concerns\HasComments;
 use RatingsAndReviews\Contracts\Commentable;
+use RatingsAndReviews\Contracts\HasDiscussionContext;
+use RatingsAndReviews\Contracts\HasDiscussionOwner;
+use RatingsAndReviews\Contracts\HidesBlockedMembers;
 use RatingsAndReviews\Contracts\Moderatable;
+use RatingsAndReviews\Contracts\ParticipationRules;
 use RatingsAndReviews\Contracts\Reviewable;
+use RatingsAndReviews\Contracts\ScopedModeration;
 use RatingsAndReviews\Contracts\Votable;
 use RatingsAndReviews\Database\Factories\ReviewFactory;
 use RatingsAndReviews\Models\Scopes\ExcludeErasureWithheld;
@@ -38,6 +44,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property string $body_text
  * @property list<string>|null $pros
  * @property list<string>|null $cons
+ * @property array{key: string, label: string, url: string|null}|null $attribution posted "as" (AttributionResolver snapshot)
  * @property array<string, mixed>|null $facets
  * @property int|null $price_cents
  * @property string|null $price_currency
@@ -52,13 +59,19 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property string|null $device_hash
  * @property bool $counted
  * @property Carbon|null $approved_at
+ * @property Carbon|null $follow_up_invited_at when ReviewFollowUpDue was fired
  * @property Carbon|null $edited_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  * @property Carbon|null $erasure_withheld_at set while the author's erasure request is pending (hidden everywhere)
  */
-class Review extends Model implements Commentable, Moderatable, Votable
+/**
+ * As the subject of its replies the review passes the participation hooks on to its own
+ * subject (ParticipationRules, ScopedModeration, HidesBlockedMembers); its author owns the
+ * thread (HasDiscussionOwner) and the subject's page is the context.
+ */
+class Review extends Model implements Commentable, HasDiscussionContext, HasDiscussionOwner, HidesBlockedMembers, Moderatable, ParticipationRules, ScopedModeration, Votable
 {
     use HasComments;
 
@@ -71,9 +84,9 @@ class Review extends Model implements Commentable, Moderatable, Votable
 
     protected $fillable = [
         'reviewable_type', 'reviewable_id', 'user_id', 'section', 'status', 'rating', 'scale_max', 'title', 'body_html', 'body_text',
-        'pros', 'cons', 'facets', 'price_cents', 'price_currency', 'compared_type', 'compared_id', 'comparison',
+        'pros', 'cons', 'attribution', 'facets', 'price_cents', 'price_currency', 'compared_type', 'compared_id', 'comparison',
         'quality_score', 'helpful_count', 'flags_count', 'ip_hash', 'network_hash', 'device_hash', 'counted',
-        'approved_at', 'edited_at', 'erasure_withheld_at',
+        'approved_at', 'edited_at', 'erasure_withheld_at', 'follow_up_invited_at',
     ];
 
     protected $hidden = ['ip_hash', 'network_hash', 'device_hash'];
@@ -88,6 +101,7 @@ class Review extends Model implements Commentable, Moderatable, Votable
             'scale_max' => 'integer',
             'pros' => 'array',
             'cons' => 'array',
+            'attribution' => 'array',
             'facets' => 'array',
             'price_cents' => 'integer',
             'compared_id' => 'integer',
@@ -97,6 +111,7 @@ class Review extends Model implements Commentable, Moderatable, Votable
             'flags_count' => 'integer',
             'counted' => 'boolean',
             'approved_at' => 'datetime',
+            'follow_up_invited_at' => 'datetime',
             'edited_at' => 'datetime',
             'erasure_withheld_at' => 'datetime',
         ];
@@ -141,6 +156,24 @@ class Review extends Model implements Commentable, Moderatable, Votable
     public function topicRatings(): HasMany
     {
         return $this->hasMany(ReviewTopicRating::class);
+    }
+
+    /**
+     * The answers to the review questions (one row per chosen option, or one per scale question).
+     *
+     * @return HasMany<ReviewAnswer, $this>
+     */
+    public function answers(): HasMany
+    {
+        return $this->hasMany(ReviewAnswer::class);
+    }
+
+    /**
+     * @return HasOne<ReviewFollowUp, $this>
+     */
+    public function followUp(): HasOne
+    {
+        return $this->hasOne(ReviewFollowUp::class);
     }
 
     /**
@@ -271,6 +304,47 @@ class Review extends Model implements Commentable, Moderatable, Votable
         return $url === null ? null : $url.'#rr-review-'.$this->id;
     }
 
+    public function discussionContextUrl(): ?string
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof Reviewable ? $subject->reviewSubjectUrl() : null;
+    }
+
+    /** The review's author owns its thread of replies. */
+    public function discussionOwnerId(): ?int
+    {
+        return $this->user_id;
+    }
+
+    public function canParticipate(Authenticatable $user): bool
+    {
+        $subject = $this->reviewable;
+
+        return ! $subject instanceof ParticipationRules || $subject->canParticipate($user);
+    }
+
+    public function holdsContributionFrom(Authenticatable $author): ?bool
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof ParticipationRules ? $subject->holdsContributionFrom($author) : null;
+    }
+
+    public function canModerate(Authenticatable $user): bool
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof ScopedModeration && $subject->canModerate($user);
+    }
+
+    public function hidesBlockedMembers(): bool
+    {
+        $subject = $this->reviewable;
+
+        return $subject instanceof HidesBlockedMembers && $subject->hidesBlockedMembers();
+    }
+
     public function moderationAuthorId(): ?int
     {
         return $this->user_id;
@@ -295,6 +369,8 @@ class Review extends Model implements Commentable, Moderatable, Votable
             'body_text' => $this->body_text,
             'pros' => $this->pros,
             'cons' => $this->cons,
+            'attribution' => $this->attribution,
+            'follow_up' => $this->followUp?->only(['rating', 'scale_max', 'body_text', 'created_at']),
             'created_at' => $this->created_at?->toIso8601String(),
             'edited_at' => $this->edited_at?->toIso8601String(),
         ];

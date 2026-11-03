@@ -71,6 +71,30 @@ class FormController extends Controller
             fn (): string => 'rr-review-'.$review, (string) __('ratings-and-reviews::messages.vote_saved'));
     }
 
+    public function storeFollowUp(Request $request, string $review): RedirectResponse
+    {
+        return $this->respond($request, 'rr_review', 'follow-up:'.$review, fn (): Response => app()->call([app(ReviewController::class), 'storeFollowUp'], ['review' => $review]),
+            fn (): string => 'rr-review-'.$review);
+    }
+
+    public function destroyFollowUp(Request $request, string $review): RedirectResponse
+    {
+        return $this->respond($request, 'rr_review', 'follow-up:'.$review, fn (): Response => app()->call([app(ReviewController::class), 'destroyFollowUp'], ['review' => $review]),
+            fn (): string => 'rr-review-'.$review, (string) __('ratings-and-reviews::messages.follow_up_deleted'));
+    }
+
+    public function pinComment(Request $request, string $comment): RedirectResponse
+    {
+        return $this->respond($request, 'rr_comment', 'pin:'.$comment, fn (): Response => app()->call([app(CommentController::class), 'pin'], ['comment' => $comment]),
+            fn (): string => 'rr-comment-'.$comment);
+    }
+
+    public function unpinComment(Request $request, string $comment): RedirectResponse
+    {
+        return $this->respond($request, 'rr_comment', 'pin:'.$comment, fn (): Response => app()->call([app(CommentController::class), 'unpin'], ['comment' => $comment]),
+            fn (): string => 'rr-comment-'.$comment);
+    }
+
     public function saveTopicRatings(Request $request, string $type, string $id): RedirectResponse
     {
         return $this->respond($request, 'rr_topic_ratings', 'topic-ratings', fn (): Response => app()->call([app(TopicRatingController::class), 'update'], ['type' => $type, 'id' => $id]),

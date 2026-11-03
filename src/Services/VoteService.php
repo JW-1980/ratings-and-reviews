@@ -26,7 +26,8 @@ use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
  *
  * One vote per voter, item and dimension: the same value again withdraws it, the other
  * value switches it. Nobody votes on their own content (a guest also not from the network
- * the content was written from). A vote is never refused for being suspicious: RiskSignals
+ * the content was written from), nor on content of a member in a block relation with them
+ * (BlockList). A vote is never refused for being suspicious: RiskSignals
  * decides whether it counts, and an uncounted vote is stored with its reason. The counters
  * on the item are recounted from the counted rows under the item's row lock, so a double
  * click or a race cannot drift them.
@@ -38,6 +39,7 @@ class VoteService
         private readonly VoterIdentity $identity,
         private readonly RiskSignals $risk,
         private readonly Dispatcher $events,
+        private readonly Participation $participation,
     ) {}
 
     /**
@@ -68,6 +70,10 @@ class VoteService
 
         if ($userId !== null && $userId === $votable->votableAuthorId()) {
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.vote_own'));
+        }
+
+        if ($this->participation->isBlocked($userId, $votable->votableAuthorId())) {
+            throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.vote_blocked'));
         }
 
         $authorNetwork = $votable->getAttribute('network_hash');

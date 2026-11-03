@@ -17,6 +17,7 @@ use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Services\DiscussionService;
 use RatingsAndReviews\Services\ReviewService;
 use RatingsAndReviews\Support\Ability;
+use RatingsAndReviews\Support\Attribution;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ModerationScope;
 
@@ -44,7 +45,7 @@ class ModerationController extends Controller
         $status = ContentStatus::tryFrom((string) $request->query('status', 'pending')) ?? ContentStatus::Pending;
 
         // Withheld for an erasure request: out of the inbox too (reviews by their global scope).
-        $query = $kind === 'reviews' ? Review::query()->with('photos') : Comment::query()->whereNull('erasure_withheld_at');
+        $query = $kind === 'reviews' ? Review::query()->with(['photos', 'followUp']) : Comment::query()->whereNull('erasure_withheld_at');
         $query->where('status', $status->value);
         $sections = $this->allowedSections($user, $scopeKind, (clone $query)->distinct()->pluck('section')->all());
         $this->whereSectionIn($query, $sections);
@@ -71,6 +72,11 @@ class ModerationController extends Controller
                 'body_html' => $item->body_html,
                 // A moderator sees every photo, also those of a review that is not public.
                 'photos' => $item instanceof Review ? $item->photos->map(fn (Upload $photo): array => ['id' => $photo->id, 'url' => $photo->url(), 'alt' => $photo->alt_text])->values()->all() : [],
+                'attribution' => Attribution::present($item->attribution),
+                // A follow-up belongs to its review and is moderated with it.
+                'follow_up' => $item instanceof Review && $item->followUp !== null
+                    ? ['rating' => $item->followUp->rating, 'scale_max' => $item->followUp->scale_max, 'body' => $item->followUp->body_text, 'created_at' => $item->followUp->created_at?->toIso8601String()]
+                    : null,
                 'flags_count' => $item->flags_count,
                 'created_at' => $item->created_at?->toIso8601String(),
             ])->values()->all(),

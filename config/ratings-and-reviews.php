@@ -128,6 +128,16 @@ return [
         // Members may rate the subject's rating topics without writing a review
         // (PUT subjects/{type}/{id}/topic-ratings); counted in the topic averages.
         'standalone_topic_ratings' => false,
+        // false: the subject takes no written reviews (POST/PATCH reviews answer 422, the list is
+        // empty), only standalone topic ratings (with standalone_topic_ratings).
+        'reviews_enabled' => true,
+        // Averages (overall, per topic, per review question) are shown from this many counted
+        // ratings; below it they are null and only the counts show. 0: from the first one.
+        'min_reviews_for_average' => 0,
+        // Follow-ups on a review: the author may add one from this many days after the review was
+        // approved (0: off), for review_follow_up_window_days; ReviewFollowUpDue fires when it opens.
+        'review_follow_up_after_days' => 0,
+        'review_follow_up_window_days' => 150,
     ],
 
     'sections' => [
@@ -243,6 +253,16 @@ return [
         /** Months shown in the score trend (ending with the current month). */
         'trend_months' => 12,
 
+        /*
+        | Follow-ups ("what do you think after a month?"): the timing is per section
+        | (review_follow_up_after_days / _window_days); the "average change" in the summary is
+        | shown from min_for_change follow-ups.
+        */
+        'follow_ups' => [
+            'max_body_length' => 2000,
+            'min_for_change' => 3,
+        ],
+
         /** "Compared with…": alternatives listed in the summary, and the minimum
          * number of reviews that found the subject worse before "reviewers often
          * switch to X" is shown. */
@@ -335,6 +355,24 @@ return [
     'rating_topics' => [
         'max_active' => 4,
         'lock_attempts' => 3,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Review questions (rr_review_questions, admin/review-questions)
+    |--------------------------------------------------------------------------
+    |
+    | Extra questions per scope and category, inherited by key (see ReviewQuestions):
+    | `scale` (1 … scale_max with words at both ends), `choice` (one option) and `multi`
+    | (several options). Answers are counted per question in the summary (`questions`).
+    |
+    */
+    'review_questions' => [
+        'enabled' => true,
+        'scale_max' => 5,
+        'max_per_subject' => 20,
+        'max_options' => 10,
+        'max_label_length' => 120,
     ],
 
     'reports' => [

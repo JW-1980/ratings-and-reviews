@@ -37,6 +37,10 @@ final readonly class SectionSettings
         public int $reviewMinLength,
         public bool $reviewRequiresApproval,
         public bool $standaloneTopicRatings = false,
+        public bool $reviewsEnabled = true,
+        public int $minReviewsForAverage = 0,
+        public int $reviewFollowUpAfterDays = 0,
+        public int $reviewFollowUpWindowDays = 150,
     ) {}
 
     /**
@@ -80,6 +84,10 @@ final readonly class SectionSettings
             reviewMinLength: max(0, (int) ($values['review_min_length'] ?? 0)),
             reviewRequiresApproval: (bool) ($values['review_requires_approval'] ?? false),
             standaloneTopicRatings: (bool) ($values['standalone_topic_ratings'] ?? false),
+            reviewsEnabled: (bool) ($values['reviews_enabled'] ?? true),
+            minReviewsForAverage: max(0, min(1000, (int) ($values['min_reviews_for_average'] ?? 0))),
+            reviewFollowUpAfterDays: max(0, min(3650, (int) ($values['review_follow_up_after_days'] ?? 0))),
+            reviewFollowUpWindowDays: max(1, min(3650, (int) ($values['review_follow_up_window_days'] ?? 150))),
         );
     }
 
@@ -162,6 +170,10 @@ final readonly class SectionSettings
             'review_min_length' => $this->reviewMinLength,
             'review_requires_approval' => $this->reviewRequiresApproval,
             'standalone_topic_ratings' => $this->standaloneTopicRatings,
+            'reviews_enabled' => $this->reviewsEnabled,
+            'min_reviews_for_average' => $this->minReviewsForAverage,
+            'review_follow_up_after_days' => $this->reviewFollowUpAfterDays,
+            'review_follow_up_window_days' => $this->reviewFollowUpWindowDays,
         ];
     }
 

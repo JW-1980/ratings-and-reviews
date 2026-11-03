@@ -32,6 +32,10 @@ use RatingsAndReviews\Support\VoterKeys;
  * when a huge page hits `discussions.max_replies_per_page` the deepest replies are cut and
  * the cut threads are reported.
  *
+ * A pinned top-level comment leads the first page whatever the sort. Where the subject hides
+ * blocked members (HidesBlockedMembers), comments by members in a block relation with the
+ * viewer are left out with the replies beneath them, also from `total`.
+ *
  * Sorts: helpful (stored Wilson lower bound), newest, oldest and controversial (stored
  * `controversy_score` = (agree + disagree) ^ (min / max), recomputed by VoteService on
  * every vote; ties newest first).
@@ -43,6 +47,7 @@ class DiscussionTree
         private readonly VoteService $votes,
         private readonly AuthorResolver $authors,
         private readonly PollService $polls,
+        private readonly Participation $participation,
     ) {}
 
     public function load(Model&Commentable $subject, ?VoterKeys $voterKeys, ?DiscussionSort $sort = null, int $page = 1, ?int $viewerId = null, ?Carbon $newSince = null): DiscussionPage
@@ -52,10 +57,12 @@ class DiscussionTree
         $page = max(1, $page);
         $perPage = max(1, (int) config('ratings-and-reviews.discussions.roots_per_page', 20));
 
-        $rootQuery = Comment::query()->forSubject($subject)->published()->withoutWithheldLeaves()->whereNull('parent_id');
+        $hidden = $this->participation->hiddenAuthorIds($subject, $viewerId);
+        $rootQuery = Comment::query()->forSubject($subject)->published()->withoutWithheldLeaves()->withoutAuthors($hidden)->whereNull('parent_id');
         $total = (clone $rootQuery)->count();
 
-        $roots = $this->sorted($rootQuery, $sort)
+        // The pinned comment (at most one) leads page 1 whatever the sort.
+        $roots = $this->sorted($rootQuery->orderByRaw('CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END'), $sort)
             ->offset(($page - 1) * $perPage)
             ->limit($perPage)
             ->get();
@@ -72,7 +79,7 @@ class DiscussionTree
             $roots = new Collection([...$own->all(), ...$roots->all()]);
         }
 
-        [$all, $truncated] = $this->attachReplies($roots, $subject, $viewerId);
+        [$all, $truncated] = $this->attachReplies($roots, $subject, $viewerId, $hidden);
 
         $ids = $all->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
         $quotes = $this->quotedComments($all);
@@ -125,6 +132,7 @@ class DiscussionTree
 
         // Ids only: which replies hang under a visible chain up to the root.
         $rows = Comment::query()->forSubject($subject)->visibleTo($viewerId)->withoutWithheldLeaves()
+            ->withoutAuthors($subject instanceof Model ? $this->participation->hiddenAuthorIds($subject, $viewerId) : [])
             ->where('root_id', $root->id)->whereNotNull('parent_id')
             ->orderBy('depth')->orderBy('created_at')->orderBy('id')
             ->get(['id', 'parent_id', 'depth', 'created_at']);
@@ -217,16 +225,17 @@ class DiscussionTree
 
     /**
      * @param  Collection<int, Comment>  $roots
+     * @param  list<int>  $hidden  authors left out (with the replies beneath their comments)
      * @return array{0: \Illuminate\Support\Collection<int, Comment>, 1: array<int, int>}
      */
-    private function attachReplies(Collection $roots, Model&Commentable $subject, ?int $viewerId): array
+    private function attachReplies(Collection $roots, Model&Commentable $subject, ?int $viewerId, array $hidden = []): array
     {
         if ($roots->isEmpty()) {
             return [collect(), []];
         }
 
         $limit = max(1, (int) config('ratings-and-reviews.discussions.max_replies_per_page', 400));
-        $replyQuery = Comment::query()->forSubject($subject)->visibleTo($viewerId)->withoutWithheldLeaves()->whereIn('root_id', $roots->modelKeys())->whereNotNull('parent_id');
+        $replyQuery = Comment::query()->forSubject($subject)->visibleTo($viewerId)->withoutWithheldLeaves()->withoutAuthors($hidden)->whereIn('root_id', $roots->modelKeys())->whereNotNull('parent_id');
 
         $replies = (clone $replyQuery)
             ->orderBy('depth')

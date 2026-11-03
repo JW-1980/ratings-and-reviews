@@ -71,4 +71,9 @@ return [
             'regular_price' => 'Bought at the regular price',
         ],
     ],
+    'question_type' => [
+        'scale' => 'Scale',
+        'choice' => 'One choice',
+        'multi' => 'Several choices',
+    ],
 ];

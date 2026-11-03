@@ -24,6 +24,7 @@ class StoreCommentRequest extends PackageRequest
             'poll.options.*' => ['nullable', 'string'],
             'poll.closes_at' => ['nullable', 'date'],
             'confirm_tone' => ['sometimes', 'boolean'],
+            'attribution' => ['nullable', 'string', 'max:64'],
         ];
     }
 }

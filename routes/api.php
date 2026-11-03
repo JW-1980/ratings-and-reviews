@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use RatingsAndReviews\Http\Controllers\Admin\DiscussionController as AdminDiscussionController;
 use RatingsAndReviews\Http\Controllers\Admin\ModerationController;
 use RatingsAndReviews\Http\Controllers\Admin\ReportController as AdminReportController;
+use RatingsAndReviews\Http\Controllers\Admin\ReviewQuestionController;
 use RatingsAndReviews\Http\Controllers\Admin\SectionController;
 use RatingsAndReviews\Http\Controllers\Admin\StickerController as AdminStickerController;
 use RatingsAndReviews\Http\Controllers\Admin\TopicController;
@@ -46,6 +47,8 @@ Route::post('subjects/{type}/{id}/reviews', [ReviewController::class, 'store'])-
 Route::patch('reviews/{review}', [ReviewController::class, 'update'])->middleware($write)->name('reviews.update');
 Route::delete('reviews/{review}', [ReviewController::class, 'destroy'])->middleware($write)->name('reviews.destroy');
 Route::post('reviews/{review}/votes', [ReviewVoteController::class, 'store'])->middleware($vote)->name('reviews.votes.store');
+Route::post('reviews/{review}/follow-up', [ReviewController::class, 'storeFollowUp'])->middleware($write)->name('reviews.follow-up.store');
+Route::delete('reviews/{review}/follow-up', [ReviewController::class, 'destroyFollowUp'])->middleware($write)->name('reviews.follow-up.destroy');
 Route::get('subjects/{type}/{id}/topic-ratings', [TopicRatingController::class, 'show'])->where($subject)->name('topic-ratings.show');
 Route::put('subjects/{type}/{id}/topic-ratings', [TopicRatingController::class, 'update'])->middleware($write)->where($subject)->name('topic-ratings.update');
 Route::get('subjects/{type}/{id}/rating-summary', [RatingSummaryController::class, 'show'])->where($subject)->name('rating-summary.show');
@@ -58,6 +61,8 @@ Route::get('comments/{comment}/revisions', [CommentController::class, 'revisions
 Route::get('comments/{comment}/replies', [CommentController::class, 'replies'])->name('comments.replies');
 Route::post('comments/{comment}/votes', [CommentVoteController::class, 'store'])->middleware($vote)->name('comments.votes.store');
 Route::post('comments/{comment}/undo', [CommentController::class, 'undo'])->middleware($write)->name('comments.undo');
+Route::post('comments/{comment}/pin', [CommentController::class, 'pin'])->middleware($write)->name('comments.pin');
+Route::delete('comments/{comment}/pin', [CommentController::class, 'unpin'])->middleware($write)->name('comments.unpin');
 
 Route::get('subjects/{type}/{id}/digest', [DigestController::class, 'show'])->where($subject)->name('digest.show');
 Route::get('subjects/{type}/{id}/search', [SearchController::class, 'index'])->middleware($lookup)->where($subject)->name('search.index');
@@ -93,6 +98,11 @@ Route::prefix('admin')
         Route::post('topics', [TopicController::class, 'store'])->middleware($admin)->name('topics.store');
         Route::patch('topics/{topic}', [TopicController::class, 'update'])->middleware($admin)->name('topics.update');
         Route::delete('topics/{topic}', [TopicController::class, 'destroy'])->middleware($admin)->name('topics.destroy');
+
+        Route::get('review-questions', [ReviewQuestionController::class, 'index'])->name('review-questions.index');
+        Route::post('review-questions', [ReviewQuestionController::class, 'store'])->middleware($admin)->name('review-questions.store');
+        Route::patch('review-questions/{question}', [ReviewQuestionController::class, 'update'])->middleware($admin)->name('review-questions.update');
+        Route::delete('review-questions/{question}', [ReviewQuestionController::class, 'destroy'])->middleware($admin)->name('review-questions.destroy');
 
         Route::get('reports', [AdminReportController::class, 'index'])->name('reports.index');
         Route::patch('reports/{report}', [AdminReportController::class, 'update'])->middleware($admin)->name('reports.update');

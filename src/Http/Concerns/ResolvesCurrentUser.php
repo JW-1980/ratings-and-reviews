@@ -5,6 +5,8 @@ namespace RatingsAndReviews\Http\Concerns;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
 use RatingsAndReviews\Contracts\AbilityResolver;
+use RatingsAndReviews\Services\Participation;
+use RatingsAndReviews\Support\Ability;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 
@@ -30,13 +32,19 @@ trait ResolvesCurrentUser
     }
 
     /**
+     * `rr.moderate` on an item or subject is also granted to the subject's scoped moderators
+     * (ScopedModeration); inbox scopes and the other abilities only through the AbilityResolver.
+     *
      * @throws UnauthorizedHttpException|AccessDeniedHttpException
      */
     protected function requireAbility(Request $request, string $ability, mixed $subject = null): Authenticatable
     {
         $user = $this->requireUser($request);
+        $allowed = $ability === Ability::MODERATE
+            ? app(Participation::class)->mayModerate($user, $subject)
+            : app(AbilityResolver::class)->allows($user, $ability, $subject);
 
-        if (! app(AbilityResolver::class)->allows($user, $ability, $subject)) {
+        if (! $allowed) {
             throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.forbidden'));
         }
 

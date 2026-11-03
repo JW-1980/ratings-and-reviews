@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Poll;
 use RatingsAndReviews\Services\PollService;
+use RatingsAndReviews\Support\Attribution;
 use RatingsAndReviews\Support\AuthorProfile;
 use RatingsAndReviews\Support\SectionSettings;
 
@@ -17,6 +18,8 @@ use RatingsAndReviews\Support\SectionSettings;
  * `visibility` is `public`, `pending` (awaiting a moderator) or `scheduled` (inside the
  * undo window, `publish_at` says until when); only the author is shown the last two.
  * `is_new` marks comments by others published after the viewer's previous visit.
+ * `attribution` is the identity it was posted as (a brand, a shop), `is_pinned` the one
+ * pinned top-level comment, `is_blocked` an author in a block relation with the viewer.
  *
  * @property Comment $resource
  */
@@ -43,6 +46,11 @@ class CommentResource extends JsonResource
     private array $pollChoices = [];
 
     private ?Carbon $newSince = null;
+
+    /** @var list<int> members in a block relation with the viewer */
+    private array $blockedIds = [];
+
+    private bool $viewerPins = false;
 
     /**
      * @param  array<int, AuthorProfile>  $authors
@@ -74,6 +82,20 @@ class CommentResource extends JsonResource
     }
 
     /**
+     * The viewer's blocks (BlockList) and whether they may pin comments here (moderator or
+     * discussion owner).
+     *
+     * @param  list<int>  $blockedIds
+     */
+    public function withParticipation(array $blockedIds, bool $viewerPins): static
+    {
+        $this->blockedIds = $blockedIds;
+        $this->viewerPins = $viewerPins;
+
+        return $this;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array
@@ -81,6 +103,7 @@ class CommentResource extends JsonResource
         $comment = $this->resource;
         $removed = $comment->isPlaceholder();
         $own = $this->viewerId !== null && $this->viewerId === $comment->user_id;
+        $blocked = ! $own && $comment->user_id !== null && in_array($comment->user_id, $this->blockedIds, true);
         $dimensions = $this->settings?->voteDimensions ?? [];
 
         $counts = [];
@@ -114,6 +137,12 @@ class CommentResource extends JsonResource
                 $comment->isErasureWithheld() => __('ratings-and-reviews::messages.comment_withheld_placeholder'),
                 default => null,
             },
+            // Posted "as" a brand or shop (AttributionResolver); shown as a badge.
+            'attribution' => $removed ? null : Attribution::present($comment->attribution),
+            'is_pinned' => $comment->pinned_at !== null && $comment->parent_id === null,
+            'pinned_at' => $comment->parent_id === null ? $comment->pinned_at?->toIso8601String() : null,
+            // The author is in a block relation with the viewer: no reply, quote or vote.
+            'is_blocked' => $blocked,
             'quote' => $removed || $comment->quoted_comment_id === null ? null : $this->quote(),
             'poll' => ! $removed && $comment->relationLoaded('poll') && $comment->poll instanceof Poll
                 ? PollService::present($comment->poll, $this->pollChoices[$comment->poll->id] ?? null)
@@ -129,7 +158,9 @@ class CommentResource extends JsonResource
             'can' => [
                 'edit' => ! $removed && (($own && $this->withinEditWindow()) || $this->viewerModerates),
                 'delete' => ! $removed && ($own || $this->viewerModerates),
-                'reply' => ! $removed && $comment->isPubliclyVisible(),
+                'reply' => ! $removed && ! $blocked && $comment->isPubliclyVisible(),
+                'vote' => ! $removed && ! $own && ! $blocked && $comment->isPubliclyVisible(),
+                'pin' => $this->viewerPins && ! $removed && $comment->parent_id === null && $comment->isPubliclyVisible(),
                 'undo' => $own && $comment->isUndoable(),
             ],
             'created_at' => $comment->created_at?->toIso8601String(),
@@ -138,6 +169,7 @@ class CommentResource extends JsonResource
                 ? $comment->replies->map(fn (Comment $reply): array => (new self($reply))
                     ->withContext($this->authors, $this->viewerVotes, $this->viewerId, $this->viewerModerates, $this->settings, $this->topCommentId)
                     ->withExtras($this->quotes, $this->pollChoices, $this->newSince)
+                    ->withParticipation($this->blockedIds, $this->viewerPins)
                     ->resolve($request))->values()->all()
                 : [],
         ];

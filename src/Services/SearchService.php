@@ -85,11 +85,12 @@ class SearchService
     }
 
     /**
+     * @param  list<int>  $hiddenAuthors  members whose reviews and comments are left out (blocked, HidesBlockedMembers)
      * @return array{reviews: list<array<string, mixed>>, comments: list<array<string, mixed>>, meta: array<string, mixed>}
      *
      * @throws ValidationException
      */
-    public function search(Model $subject, string $query, bool $reviews, bool $comments): array
+    public function search(Model $subject, string $query, bool $reviews, bool $comments, array $hiddenAuthors = []): array
     {
         $parsed = $this->parse($query);
         $limit = max(1, (int) config('ratings-and-reviews.search.results_per_type', 20));
@@ -98,7 +99,7 @@ class SearchService
         $reviewTotal = 0;
 
         if ($reviews) {
-            $base = $this->matching(Review::query()->forSubject($subject)->approved(), ['title', 'body_text'], $parsed);
+            $base = $this->matching(Review::query()->forSubject($subject)->approved()->when($hiddenAuthors !== [], fn (Builder $query) => $query->whereNotIn('user_id', $hiddenAuthors)), ['title', 'body_text'], $parsed);
             $reviewTotal = (clone $base)->count();
             $reviewRows = $reviewTotal === 0 ? collect() : $this->withRelevance($base, ['title', 'body_text'], $parsed)
                 ->orderByDesc('relevance')->orderByDesc('helpful_count')->orderByDesc('id')
@@ -109,7 +110,7 @@ class SearchService
         $commentTotal = 0;
 
         if ($comments) {
-            $base = $this->matching(Comment::query()->forSubject($subject)->published()->withContent(), ['body_text'], $parsed);
+            $base = $this->matching(Comment::query()->forSubject($subject)->published()->withContent()->withoutAuthors($hiddenAuthors), ['body_text'], $parsed);
             $commentTotal = (clone $base)->count();
             $commentRows = $commentTotal === 0 ? collect() : $this->withRelevance($base, ['body_text'], $parsed)
                 ->orderByDesc('relevance')->orderByDesc('helpful_score')->orderByDesc('id')

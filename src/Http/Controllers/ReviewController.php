@@ -16,13 +16,17 @@ use RatingsAndReviews\Contracts\PriceAtReviewResolver;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Contracts\VoterIdentity;
 use RatingsAndReviews\Contracts\WantToTryList;
+use RatingsAndReviews\Http\Requests\StoreFollowUpRequest;
 use RatingsAndReviews\Http\Requests\StoreReviewRequest;
 use RatingsAndReviews\Http\Requests\UpdateReviewRequest;
 use RatingsAndReviews\Http\Resources\ReviewResource;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Services\Participation;
 use RatingsAndReviews\Services\RatingTopicCatalog;
 use RatingsAndReviews\Services\ReviewFacets;
+use RatingsAndReviews\Services\ReviewFollowUps;
 use RatingsAndReviews\Services\ReviewQualityMeter;
+use RatingsAndReviews\Services\ReviewQuestions;
 use RatingsAndReviews\Services\ReviewService;
 use RatingsAndReviews\Services\SectionSettingsRepository;
 use RatingsAndReviews\Services\SubjectResolver;
@@ -53,12 +57,20 @@ class ReviewController extends Controller
         private readonly RatingTopicCatalog $topics,
         private readonly TrustLevels $trust,
         private readonly ToneNudge $tone,
+        private readonly Participation $participation,
+        private readonly ReviewQuestions $questions,
+        private readonly ReviewFollowUps $followUps,
     ) {}
+
+    /** The relations a review card needs. */
+    private const WITH = ['topicRatings', 'compared', 'photos', 'answers.question', 'followUp'];
 
     /**
      * The reviews of a subject. Filters: `rating` (on the section's scale),
      * `facet[group]=value` (several groups combine with AND; unknown groups or values are
-     * ignored) and `with_photos=1` (only reviews with at least one photo).
+     * ignored) and `with_photos=1` (only reviews with at least one photo). Where the subject
+     * hides blocked members (HidesBlockedMembers), reviews by members in a block relation with
+     * the viewer are left out. With the section's `reviews_enabled` off the list is empty.
      */
     public function index(Request $request, string $type, string $id): JsonResponse
     {
@@ -69,8 +81,19 @@ class ReviewController extends Controller
         $sort = ReviewSort::tryFrom((string) $request->query('sort')) ?? ReviewSort::Helpful;
         $ratingFilter = filter_var($request->query('rating'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => $scale]]);
 
-        $query = Review::query()->forSubject($subject)->approved()->with(['topicRatings', 'compared', 'photos']);
+        $viewerId = $this->userId($viewer);
+        $query = Review::query()->forSubject($subject)->approved()->with(self::WITH);
         $this->withReplyCount($query);
+
+        if (! $settings->reviewsEnabled) {
+            $query->whereRaw('0 = 1');
+        }
+
+        $hidden = $this->participation->hiddenAuthorIds($subject, $viewerId);
+
+        if ($hidden !== []) {
+            $query->whereNotIn('user_id', $hidden);
+        }
 
         if ($ratingFilter !== false && $ratingFilter !== null) {
             // The rating on the section's scale, as the histogram buckets it.
@@ -95,16 +118,18 @@ class ReviewController extends Controller
         /** @var Collection<int, Review> $items */
         $items = collect($page->items());
 
-        $viewerId = $this->userId($viewer);
-        $own = $viewerId === null ? null : $this->withReplyCount(Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(['topicRatings', 'compared', 'photos']))->first();
+        $own = $viewerId === null ? null : $this->withReplyCount(Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(self::WITH))->first();
         $items->concat(array_filter([$own]))->each(fn (Review $review) => $review->setRelation('reviewable', $subject));
         $profiles = $this->authors->resolve($items->pluck('user_id')->push($own?->user_id)->filter()->map(fn ($id): int => (int) $id)->unique()->values()->all());
         $choices = $this->votes->viewerChoices($items->concat(array_filter([$own]))->unique(fn (Review $review): int => $review->id)->values(), new VoterKeys($this->identity, $request, $viewer));
 
         $replies = $this->officialReplies($items->concat(array_filter([$own]))->all());
+        $blocked = $this->participation->blockedWith($viewerId);
+        $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject);
 
         $present = fn (Review $review): array => $this->resource($review, $replies)
             ->withContext($profiles[$review->user_id] ?? null, $choices[$review->id] ?? [], $viewerId)
+            ->withParticipation($blocked, $review->user_id === $viewerId ? $this->followUps->reasonToRefuse($viewer, $review, $review->followUp !== null) === null : false)
             ->resolve($request);
 
         return new JsonResponse([
@@ -137,9 +162,21 @@ class ReviewController extends Controller
                     'tone_check' => $this->tone->isEnabled(),
                     'review_replies' => Review::repliesEnabled(),
                     'official_replies' => app(OfficialReplyResolver::class)->isEnabled(),
+                    'follow_ups' => $settings->reviewFollowUpAfterDays > 0,
+                    'attributions' => $viewer !== null && $this->participation->attributionOptions($viewer, $subject) !== [],
                 ],
+                'reviews_enabled' => $settings->reviewsEnabled,
+                // Null for a guest; false: the subject's ParticipationRules keep this member out.
+                'can_participate' => $participates,
+                'attributions' => $viewer !== null && $participates !== false ? $this->participation->attributionOptions($viewer, $subject) : [],
+                'review_questions' => $settings->reviewsEnabled ? $this->questions->presentFor($subject) : [],
+                'review_follow_up' => $settings->reviewFollowUpAfterDays > 0 ? [
+                    'after_days' => $settings->reviewFollowUpAfterDays,
+                    'window_days' => $settings->reviewFollowUpWindowDays,
+                    'max_body_length' => max(1, (int) config('ratings-and-reviews.reviews.follow_ups.max_body_length', 2000)),
+                ] : null,
                 'review_replies_section' => Review::repliesEnabled() ? (new Review)->commentSectionKey() : null,
-                'accepts_reviews' => $settings->enabled && $subject->acceptsReviews(),
+                'accepts_reviews' => $settings->enabled && $settings->reviewsEnabled && $subject->acceptsReviews() && $participates !== false,
             ],
         ]);
     }
@@ -203,9 +240,40 @@ class ReviewController extends Controller
         return new Response('', 204);
     }
 
-    private function saved(Request $request, Review $review, int $status): JsonResponse
+    /**
+     * The author adds a follow-up to their review ("after a month": `rating`, optional `body`).
+     */
+    public function storeFollowUp(StoreFollowUpRequest $request, string $review): JsonResponse
     {
-        $review->load(['topicRatings', 'compared', 'photos']);
+        $user = $this->requireUser($request);
+        $model = $this->findReview($review, $user);
+
+        if ($model->user_id !== $this->userId($user)) {
+            throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.follow_up_not_author'));
+        }
+
+        $body = $request->validated('body');
+        $this->followUps->add($request, $user, $model, $request->validated('rating'), is_string($body) ? $body : null, $request->boolean('confirm_tone'));
+
+        $model->refresh();
+
+        return $this->saved($request, $model, 201, $model->status === ContentStatus::Approved
+            ? __('ratings-and-reviews::messages.follow_up_saved')
+            : __('ratings-and-reviews::messages.follow_up_pending'));
+    }
+
+    /** The author (or a moderator) removes the follow-up. */
+    public function destroyFollowUp(Request $request, string $review): Response
+    {
+        $user = $this->requireUser($request);
+        $this->followUps->delete($this->findReview($review, $user, allowHidden: true), $user);
+
+        return new Response('', 204);
+    }
+
+    private function saved(Request $request, Review $review, int $status, ?string $message = null): JsonResponse
+    {
+        $review->load(self::WITH);
 
         if (Review::repliesEnabled()) {
             $review->loadCount(['rrComments as replies_count' => fn (Builder $replies) => $replies->published()->withContent()]);
@@ -225,11 +293,13 @@ class ReviewController extends Controller
         ]);
 
         return new JsonResponse([
-            'data' => $this->resource($review, $this->officialReplies([$review]))->withContext($profile, [], $viewerId)->resolve($request),
+            'data' => $this->resource($review, $this->officialReplies([$review]))->withContext($profile, [], $viewerId)
+                ->withParticipation([], $this->followUps->reasonToRefuse($this->currentUser($request), $review, $review->followUp !== null) === null)
+                ->resolve($request),
             'quality' => $quality->toArray(),
-            'message' => $review->status === ContentStatus::Approved
+            'message' => $message ?? ($review->status === ContentStatus::Approved
                 ? __('ratings-and-reviews::messages.review_published')
-                : __('ratings-and-reviews::messages.review_pending'),
+                : __('ratings-and-reviews::messages.review_pending')),
         ], $status);
     }
 

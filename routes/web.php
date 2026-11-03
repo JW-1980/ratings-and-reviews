@@ -21,6 +21,8 @@ Route::post('subjects/{type}/{id}/reviews', [FormController::class, 'storeReview
 Route::patch('reviews/{review}', [FormController::class, 'updateReview'])->middleware($write)->name('reviews.update');
 Route::delete('reviews/{review}', [FormController::class, 'destroyReview'])->middleware($write)->name('reviews.destroy');
 Route::post('reviews/{review}/votes', [FormController::class, 'voteReview'])->middleware($vote)->name('reviews.votes.store');
+Route::post('reviews/{review}/follow-up', [FormController::class, 'storeFollowUp'])->middleware($write)->name('reviews.follow-up.store');
+Route::delete('reviews/{review}/follow-up', [FormController::class, 'destroyFollowUp'])->middleware($write)->name('reviews.follow-up.destroy');
 
 Route::put('subjects/{type}/{id}/topic-ratings', [FormController::class, 'saveTopicRatings'])->middleware($write)->where($subject)->name('topic-ratings.update');
 
@@ -28,6 +30,8 @@ Route::post('subjects/{type}/{id}/comments', [FormController::class, 'storeComme
 Route::patch('comments/{comment}', [FormController::class, 'updateComment'])->middleware($write)->name('comments.update');
 Route::delete('comments/{comment}', [FormController::class, 'destroyComment'])->middleware($write)->name('comments.destroy');
 Route::post('comments/{comment}/undo', [FormController::class, 'undoComment'])->middleware($write)->name('comments.undo');
+Route::post('comments/{comment}/pin', [FormController::class, 'pinComment'])->middleware($write)->name('comments.pin');
+Route::delete('comments/{comment}/pin', [FormController::class, 'unpinComment'])->middleware($write)->name('comments.unpin');
 Route::post('comments/{comment}/votes', [FormController::class, 'voteComment'])->middleware($vote)->name('comments.votes.store');
 Route::post('polls/{poll}/votes', [FormController::class, 'votePoll'])->middleware($vote)->name('polls.votes.store');
 

@@ -9,20 +9,20 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use RatingsAndReviews\Contracts\AbilityResolver;
 use RatingsAndReviews\Contracts\Commentable;
 use RatingsAndReviews\Contracts\RiskSignals;
 use RatingsAndReviews\Contracts\VoterIdentity;
 use RatingsAndReviews\Events\CommentDeleted;
 use RatingsAndReviews\Events\CommentEdited;
 use RatingsAndReviews\Events\CommentModerated;
+use RatingsAndReviews\Events\CommentPinned;
 use RatingsAndReviews\Events\CommentPosted;
 use RatingsAndReviews\Exceptions\ToneNudgeRequired;
 use RatingsAndReviews\Jobs\PublishScheduledComment;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\CommentRevision;
 use RatingsAndReviews\Models\Poll;
-use RatingsAndReviews\Support\Ability;
+use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\ContributionContext;
 use RatingsAndReviews\Support\SanitizedHtml;
@@ -54,6 +54,13 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
  *
  * Counted: the RiskSignals verdict is stored in `counted`. An uncounted comment is shown
  * as usual but is not a contribution (ContributionCounter, digest totals, top comment).
+ *
+ * Participation (Services\Participation): a subject with ParticipationRules decides who may
+ * write (403 otherwise) and may force or skip pre-moderation; scoped moderators count as
+ * moderators. Nobody replies to, or quotes, a comment of a member in a block relation with
+ * them, nor replies to the review of such a member. A comment may carry an `attribution`
+ * (posting "as" a brand) that the AttributionResolver allows for the author and subject;
+ * a moderator or the discussion owner pins one top-level comment per discussion.
  */
 class DiscussionService
 {
@@ -64,7 +71,7 @@ class DiscussionService
         private readonly RiskSignals $risk,
         private readonly VoterIdentity $identity,
         private readonly Dispatcher $events,
-        private readonly AbilityResolver $abilities,
+        private readonly Participation $participation,
         private readonly TrustLevels $trust,
         private readonly DiscussionStates $states,
         private readonly ToneNudge $tone,
@@ -73,7 +80,7 @@ class DiscussionService
     ) {}
 
     /**
-     * @param  array{quoted_comment_id?: int|null, quote_text?: string|null, poll?: array<string, mixed>|null, confirm_tone?: bool}  $options
+     * @param  array{quoted_comment_id?: int|null, quote_text?: string|null, poll?: array<string, mixed>|null, confirm_tone?: bool, attribution?: string|null}  $options
      *
      * @throws ValidationException
      * @throws ToneNudgeRequired
@@ -86,8 +93,10 @@ class DiscussionService
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comments_closed')]);
         }
 
+        $this->participation->assertCanParticipate($author, $subject);
+
         $authorId = (int) $author->getAuthIdentifier();
-        $moderator = $this->abilities->allows($author, Ability::MODERATE, $subject);
+        $moderator = $this->participation->mayModerate($author, $subject);
 
         if (! $moderator && $this->states->isLocked($subject)) {
             throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.discussion_locked')]);
@@ -95,8 +104,10 @@ class DiscussionService
 
         $trust = $this->trust->for($author, $settings, $subject);
         $placement = $this->placement($subject, $trust->settings, $parentId);
+        $this->assertNotBlocked($subject, $authorId, $parentId);
+        $attribution = $this->participation->attribution($author, $subject, $options['attribution'] ?? null);
         $clean = $this->cleanBody($html, $trust->settings, $authorId);
-        $quote = $this->quote($subject, $options['quoted_comment_id'] ?? null, $options['quote_text'] ?? null);
+        $quote = $this->quote($subject, $options['quoted_comment_id'] ?? null, $options['quote_text'] ?? null, $authorId);
         $clean = $this->withQuoteReferences($clean, $quote['id'] ?? null);
         $poll = $this->pollDefinition($options['poll'] ?? null, $trust);
 
@@ -118,10 +129,11 @@ class DiscussionService
             deviceHash: $this->identity->deviceHash($request),
         ));
 
-        $status = $verdict->hold || $risk->hold ? ContentStatus::Pending : ContentStatus::Approved;
+        $hold = $this->participation->holdOverride($subject, $author) ?? ($verdict->hold || $risk->hold);
+        $status = $hold ? ContentStatus::Pending : ContentStatus::Approved;
         $publishAt = $settings->undoWindowSeconds > 0 ? now()->addSeconds($settings->undoWindowSeconds) : null;
 
-        $comment = DB::transaction(function () use ($request, $subject, $settings, $authorId, $moderator, $placement, $clean, $status, $risk, $quote, $poll, $publishAt): Comment {
+        $comment = DB::transaction(function () use ($request, $subject, $settings, $authorId, $moderator, $placement, $clean, $status, $risk, $quote, $poll, $publishAt, $attribution): Comment {
             if (! $moderator && ($this->states->isLocked($subject) || $this->states->effectiveSlowMode($subject, $settings) > 0)) {
                 $this->states->assertMayPost($subject, $settings, $authorId);
             }
@@ -141,6 +153,7 @@ class DiscussionService
                 'body_text' => $clean->text,
                 'quoted_comment_id' => $quote['id'] ?? null,
                 'quote_text' => $quote['text'] ?? null,
+                'attribution' => $attribution,
                 'publish_at' => $publishAt,
                 'published_at' => $status === ContentStatus::Approved && $publishAt === null ? now() : null,
                 'ip_hash' => $this->identity->ipHash($request),
@@ -162,7 +175,7 @@ class DiscussionService
         $comment->setRelation('commentable', $subject);
 
         if ($comment->status === ContentStatus::Approved && $comment->published_at !== null) {
-            $this->events->dispatch(new CommentPosted($comment));
+            $this->events->dispatch(new CommentPosted($comment, $this->participation->recipientsFor($comment)));
         } elseif ($comment->publish_at !== null) {
             PublishScheduledComment::dispatch($comment->id)->delay($comment->publish_at);
         }
@@ -222,7 +235,7 @@ class DiscussionService
                 throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.comments_closed')]);
             }
 
-            if ($subject instanceof Model && ! $this->abilities->allows($editor, Ability::MODERATE, $comment) && $this->states->isLocked($subject)) {
+            if ($subject instanceof Model && ! $this->participation->mayModerate($editor, $comment) && $this->states->isLocked($subject)) {
                 throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.discussion_locked')]);
             }
 
@@ -265,7 +278,8 @@ class DiscussionService
                 isEdit: true,
             )) : null;
 
-            $hold = $verdict->hold || ($risk?->hold ?? false);
+            $override = $subject instanceof Model ? $this->participation->holdOverride($subject, $editor) : null;
+            $hold = $override ?? ($verdict->hold || ($risk?->hold ?? false));
             $counted = $risk?->counted ?? $counted;
         }
 
@@ -393,10 +407,73 @@ class DiscussionService
         $this->events->dispatch(new CommentModerated($comment, $previous, $status, $moderatorId, $note));
 
         if ($published) {
-            $this->events->dispatch(new CommentPosted($comment));
+            $this->events->dispatch(new CommentPosted($comment, $this->participation->recipientsFor($comment)));
         }
 
         return $comment;
+    }
+
+    /**
+     * Pins a top-level, public comment to the top of its discussion, or unpins it. One pin
+     * per discussion: pinning takes the pin from the comment that had it. Allowed for
+     * moderators of the comment (also scoped ones) and for the discussion owner
+     * (HasDiscussionOwner).
+     *
+     * @throws AccessDeniedHttpException
+     * @throws ValidationException when the comment cannot be pinned
+     */
+    public function pin(Comment $comment, Authenticatable $user, bool $pinned): Comment
+    {
+        if (! $this->mayPin($user, $comment)) {
+            throw new AccessDeniedHttpException((string) __('ratings-and-reviews::messages.pin_forbidden'));
+        }
+
+        if ($pinned && ($comment->parent_id !== null || ! $comment->isPubliclyVisible() || $comment->isPlaceholder())) {
+            throw ValidationException::withMessages(['comment' => __('ratings-and-reviews::messages.pin_unavailable')]);
+        }
+
+        $userId = $user->getAuthIdentifier();
+
+        $unpinned = DB::transaction(function () use ($comment, $pinned, $userId): ?int {
+            $others = Comment::query()->withTrashed()
+                ->where('commentable_type', $comment->commentable_type)
+                ->where('commentable_id', $comment->commentable_id)
+                ->whereNotNull('pinned_at')
+                ->whereKeyNot($comment->id)
+                ->lockForUpdate()
+                ->pluck('id')
+                ->map(fn (mixed $id): int => (int) $id)
+                ->all();
+            $locked = Comment::query()->whereKey($comment->id)->lockForUpdate()->firstOrFail();
+
+            if ($pinned && $others !== []) {
+                Comment::query()->withTrashed()->whereKey($others)->update(['pinned_at' => null, 'pinned_by' => null]);
+            }
+
+            $comment->forceFill([
+                'pinned_at' => $pinned ? ($locked->pinned_at ?? now()) : null,
+                'pinned_by' => $pinned ? ($locked->pinned_at !== null ? $locked->pinned_by : $userId) : null,
+            ])->save();
+
+            return $pinned ? ($others[0] ?? null) : null;
+        });
+
+        $this->events->dispatch(new CommentPinned($comment, $pinned, $userId, $unpinned));
+
+        return $comment;
+    }
+
+    /** Whether the user may pin and unpin comments in this comment's discussion. */
+    public function mayPin(?Authenticatable $user, Comment $comment): bool
+    {
+        if ($user === null) {
+            return false;
+        }
+
+        $subject = $comment->commentable;
+        $ownerId = $subject instanceof Model ? $this->participation->ownerId($subject) : null;
+
+        return ($ownerId !== null && $ownerId === (int) $user->getAuthIdentifier()) || $this->participation->mayModerate($user, $comment);
     }
 
     public function withinEditWindow(Comment $comment, SectionSettings $settings): bool
@@ -458,6 +535,31 @@ class DiscussionService
     }
 
     /**
+     * No reply across a block: to the comment answered (the one named by `parent_id`, also when
+     * the placement flattened it) or, on a review's thread, to the review's author.
+     *
+     * @throws ValidationException
+     */
+    private function assertNotBlocked(Model $subject, int $authorId, ?int $parentId): void
+    {
+        if (! $this->participation->blocksEnabled()) {
+            return;
+        }
+
+        if ($parentId !== null) {
+            $target = Comment::query()->forSubject($subject)->whereKey($parentId)->value('user_id');
+
+            if ($this->participation->isBlocked($authorId, $target === null ? null : (int) $target)) {
+                throw ValidationException::withMessages(['parent_id' => __('ratings-and-reviews::messages.reply_blocked')]);
+            }
+        }
+
+        if ($subject instanceof Review && $this->participation->isBlocked($authorId, $subject->user_id)) {
+            throw ValidationException::withMessages(['body' => __('ratings-and-reviews::messages.reply_blocked')]);
+        }
+    }
+
+    /**
      * @throws ValidationException
      */
     private function cleanBody(string $html, SectionSettings $settings, int $authorId, ?Comment $target = null): SanitizedHtml
@@ -488,7 +590,7 @@ class DiscussionService
      *
      * @throws ValidationException
      */
-    public function quote(Model $subject, mixed $quotedId, mixed $quoteText): ?array
+    public function quote(Model $subject, mixed $quotedId, mixed $quoteText, ?int $authorId = null): ?array
     {
         $text = is_string($quoteText) ? trim((string) preg_replace('/\s+/u', ' ', $quoteText)) : '';
         $id = filter_var($quotedId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -519,6 +621,10 @@ class DiscussionService
 
         if (! str_contains($quoted->body_text, $text)) {
             throw ValidationException::withMessages(['quote_text' => __('ratings-and-reviews::messages.quote_mismatch')]);
+        }
+
+        if ($this->participation->isBlocked($authorId, $quoted->user_id)) {
+            throw ValidationException::withMessages(['quoted_comment_id' => __('ratings-and-reviews::messages.reply_blocked')]);
         }
 
         return ['id' => $quoted->id, 'text' => $text];

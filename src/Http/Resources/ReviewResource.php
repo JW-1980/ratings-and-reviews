@@ -6,8 +6,12 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use RatingsAndReviews\Contracts\Reviewable;
 use RatingsAndReviews\Models\Review;
+use RatingsAndReviews\Models\ReviewFollowUp;
 use RatingsAndReviews\Models\Upload;
 use RatingsAndReviews\Services\ReviewFacets;
+use RatingsAndReviews\Services\ReviewFollowUps;
+use RatingsAndReviews\Services\ReviewQuestions;
+use RatingsAndReviews\Support\Attribution;
 use RatingsAndReviews\Support\AuthorProfile;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Support\OfficialReply;
@@ -29,6 +33,11 @@ class ReviewResource extends JsonResource
 
     private ?OfficialReply $officialReply = null;
 
+    /** @var list<int> members in a block relation with the viewer */
+    private array $blockedIds = [];
+
+    private bool $canFollowUp = false;
+
     /**
      * @param  array<string, int>  $viewerVotes
      */
@@ -37,6 +46,19 @@ class ReviewResource extends JsonResource
         $this->author = $author;
         $this->viewerVotes = $viewerVotes;
         $this->viewerId = $viewerId;
+
+        return $this;
+    }
+
+    /**
+     * The viewer's blocks (BlockList) and whether the viewer may add a follow-up now.
+     *
+     * @param  list<int>  $blockedIds
+     */
+    public function withParticipation(array $blockedIds, bool $canFollowUp): static
+    {
+        $this->blockedIds = $blockedIds;
+        $this->canFollowUp = $canFollowUp;
 
         return $this;
     }
@@ -57,6 +79,7 @@ class ReviewResource extends JsonResource
     {
         $review = $this->resource;
         $own = $this->viewerId !== null && $this->viewerId === $review->user_id;
+        $blocked = ! $own && in_array($review->user_id, $this->blockedIds, true);
 
         return [
             'id' => $review->id,
@@ -70,6 +93,10 @@ class ReviewResource extends JsonResource
             'body_html' => $review->body_html,
             'pros' => $review->pros ?? [],
             'cons' => $review->cons ?? [],
+            // Posted "as" a brand or shop (AttributionResolver); shown as a badge.
+            'attribution' => Attribution::present($review->attribution),
+            'answers' => app(ReviewQuestions::class)->presentAnswers($review),
+            'follow_up' => $this->followUp(),
             'topic_ratings' => $review->relationLoaded('topicRatings')
                 ? $review->topicRatings->map(fn ($rating): array => ['topic_id' => $rating->topic_id, 'value' => $rating->value, 'scale_max' => $rating->scale_max])->values()->all()
                 : [],
@@ -83,7 +110,16 @@ class ReviewResource extends JsonResource
             'replies_count' => Review::repliesEnabled() ? (int) ($review->getAttribute('replies_count') ?? 0) : null,
             'viewer_votes' => (object) $this->viewerVotes,
             'is_own' => $own,
-            'can' => ['edit' => $own, 'delete' => $own, 'reply' => Review::repliesEnabled() && $review->acceptsComments()],
+            'is_blocked' => $blocked,
+            'can' => [
+                'edit' => $own,
+                'delete' => $own,
+                'reply' => ! $blocked && Review::repliesEnabled() && $review->acceptsComments(),
+                'vote' => ! $own && ! $blocked && $review->isPubliclyVisible(),
+                'follow_up' => $own && $this->canFollowUp,
+            ],
+            // Only for the author: when a follow-up can be added (null: follow-ups off or not live yet).
+            'follow_up_window' => $own ? $this->followUpWindow() : null,
             'created_at' => $review->created_at?->toIso8601String(),
             'edited_at' => $review->edited_at?->toIso8601String(),
         ] + ($this->officialReplies ? ['official_reply' => $this->officialReply?->toArray()] : []);
@@ -115,6 +151,43 @@ class ReviewResource extends JsonResource
             'width' => $photo->width,
             'height' => $photo->height,
         ])->all();
+    }
+
+    /**
+     * The author's follow-up (relation `followUp` loaded), shown with the review.
+     *
+     * @return array{rating: int, scale_max: int, initial_rating: int, initial_scale_max: int, body: string|null, created_at: string|null, days_after: int|null}|null
+     */
+    private function followUp(): ?array
+    {
+        $review = $this->resource;
+        $followUp = $review->relationLoaded('followUp') ? $review->followUp : null;
+
+        if (! $followUp instanceof ReviewFollowUp) {
+            return null;
+        }
+
+        $since = $review->approved_at ?? $review->created_at;
+
+        return [
+            'rating' => $followUp->rating,
+            'scale_max' => $followUp->scale_max,
+            'initial_rating' => $followUp->initial_rating,
+            'initial_scale_max' => $followUp->initial_scale_max,
+            'body' => $followUp->body_text,
+            'created_at' => $followUp->created_at?->toIso8601String(),
+            'days_after' => $since !== null && $followUp->created_at !== null ? (int) floor($since->diffInDays($followUp->created_at, true)) : null,
+        ];
+    }
+
+    /**
+     * @return array{opens_at: string, closes_at: string}|null
+     */
+    private function followUpWindow(): ?array
+    {
+        $window = app(ReviewFollowUps::class)->window($this->resource);
+
+        return $window === null ? null : ['opens_at' => $window['opens_at']->toIso8601String(), 'closes_at' => $window['closes_at']->toIso8601String()];
     }
 
     /**

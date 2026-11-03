@@ -26,6 +26,8 @@ return new class extends Migration
             $table->json('category_path')->nullable();
             $table->boolean('is_open')->default(true);
             $table->boolean('is_hidden')->default(false);
+            $table->unsignedBigInteger('owner_id')->nullable();
+            $table->unsignedInteger('comment_count')->default(0);
             $table->timestamps();
         });
     }

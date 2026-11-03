@@ -59,6 +59,7 @@ class Erasure
         private readonly PollService $polls,
         private readonly Uploads $uploads,
         private readonly Dispatcher $events,
+        private readonly CommentCounts $commentCounts,
     ) {}
 
     /**
@@ -85,6 +86,7 @@ class Erasure
         $subjects = [];
         $keep = [];
         $removedContent = [];
+        $discussions = $this->discussionsOf($userId);
 
         $counts = DB::transaction(function () use ($userId, &$subjects, &$keep, &$removedContent): array {
             $counts = [];
@@ -114,6 +116,7 @@ class Erasure
         $counts['uploads_deleted'] = array_sum(array_map(fn (Model $content): int => $this->uploads->purge($content), $removedContent))
             + $this->uploads->purgeForUser($userId, $keep);
         $this->refresh($subjects);
+        $this->syncCommentCounts($discussions);
         $this->events->dispatch(new UserErasureProcessed($userId, UserErasureProcessed::PURGE, $counts));
 
         return $counts;
@@ -125,6 +128,7 @@ class Erasure
     private function setWithheld(int $userId, bool $withheld): array
     {
         $subjects = [];
+        $discussions = $this->discussionsOf($userId);
 
         $counts = DB::transaction(function () use ($userId, $withheld, &$subjects): array {
             $value = $withheld ? now() : null;
@@ -146,6 +150,7 @@ class Erasure
         }, 3);
 
         $this->refresh($subjects);
+        $this->syncCommentCounts($discussions);
         $this->events->dispatch(new UserErasureProcessed($userId, $withheld ? UserErasureProcessed::WITHHOLD : UserErasureProcessed::RESTORE, $counts));
 
         return $counts;
@@ -339,6 +344,31 @@ class Erasure
     {
         foreach ($rows as $row) {
             $subjects[$row->reviewable_type.':'.$row->reviewable_id] = [(string) $row->reviewable_type, (int) $row->reviewable_id];
+        }
+    }
+
+    /**
+     * The discussions the user commented in (read before the change: a purge deletes rows).
+     *
+     * @return list<array{0: string, 1: int}>
+     */
+    private function discussionsOf(int $userId): array
+    {
+        return Comment::query()->withTrashed()->where('user_id', $userId)->toBase()->distinct()
+            ->get(['commentable_type', 'commentable_id'])
+            ->map(fn (object $row): array => [(string) $row->commentable_type, (int) $row->commentable_id])
+            ->all();
+    }
+
+    /**
+     * Host comment counters (SyncsCommentCount) of those discussions, after the commit.
+     *
+     * @param  list<array{0: string, 1: int}>  $discussions
+     */
+    private function syncCommentCounts(array $discussions): void
+    {
+        foreach ($discussions as [$type, $id]) {
+            $this->commentCounts->syncByKey($type, $id);
         }
     }
 

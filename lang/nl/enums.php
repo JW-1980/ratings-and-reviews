@@ -71,4 +71,9 @@ return [
             'regular_price' => 'Voor de normale prijs gekocht',
         ],
     ],
+    'question_type' => [
+        'scale' => 'Schaal',
+        'choice' => 'Eén keuze',
+        'multi' => 'Meerdere keuzes',
+    ],
 ];

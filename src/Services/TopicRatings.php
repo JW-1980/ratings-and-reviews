@@ -30,6 +30,10 @@ use RatingsAndReviews\Support\ContributionContext;
  * hold (there is no moderation queue for scores), keeps the member's scores out of the
  * averages, with the reason stored. Every change queues RefreshRatingAggregates.
  *
+ * The subject's ParticipationRules decide who may rate (403 otherwise); a forced hold
+ * (holdsContributionFrom() true) keeps the scores out of the averages like a RiskSignals
+ * hold, false counts them despite a RiskSignals hold (not despite `counted` false).
+ *
  * In the averages a standalone score counts unless the same member rated the same topic in a
  * counted review of the subject; then the review's score is the one counted.
  */
@@ -43,6 +47,7 @@ class TopicRatings
         private readonly RiskSignals $risk,
         private readonly VoterIdentity $identity,
         private readonly Dispatcher $events,
+        private readonly Participation $participation,
     ) {}
 
     public function isEnabledFor(Model&Reviewable $subject): bool
@@ -64,6 +69,7 @@ class TopicRatings
             throw ValidationException::withMessages(['ratings' => __('ratings-and-reviews::messages.topic_ratings_closed')]);
         }
 
+        $this->participation->assertCanParticipate($user, $subject);
         $userId = (int) $user->getAuthIdentifier();
         $removed = [];
 
@@ -88,8 +94,10 @@ class TopicRatings
             networkHash: $this->identity->networkHash($request),
             deviceHash: $this->identity->deviceHash($request),
         ));
-        $counted = $verdict->counted && ! $verdict->hold;
-        $reason = $counted ? null : ($verdict->hold ? $verdict->holdReason : $verdict->uncountedReason);
+        $override = $this->participation->holdOverride($subject, $user);
+        $held = $override ?? $verdict->hold;
+        $counted = $verdict->counted && ! $held;
+        $reason = $counted ? null : ($held ? ($override === true ? 'held_by_subject' : $verdict->holdReason) : $verdict->uncountedReason);
         $hashes = [
             'ip_hash' => $this->identity->ipHash($request),
             'network_hash' => $this->identity->networkHash($request),
