@@ -362,9 +362,7 @@ class Erasure
      */
     private function syncCommentCounts(array $discussions): void
     {
-        foreach ($discussions as [$type, $id]) {
-            $this->commentCounts->syncByKey($type, $id);
-        }
+        $this->commentCounts->syncMany($discussions);
     }
 
     /**

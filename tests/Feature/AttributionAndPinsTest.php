@@ -106,6 +106,22 @@ class AttributionAndPinsTest extends TestCase
         $this->getJson($url.'?sort=oldest')->assertJsonPath('data.0.id', $old->id)->assertJsonPath('meta.pinned_comment_id', null);
     }
 
+    public function test_a_pinned_comment_does_not_shift_the_pages_behind_it(): void
+    {
+        config(['ratings-and-reviews.discussions.roots_per_page' => 1]);
+        $product = $this->product();
+        $first = Comment::factory()->forSubject($product)->create(['created_at' => now()->subDays(2)]);
+        $second = Comment::factory()->forSubject($product)->create(['created_at' => now()->subDay()]);
+        Comment::factory()->forSubject($product)->create();
+        $this->actingAs($this->moderator())->postJson("/rr/comments/{$first->id}/pin")->assertOk();
+
+        $url = "/rr/subjects/product/{$product->id}/comments?sort=oldest";
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.id', $first->id)->assertJsonCount(1, 'data');
+        $this->getJson($url.'&page=2')->assertOk()->assertJsonPath('data.0.id', $second->id)->assertJsonCount(1, 'data');
+        $this->getJson($url.'&page=3')->assertOk()->assertJsonCount(1, 'data');
+        $this->assertNotSame($first->id, $this->getJson($url.'&page=3')->json('data.0.id'));
+    }
+
     public function test_the_discussion_owner_pins_as_well(): void
     {
         $owner = $this->user();

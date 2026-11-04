@@ -34,18 +34,18 @@ class FollowUpSummary implements SummaryExtension
         $aggregator = app(RatingAggregator::class);
 
         if ($count < $minimum) {
-            return ['enabled' => $settings->reviewFollowUpAfterDays > 0, 'count' => $count, 'min_for_change' => $minimum, 'average_before' => null, 'average_after' => null, 'average_change' => null];
+            return ['enabled' => $settings->reviewsEnabled && $settings->reviewFollowUpAfterDays > 0, 'count' => $count, 'min_for_change' => $minimum, 'average_before' => null, 'average_after' => null, 'average_change' => null];
         }
 
-        $before = $aggregator->display((float) $stats['before_sum'] / $count, $scale);
-        $after = $aggregator->display((float) $stats['after_sum'] / $count, $scale);
+        $before = round($aggregator->display((float) $stats['before_sum'] / $count, $scale), 1);
+        $after = round($aggregator->display((float) $stats['after_sum'] / $count, $scale), 1);
 
         return [
-            'enabled' => $settings->reviewFollowUpAfterDays > 0,
+            'enabled' => $settings->reviewsEnabled && $settings->reviewFollowUpAfterDays > 0,
             'count' => $count,
             'min_for_change' => $minimum,
-            'average_before' => round($before, 1),
-            'average_after' => round($after, 1),
+            'average_before' => $before,
+            'average_after' => $after,
             'average_change' => round($after - $before, 1),
         ];
     }

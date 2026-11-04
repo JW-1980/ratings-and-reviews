@@ -31,6 +31,9 @@ export const CARD_EXTENSION_POSITIONS = Object.freeze(['review.meta', 'review.fo
 /** position => [{ callback, seen }]: host callbacks run once per server-rendered extension element. */
 const cardExtensionCallbacks = new Map();
 
+/** Unregisters the callbacks registered through enhanceRatingsAndReviews() options. */
+let optionUnregisterers = [];
+
 /**
  * Calls the host callbacks for every extension element (`[data-rr-extension]`) in `scope` that
  * a callback has not seen yet. The element is server-rendered (the host's renderer or view);
@@ -634,8 +637,12 @@ async function loadMore(env, root, link) {
  *   `cardExtensions`: `{ 'review.footer': (item, element) => void, … }`, the same as calling registerCardExtension() per entry.
  */
 export function enhanceRatingsAndReviews(scope = document, options = {}) {
+    // Options are the per-call shorthand: replace the previous call's callbacks instead of
+    // stacking a new closure on every re-enhance (inline functions have a new identity).
+    optionUnregisterers.forEach((unregister) => unregister());
+    optionUnregisterers = [];
     Object.entries(options.cardExtensions ?? {}).forEach(([position, callbacks]) => {
-        (Array.isArray(callbacks) ? callbacks : [callbacks]).forEach((callback) => registerCardExtension(position, callback));
+        (Array.isArray(callbacks) ? callbacks : [callbacks]).forEach((callback) => optionUnregisterers.push(registerCardExtension(position, callback)));
     });
     const env = createEnv(options);
     scope.querySelectorAll('[data-rr]').forEach((root) => enhanceRoot(root, env));

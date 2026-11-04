@@ -70,7 +70,7 @@ class ReviewFollowUps
         $settings = $this->settingsFor($review);
         $since = $review->approved_at;
 
-        if ($settings->reviewFollowUpAfterDays <= 0 || $since === null || $review->status !== ContentStatus::Approved) {
+        if ($settings->reviewFollowUpAfterDays <= 0 || ! $settings->reviewsEnabled || $since === null || $review->status !== ContentStatus::Approved) {
             return null;
         }
 
@@ -240,13 +240,25 @@ class ReviewFollowUps
         $limit ??= max(1, (int) config('ratings-and-reviews.invitations.batch_size', 500));
         $sent = 0;
 
-        $sections = Review::query()->where('status', ContentStatus::Approved->value)->whereNull('follow_up_invited_at')
-            ->whereNotNull('section')->distinct()->pluck('section');
+        $sections = $this->settings->knownSections();
+
+        // A host may switch follow-ups on in section_defaults for every section; then the
+        // section keys only exist on the reviews themselves.
+        if ((int) config('ratings-and-reviews.section_defaults.review_follow_up_after_days', 0) > 0) {
+            $sections = array_values(array_unique([...$sections, ...Review::query()
+                ->where('status', ContentStatus::Approved->value)
+                ->whereNull('follow_up_invited_at')
+                ->whereNotNull('section')
+                ->distinct()
+                ->pluck('section')
+                ->map(fn (mixed $section): string => (string) $section)
+                ->all()]));
+        }
 
         foreach ($sections as $section) {
             $settings = $this->settings->for((string) $section);
 
-            if ($settings->reviewFollowUpAfterDays <= 0 || $sent >= $limit) {
+            if ($settings->reviewFollowUpAfterDays <= 0 || ! $settings->reviewsEnabled || $sent >= $limit) {
                 continue;
             }
 

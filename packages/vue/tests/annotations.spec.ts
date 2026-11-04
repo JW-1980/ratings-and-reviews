@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import RrAnnotations from '../src/components/RrAnnotations.vue';
+import RrAttributionBadge from '../src/components/RrAttributionBadge.vue';
 import RrDiscussion from '../src/components/RrDiscussion.vue';
 import RrReviewCard from '../src/components/RrReviewCard.vue';
 import * as normalize from '../src/shared/normalize.js';
@@ -14,6 +15,20 @@ const claim = { key: 'health_claim', label: 'Gezondheidsclaim', tone: 'warning',
 const rawReview = (extra: Record<string, unknown> = {}) => ({ id: 3, rating: 4, scale_max: 5, status: 'approved', title: 'Lekker', body_html: '<p>x</p>', helpful_count: 0, ...extra });
 
 describe('annotation normalisation', () => {
+    it('renders an attribution link without hiding it from assistive tech', () => {
+        const { wrapper } = mountWithRr(RrAttributionBadge, {
+            props: { attribution: { key: 'brand:1', label: 'Bakkerij Jansen', url: 'https://example.test/brand' } },
+            rr: { api: fakeApi() },
+        });
+        const link = wrapper.find('a');
+
+        expect(link.exists()).toBe(true);
+        expect(link.attributes('href')).toBe('https://example.test/brand');
+        expect(link.element.closest('[aria-hidden="true"]')).toBeNull();
+        expect(wrapper.text()).toContain('Bakkerij Jansen');
+        wrapper.unmount();
+    });
+
     it('keeps a valid annotation and defaults the tone', () => {
         expect(normalize.annotation(claim)).toEqual(claim);
         expect(normalize.annotation({ label: 'Hi', tone: 'danger' })).toEqual({ key: 'badge', label: 'Hi', tone: 'info', url: null });

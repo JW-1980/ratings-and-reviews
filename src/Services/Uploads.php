@@ -130,7 +130,7 @@ class Uploads
             throw ValidationException::withMessages(['role' => __('ratings-and-reviews::messages.upload_failed')]);
         }
 
-        if (! $copy && ($existing = Upload::query()->where('path', $path)->first()) !== null) {
+        if (! $copy && ($existing = Upload::query()->where('disk', $disk)->where('path', $path)->first()) !== null) {
             return $this->reuseRegistered($existing, $userId, $attachTo, $role, $position);
         }
 
@@ -154,7 +154,7 @@ class Uploads
             $directory = trim((string) config('ratings-and-reviews.uploads.directory', 'rr-uploads'), '/');
             $targetPath = ($directory === '' ? '' : $directory.'/').'imported/'.hash('sha256', $disk.'|'.$path).'.'.$this->extension($mime);
 
-            if (($existing = Upload::query()->where('path', $targetPath)->first()) !== null) {
+            if (($existing = Upload::query()->where('disk', $targetDisk)->where('path', $targetPath)->first()) !== null) {
                 return $this->reuseRegistered($existing, $userId, $attachTo, $role, $position);
             }
 

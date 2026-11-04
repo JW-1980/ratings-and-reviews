@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRr } from '../context';
 import { errorMessage } from '../composables/errors';
 import { ApiError, formatDate, formatRelative } from '../shared';
@@ -19,15 +19,28 @@ const open = ref(false);
 const rating = ref<number | null>(null);
 const body = ref('');
 const busy = ref(false);
+const deleting = ref(false);
 const errors = ref<Record<string, string>>({});
 const formError = ref('');
 const formId = computed(() => `rr-review-${props.review.id}-follow-up`);
+const now = ref(Date.now());
+let clock: ReturnType<typeof setInterval> | null = null;
 const followUp = computed(() => props.review.followUp);
 const changed = computed(() => followUp.value !== null && (followUp.value.rating !== followUp.value.initialRating || followUp.value.scaleMax !== followUp.value.initialScaleMax));
 const opensLater = computed(() => {
     const opensAt = props.review.followUpWindow?.opensAt;
 
-    return props.review.isOwn && !props.review.can.followUp && followUp.value === null && opensAt && new Date(opensAt).getTime() > Date.now() ? opensAt : null;
+    return props.review.isOwn && !props.review.can.followUp && followUp.value === null && opensAt && new Date(opensAt).getTime() > now.value ? opensAt : null;
+});
+
+onMounted(() => {
+    clock = setInterval(() => (now.value = Date.now()), 30_000);
+});
+
+onBeforeUnmount(() => {
+    if (clock) {
+        clearInterval(clock);
+    }
 });
 
 async function submit() {
@@ -59,9 +72,11 @@ async function submit() {
 }
 
 async function remove() {
-    if (!window.confirm(rr.t('reviews.follow_up_delete_confirm'))) {
+    if (deleting.value || !window.confirm(rr.t('reviews.follow_up_delete_confirm'))) {
         return;
     }
+
+    deleting.value = true;
 
     try {
         await rr.api.deleteFollowUp(props.review.id);
@@ -69,6 +84,8 @@ async function remove() {
         emit('message', rr.t('common.deleted'));
     } catch (failure) {
         emit('message', errorMessage(failure, rr.t));
+    } finally {
+        deleting.value = false;
     }
 }
 </script>
@@ -87,7 +104,7 @@ async function remove() {
             }) }}
         </p>
         <p v-if="followUp.body" class="rr-follow-up__body">{{ followUp.body }}</p>
-        <button v-if="review.isOwn" type="button" class="rr-button rr-button--small rr-button--ghost" @click="remove">{{ rr.t('reviews.follow_up_delete') }}</button>
+        <button v-if="review.isOwn" type="button" class="rr-button rr-button--small rr-button--ghost" :disabled="deleting" :aria-busy="deleting ? 'true' : undefined" @click="remove">{{ rr.t('reviews.follow_up_delete') }}</button>
     </aside>
     <div v-else-if="review.isOwn && review.can.followUp" class="rr-follow-up rr-follow-up--form">
         <button type="button" class="rr-button rr-button--small" :aria-expanded="open ? 'true' : 'false'" :aria-controls="open ? formId : undefined" @click="open = !open">{{ rr.t('reviews.follow_up_add') }}</button>

@@ -361,7 +361,9 @@ class ReviewQuestions
         $rows = [];
 
         foreach ($values as $item) {
-            if (! is_string($item) || ! in_array($item, $allowed, true)) {
+            $item = is_scalar($item) ? (string) $item : null;
+
+            if ($item === null || ! in_array($item, $allowed, true)) {
                 return null;
             }
 
@@ -392,7 +394,12 @@ class ReviewQuestions
     {
         $subjects = Review::query()->withErasureWithheld()
             ->whereIn('id', ReviewAnswer::query()->where('question_id', $questionId)->select('review_id'))
-            ->toBase()->distinct()->get(['reviewable_type', 'reviewable_id']);
+            ->toBase()
+            ->select(['reviewable_type', 'reviewable_id'])
+            ->distinct()
+            ->orderBy('reviewable_type')
+            ->orderBy('reviewable_id')
+            ->cursor();
 
         foreach ($subjects as $row) {
             RefreshRatingAggregates::dispatch((string) $row->reviewable_type, (string) $row->reviewable_id);

@@ -106,6 +106,30 @@ class BlockingTest extends TestCase
         Event::assertDispatched(CommentPosted::class, fn (CommentPosted $event): bool => $event->recipients === []);
     }
 
+    public function test_digest_revisions_and_review_threads_do_not_leak_blocked_content(): void
+    {
+        config(['ratings-and-reviews.reviews.replies.enabled' => true]);
+        $this->configureSection('product', ['digest_threshold' => 1]);
+        $post = GroupPost::query()->create(['name' => 'Post']);
+        $viewer = $this->user();
+        $blocked = $this->user();
+        $this->blocks->block($viewer->id, $blocked->id);
+
+        $comment = Comment::factory()->forSubject($post)->create([
+            'user_id' => $blocked->id,
+            'body_text' => 'Dit mag de geblokkeerde niet meer laten zien.',
+            'body_html' => '<p>Dit mag de geblokkeerde niet meer laten zien.</p>',
+            'agree_count' => 9,
+        ]);
+        $review = Review::factory()->forSubject($post)->create(['user_id' => $blocked->id]);
+
+        $this->actingAs($viewer)->getJson("/rr/subjects/group_post/{$post->id}/digest")->assertOk()
+            ->assertJsonPath('data.available', false)
+            ->assertJsonPath('data.total_comments', 0);
+        $this->actingAs($viewer)->getJson("/rr/comments/{$comment->id}/revisions")->assertNotFound();
+        $this->actingAs($viewer)->getJson("/rr/subjects/rr_review/{$review->id}/comments")->assertNotFound();
+    }
+
     public function test_a_subject_that_hides_blocked_members_leaves_them_out_for_the_viewer(): void
     {
         $post = GroupPost::query()->create(['name' => 'Post']);

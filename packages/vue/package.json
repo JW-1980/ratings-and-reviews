@@ -37,10 +37,11 @@
         "typecheck": "vue-tsc --noEmit -p tsconfig.json",
         "prebuild": "node scripts/sync-shared.mjs",
         "build": "vite build && vue-tsc -p tsconfig.build.json && node scripts/copy-themes.mjs",
-        "prepublishOnly": "npm run build"
+        "prepack": "npm run build"
     },
     "publishConfig": {
-        "registry": "https://npm.pkg.github.com"
+        "registry": "https://npm.pkg.github.com",
+        "access": "restricted"
     },
     "peerDependencies": {
         "@tiptap/core": "~3.31.0",

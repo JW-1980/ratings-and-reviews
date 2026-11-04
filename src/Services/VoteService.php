@@ -218,8 +218,12 @@ class VoteService
         $totals = ['votes' => 0, 'votes_changed' => 0, 'items' => 0];
 
         if ($ids !== []) {
-            $items = Vote::query()->whereIn('user_id', $ids)->toBase()->distinct()
-                ->orderBy('votable_type')->orderBy('votable_id')->get(['votable_type', 'votable_id']);
+            $items = Vote::query()->whereIn('user_id', $ids)->toBase()
+                ->select(['votable_type', 'votable_id'])
+                ->distinct()
+                ->orderBy('votable_type')
+                ->orderBy('votable_id')
+                ->cursor();
 
             foreach ($items as $item) {
                 $votable = $this->votableByKey((string) $item->votable_type, (int) $item->votable_id);

@@ -26,6 +26,7 @@ use RatingsAndReviews\Contracts\ScopedModeration;
 use RatingsAndReviews\Contracts\Votable;
 use RatingsAndReviews\Database\Factories\ReviewFactory;
 use RatingsAndReviews\Models\Scopes\ExcludeErasureWithheld;
+use RatingsAndReviews\Services\Participation;
 use RatingsAndReviews\Services\ReviewService;
 use RatingsAndReviews\Support\Comparison;
 use RatingsAndReviews\Support\ContentStatus;
@@ -68,8 +69,7 @@ use RatingsAndReviews\Support\VoteDimension;
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  * @property Carbon|null $erasure_withheld_at set while the author's erasure request is pending (hidden everywhere)
- */
-/**
+ *
  * As the subject of its replies the review passes the participation hooks on to its own
  * subject (ParticipationRules, ScopedModeration, HidesBlockedMembers); its author owns the
  * thread (HasDiscussionOwner) and the subject's page is the context.
@@ -283,12 +283,19 @@ class Review extends Model implements Commentable, HasDiscussionContext, HasDisc
         return self::repliesEnabled() && $this->isPubliclyVisible() && $subject instanceof Reviewable && $subject->acceptsReviews();
     }
 
-    /** The replies are visible with the review: a public review of a subject the viewer may see. */
+    /** The replies are visible with the review: a public review of a subject the viewer may see, unless the viewer blocks its author. */
     public function commentsVisibleTo(?Authenticatable $viewer): bool
     {
         $subject = $this->reviewable;
 
-        return self::repliesEnabled() && $this->isPubliclyVisible() && $subject instanceof Reviewable && $subject->reviewsVisibleTo($viewer);
+        if (! self::repliesEnabled() || ! $this->isPubliclyVisible() || ! $subject instanceof Reviewable || ! $subject->reviewsVisibleTo($viewer)) {
+            return false;
+        }
+
+        $viewerId = $viewer === null ? null : (int) $viewer->getAuthIdentifier();
+
+        return $viewerId === null
+            || ! in_array((int) $this->user_id, app(Participation::class)->hiddenAuthorIds($subject, $viewerId), true);
     }
 
     public function discussionTitle(): string

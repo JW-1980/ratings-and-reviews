@@ -53,6 +53,19 @@ class ReviewsEnabledAndMinimumAverageTest extends TestCase
         $this->actingAs($this->moderator())->patchJson('/rr/admin/sections/product', ['min_reviews_for_average' => -1])->assertUnprocessable();
     }
 
+    public function test_the_author_does_not_get_their_own_review_when_reviews_are_off(): void
+    {
+        $product = $this->product();
+        $author = $this->user();
+        Review::factory()->forSubject($product)->create(['user_id' => $author->id]);
+        $this->configureSection('product', ['reviews_enabled' => false]);
+
+        $this->actingAs($author)->getJson("/rr/subjects/product/{$product->id}/reviews")->assertOk()
+            ->assertJsonCount(0, 'data')
+            ->assertJsonPath('meta.own_review', null)
+            ->assertJsonPath('meta.total', 0);
+    }
+
     public function test_averages_appear_from_the_minimum_number_of_ratings(): void
     {
         $this->configureSection('product', ['min_reviews_for_average' => 3]);

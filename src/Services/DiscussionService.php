@@ -7,6 +7,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use RatingsAndReviews\Contracts\Commentable;
@@ -434,30 +435,37 @@ class DiscussionService
         }
 
         $userId = $user->getAuthIdentifier();
+        // One pin per discussion: serialise concurrent pins (the empty-pin gap cannot be locked).
+        $lock = Cache::lock('rr:pin:'.$comment->commentable_type.':'.$comment->commentable_id, 10);
+        $lock->block(5);
 
-        $unpinned = DB::transaction(function () use ($comment, $pinned, $userId): ?int {
-            $others = Comment::query()->withTrashed()
-                ->where('commentable_type', $comment->commentable_type)
-                ->where('commentable_id', $comment->commentable_id)
-                ->whereNotNull('pinned_at')
-                ->whereKeyNot($comment->id)
-                ->lockForUpdate()
-                ->pluck('id')
-                ->map(fn (mixed $id): int => (int) $id)
-                ->all();
-            $locked = Comment::query()->whereKey($comment->id)->lockForUpdate()->firstOrFail();
+        try {
+            $unpinned = DB::transaction(function () use ($comment, $pinned, $userId): ?int {
+                $others = Comment::query()->withTrashed()
+                    ->where('commentable_type', $comment->commentable_type)
+                    ->where('commentable_id', $comment->commentable_id)
+                    ->whereNotNull('pinned_at')
+                    ->whereKeyNot($comment->id)
+                    ->lockForUpdate()
+                    ->pluck('id')
+                    ->map(fn (mixed $id): int => (int) $id)
+                    ->all();
+                $locked = Comment::query()->whereKey($comment->id)->lockForUpdate()->firstOrFail();
 
-            if ($pinned && $others !== []) {
-                Comment::query()->withTrashed()->whereKey($others)->update(['pinned_at' => null, 'pinned_by' => null]);
-            }
+                if ($pinned && $others !== []) {
+                    Comment::query()->withTrashed()->whereKey($others)->update(['pinned_at' => null, 'pinned_by' => null]);
+                }
 
-            $comment->forceFill([
-                'pinned_at' => $pinned ? ($locked->pinned_at ?? now()) : null,
-                'pinned_by' => $pinned ? ($locked->pinned_at !== null ? $locked->pinned_by : $userId) : null,
-            ])->save();
+                $comment->forceFill([
+                    'pinned_at' => $pinned ? ($locked->pinned_at ?? now()) : null,
+                    'pinned_by' => $pinned ? ($locked->pinned_at !== null ? $locked->pinned_by : $userId) : null,
+                ])->save();
 
-            return $pinned ? ($others[0] ?? null) : null;
-        });
+                return $pinned ? ($others[0] ?? null) : null;
+            }, 3);
+        } finally {
+            $lock->release();
+        }
 
         $this->events->dispatch(new CommentPinned($comment, $pinned, $userId, $unpinned));
 
