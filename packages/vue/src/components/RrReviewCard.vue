@@ -21,6 +21,19 @@ const props = withDefaults(defineProps<{
     wantToTry?: boolean;
 }>(), { topicNames: () => ({}), wantToTry: false });
 
+/** After deleting a follow-up: only offer a new one while the server's window is still open. */
+function followUpCanBeAdded(review: Review): boolean {
+    const window = review.followUpWindow;
+
+    if (!window?.opensAt || !window?.closesAt) {
+        return false;
+    }
+
+    const now = Date.now();
+
+    return now >= Date.parse(window.opensAt) && now <= Date.parse(window.closesAt);
+}
+
 /**
  * Host slots: `meta` (end of the header line) and `footer` (next to the helpful vote), scoped
  * with `{ review, item }`; they replace the `cardExtensions` registered at `review.meta` and
@@ -138,7 +151,7 @@ async function addToList() {
         <RrFollowUp
             :review="review"
             @saved="emit('updated', $event)"
-            @removed="emit('updated', { ...review, followUp: null, can: { ...review.can, followUp: true } })"
+            @removed="emit('updated', { ...review, followUp: null, can: { ...review.can, followUp: followUpCanBeAdded(review) } })"
             @message="emit('message', $event)"
         />
 

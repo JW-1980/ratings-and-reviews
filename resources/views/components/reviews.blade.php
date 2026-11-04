@@ -42,6 +42,10 @@
         $threadReview = $threadReviewId !== null && ! empty($features['review_replies'])
             ? \RatingsAndReviews\Models\Review::query()->forSubject($subject)->approved()->find($threadReviewId)
             : null;
+
+        if ($threadReview !== null && ! $threadReview->commentsVisibleTo($rr['viewer']())) {
+            $threadReview = null;
+        }
         $scale = (int) $meta['scale_max'];
         // One renderer for the whole list: a host preload runs once with every card of the page.
         $cardExtensions = \RatingsAndReviews\Support\CardExtensions::forList('review', $own === null ? $list : [$own, ...$list], $rr['viewer']());

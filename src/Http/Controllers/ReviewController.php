@@ -121,7 +121,7 @@ class ReviewController extends Controller
         /** @var Collection<int, Review> $items */
         $items = collect($page->items());
 
-        $own = $viewerId === null ? null : $this->withReplyCount(Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(self::WITH))->first();
+        $own = $viewerId === null || ! $settings->reviewsEnabled ? null : $this->withReplyCount(Review::query()->forSubject($subject)->where('user_id', $viewerId)->with(self::WITH))->first();
         $items->concat(array_filter([$own]))->each(fn (Review $review) => $review->setRelation('reviewable', $subject));
         $profiles = $this->authors->resolve($items->pluck('user_id')->push($own?->user_id)->filter()->map(fn ($id): int => (int) $id)->unique()->values()->all());
         $choices = $this->votes->viewerChoices($items->concat(array_filter([$own]))->unique(fn (Review $review): int => $review->id)->values(), new VoterKeys($this->identity, $request, $viewer));
@@ -129,13 +129,15 @@ class ReviewController extends Controller
         $replies = $this->officialReplies($items->concat(array_filter([$own]))->all());
         $blocked = $this->participation->blockedWith($viewerId);
         $participates = $viewer === null ? null : $this->participation->canParticipate($viewer, $subject, ParticipationKind::REVIEW);
+        $attributions = $viewer !== null && $participates !== false ? $this->participation->attributionOptions($viewer, $subject) : [];
+        $moderatesSubject = $viewer !== null && $this->moderates($viewer, $subject);
 
         $marks = $this->annotations->forItems($items->concat(array_filter([$own])), $viewer);
 
         $present = fn (Review $review): array => $this->resource($review, $replies)
             ->withAnnotations($marks[Annotations::keyOf($review)] ?? [])
             ->withContext($profiles[$review->user_id] ?? null, $choices[$review->id] ?? [], $viewerId)
-            ->withModeratorCheck(fn (): bool => $this->moderates($viewer, $review))
+            ->withModeratorCheck(fn (): bool => $moderatesSubject)
             ->withParticipation($blocked, $review->user_id === $viewerId ? $this->followUps->reasonToRefuse($viewer, $review, $review->followUp !== null) === null : false)
             ->resolve($request);
 
@@ -170,12 +172,12 @@ class ReviewController extends Controller
                     'review_replies' => Review::repliesEnabled(),
                     'official_replies' => app(OfficialReplyResolver::class)->isEnabled(),
                     'follow_ups' => $settings->reviewFollowUpAfterDays > 0,
-                    'attributions' => $viewer !== null && $this->participation->attributionOptions($viewer, $subject) !== [],
+                    'attributions' => $attributions !== [],
                 ],
                 'reviews_enabled' => $settings->reviewsEnabled,
                 // Null for a guest; false: the subject's ParticipationRules keep this member out.
                 'can_participate' => $participates,
-                'attributions' => $viewer !== null && $participates !== false ? $this->participation->attributionOptions($viewer, $subject) : [],
+                'attributions' => $attributions,
                 'review_questions' => $settings->reviewsEnabled ? $this->questions->presentFor($subject) : [],
                 'review_follow_up' => $settings->reviewFollowUpAfterDays > 0 ? [
                     'after_days' => $settings->reviewFollowUpAfterDays,

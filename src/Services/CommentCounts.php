@@ -44,4 +44,47 @@ class CommentCounts
 
         $this->sync($class::query()->find($id));
     }
+
+    /**
+     * The same for many subjects at once: one count per type and chunk, one host callback per
+     * subject (the callback itself is per subject).
+     *
+     * @param  list<array{0: string, 1: int|string}>  $keys
+     */
+    public function syncMany(array $keys): void
+    {
+        foreach (array_chunk($keys, 200) as $chunk) {
+            $byType = [];
+
+            foreach ($chunk as [$type, $id]) {
+                $byType[$type][] = (int) $id;
+            }
+
+            foreach ($byType as $type => $ids) {
+                $class = Relation::getMorphedModel($type);
+
+                if ($class === null || ! is_subclass_of($class, Model::class) || ! is_subclass_of($class, SyncsCommentCount::class)) {
+                    continue;
+                }
+
+                $subjects = $class::query()->whereKey(array_values(array_unique($ids)))->get()->keyBy(fn (Model $subject): int => (int) $subject->getKey());
+                $counts = Comment::query()->published()->withContent()
+                    ->where('commentable_type', $type)
+                    ->whereIn('commentable_id', array_values(array_unique($ids)))
+                    ->toBase()
+                    ->selectRaw('commentable_id, COUNT(*) as total')
+                    ->groupBy('commentable_id')
+                    ->pluck('total', 'commentable_id')
+                    ->mapWithKeys(fn (mixed $total, mixed $id): array => [(int) $id => (int) $total]);
+
+                foreach ($subjects as $id => $subject) {
+                    try {
+                        $subject->syncCommentCount((int) ($counts[$id] ?? 0));
+                    } catch (Throwable $exception) {
+                        report($exception);
+                    }
+                }
+            }
+        }
+    }
 }

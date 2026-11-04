@@ -43,11 +43,13 @@ class ReviewQuestionSummary implements SummaryExtension
             if ($question->type === QuestionType::Scale) {
                 $values = (array) ($totals['values'] ?? []);
                 $sum = 0;
+                $answered = 0;
                 $distribution = [];
 
                 foreach (range(1, ReviewQuestion::scaleMax()) as $value) {
                     $count = (int) ($values[(string) $value] ?? 0);
                     $sum += $value * $count;
+                    $answered += $count;
                     $distribution[] = ['value' => $value, 'count' => $count];
                 }
 

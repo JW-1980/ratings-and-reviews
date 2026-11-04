@@ -60,6 +60,7 @@ const pointLength = computed(() => props.meta?.form.maxProConLength ?? 200);
 const questionList = computed<ReviewQuestion[]>(() => props.questions ?? props.meta?.questions ?? []);
 const attributionOptions = computed(() => props.meta?.attributions ?? []);
 const ownAnswers = Object.fromEntries((props.review?.answers ?? []).map((answer) => [answer.key, answer.value]));
+const ownAttribution = props.review?.attribution?.key ?? '';
 
 const form = reactive({
     rating: props.review?.rating ?? null as number | null,
@@ -75,7 +76,7 @@ const form = reactive({
     answers: Object.fromEntries(questionList.value.map((question) => [question.key, question.type === 'multi'
         ? (Array.isArray(ownAnswers[question.key]) ? [...(ownAnswers[question.key] as string[])] : [])
         : (ownAnswers[question.key] ?? null)])) as Record<string, number | string | string[] | null>,
-    attribution: props.review?.attribution?.key ?? '',
+    attribution: attributionOptions.value.some((option) => option.key === ownAttribution) ? ownAttribution : '',
 });
 const uploadingPhotos = ref(false);
 const photoStatus = ref('');

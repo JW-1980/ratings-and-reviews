@@ -318,7 +318,7 @@ De versie van het Vue-pakket (`packages/vue/package.json`) is gelijk aan de PHP-
 1. Zet `version` in `packages/vue/package.json` (en `package-lock.json`, bijvoorbeeld met `npm version X.Y.Z --no-git-tag-version` in `packages/vue`) op `X.Y.Z` en commit die wijziging samen met de rest van de release op `main`.
 2. Wacht tot de CI-workflow (`.github/workflows/ci.yml`) groen is.
 3. Tag die commit: `git tag vX.Y.Z && git push origin vX.Y.Z`. Composer leest de PHP-versie uit deze tag.
-4. De workflow `.github/workflows/publish-vue.yml` draait op de tag: `npm ci`, tests, typecheck, build, controle dat de tag gelijk is aan `package.json` (anders faalt hij) en daarna `npm publish` naar GitHub Packages.
+4. De workflow `.github/workflows/publish-vue.yml` draait op de tag: `npm ci`, tests, typecheck, controle dat de tag gelijk is aan `package.json` (anders faalt hij) en daarna `npm publish` naar GitHub Packages. `prepack` bouwt `dist/`, de thema's en de `.d.ts` vlak vóór het publiceren.
 5. Een versie op GitHub Packages kan niet opnieuw worden gepubliceerd: bij een fout verhoog je de versie en tag je opnieuw.
 
 ### Thema

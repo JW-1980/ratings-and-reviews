@@ -31,11 +31,14 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: gd, pdo_mysql
+          extensions: gd, pdo_mysql, pcntl
           coverage: none
 
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Pint
+        run: vendor/bin/pint --test
 
       - name: PHPUnit
         run: vendor/bin/phpunit

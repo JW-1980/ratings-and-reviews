@@ -29,16 +29,18 @@ class DiscussionDigest
     public function __construct(
         private readonly SectionSettingsRepository $settings,
         private readonly AuthorResolver $authors,
+        private readonly Participation $participation,
     ) {}
 
     /**
      * @return array<string, mixed>
      */
-    public function for(Model&Commentable $subject): array
+    public function for(Model&Commentable $subject, ?int $viewerId = null): array
     {
         $settings = $this->settings->for($subject->commentSectionKey());
         $threshold = $settings->digestThreshold;
-        $base = Comment::query()->forSubject($subject)->published()->withContent()->where('counted', true);
+        $base = Comment::query()->forSubject($subject)->published()->withContent()->where('counted', true)
+            ->withoutAuthors($this->participation->hiddenAuthorIds($subject, $viewerId));
         $total = (clone $base)->count();
 
         $digest = ['available' => $threshold > 0 && $total >= $threshold, 'threshold' => $threshold, 'total_comments' => $total];

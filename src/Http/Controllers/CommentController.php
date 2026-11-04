@@ -235,11 +235,13 @@ class CommentController extends Controller
     public function revisions(Request $request, string $comment): JsonResponse
     {
         $viewer = $this->currentUser($request);
+        $viewerId = $this->userId($viewer);
         $model = ctype_digit($comment) ? Comment::query()->find((int) $comment) : null;
         $subject = $model?->commentable;
         $moderates = $model !== null && $this->moderates($viewer, $model);
 
-        if ($model === null || ! $subject instanceof Commentable || (! $model->isPubliclyVisible() && ! $moderates) || (! $subject->commentsVisibleTo($viewer) && ! $moderates)) {
+        if ($model === null || ! $subject instanceof Commentable || (! $model->isPubliclyVisible() && ! $moderates) || (! $subject->commentsVisibleTo($viewer) && ! $moderates)
+            || (! $moderates && $model->user_id !== null && in_array($model->user_id, $this->participation->hiddenAuthorIds($subject, $viewerId), true))) {
             throw new NotFoundHttpException;
         }
 

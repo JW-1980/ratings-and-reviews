@@ -3,6 +3,7 @@
 namespace RatingsAndReviews\Http\Controllers;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -12,6 +13,7 @@ use RatingsAndReviews\Http\Requests\StoreUploadRequest;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Models\Upload;
+use RatingsAndReviews\Services\Participation;
 use RatingsAndReviews\Services\Uploads;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -79,6 +81,14 @@ class UploadController extends Controller
 
         if ($viewer !== null && ($this->userId($viewer) === $upload->user_id || $this->moderates($viewer, $content ?? $upload))) {
             return true;
+        }
+
+        // Content hidden for this viewer by a member block also hides its private media.
+        $subject = $content instanceof Review ? $content->reviewable : ($content instanceof Comment ? $content->commentable : null);
+
+        if ($viewer !== null && $content !== null && $subject instanceof Model
+            && in_array((int) $content->user_id, app(Participation::class)->hiddenAuthorIds($subject, $this->userId($viewer)), true)) {
+            return false;
         }
 
         return match (true) {

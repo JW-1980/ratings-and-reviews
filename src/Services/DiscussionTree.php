@@ -61,11 +61,23 @@ class DiscussionTree
         $rootQuery = Comment::query()->forSubject($subject)->published()->withoutWithheldLeaves()->withoutAuthors($hidden)->whereNull('parent_id');
         $total = (clone $rootQuery)->count();
 
-        // The pinned comment (at most one) leads page 1 whatever the sort.
-        $roots = $this->sorted($rootQuery->orderByRaw('CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END'), $sort)
-            ->offset(($page - 1) * $perPage)
-            ->limit($perPage)
+        // The pinned comment (at most one) leads page 1 whatever the sort. Fetch it separately:
+        // sorting every root by `pinned_at` first would defeat the thread index (filesort).
+        $hasPinned = (clone $rootQuery)->whereNotNull('pinned_at')->exists();
+        $pinned = $page === 1 && $hasPinned
+            ? $this->sorted((clone $rootQuery)->whereNotNull('pinned_at'), $sort)->first()
+            : null;
+        $offset = max(0, ($page - 1) * $perPage - ($hasPinned ? 1 : 0));
+        $limit = $pinned !== null ? max(0, $perPage - 1) : $perPage;
+
+        $roots = $this->sorted((clone $rootQuery)->whereNull('pinned_at'), $sort)
+            ->offset($offset)
+            ->limit($limit)
             ->get();
+
+        if ($pinned !== null) {
+            $roots = new Collection([$pinned, ...$roots->all()]);
+        }
 
         if ($viewerId !== null && $page === 1) {
             $own = Comment::query()->forSubject($subject)->visibleTo($viewerId)

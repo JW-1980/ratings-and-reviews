@@ -115,6 +115,15 @@ class UpgradeMigrationsTest extends CommittedTestCase
 
     public function test_the_vote_user_indexes_exist_and_are_added_to_an_upgraded_database(): void
     {
+        // Simulate the schema just before 000018: only the single-column user indexes.
+        if (Schema::hasIndex('rr_votes', 'rr_votes_user_item_index')) {
+            Schema::table('rr_votes', fn ($table) => $table->dropIndex('rr_votes_user_item_index'));
+        }
+
+        if (Schema::hasIndex('rr_poll_votes', 'rr_poll_votes_user_poll_index')) {
+            Schema::table('rr_poll_votes', fn ($table) => $table->dropIndex('rr_poll_votes_user_poll_index'));
+        }
+
         $migration = require __DIR__.'/../../database/migrations/2026_11_03_000017_add_user_indexes_to_rr_votes.php';
         $this->assertSame(['rr_votes_user_id_index'], $this->userIndexes('rr_votes'));
         $this->assertSame(['rr_poll_votes_user_id_index'], $this->userIndexes('rr_poll_votes'));

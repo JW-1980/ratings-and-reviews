@@ -19,11 +19,12 @@ class DigestController extends Controller
     public function show(Request $request, string $type, string $id): JsonResponse
     {
         $subject = $this->subjects->resolve($type, $id, Commentable::class);
+        $viewer = $this->currentUser($request);
 
-        if (! $subject->commentsVisibleTo($this->currentUser($request))) {
+        if (! $subject->commentsVisibleTo($viewer)) {
             throw new NotFoundHttpException;
         }
 
-        return new JsonResponse(['data' => $this->digest->for($subject)]);
+        return new JsonResponse(['data' => $this->digest->for($subject, $this->userId($viewer))]);
     }
 }

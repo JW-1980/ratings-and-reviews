@@ -129,6 +129,27 @@ class ReviewQuestionsTest extends TestCase
         $this->assertSame(0, ReviewAnswer::query()->where('question_id', $sweet->id)->count());
     }
 
+    public function test_numeric_choice_option_values_are_answerable(): void
+    {
+        $this->question([
+            'key' => 'size',
+            'type' => 'choice',
+            'label' => ['nl' => 'Maat', 'en' => 'Size'],
+            'low_label' => null,
+            'high_label' => null,
+            'options' => [
+                ['value' => '1', 'label' => ['nl' => 'Klein', 'en' => 'Small']],
+                ['value' => '2', 'label' => ['nl' => 'Groot', 'en' => 'Large']],
+            ],
+        ]);
+        $product = $this->product();
+
+        $this->actingAs($this->user())->postJson("/rr/subjects/product/{$product->id}/reviews", ['rating' => 4, 'answers' => ['size' => 1]])
+            ->assertCreated()
+            ->assertJsonPath('data.answers.0.value', '1')
+            ->assertJsonPath('data.answers.0.display', 'Small');
+    }
+
     public function test_the_summary_counts_answers_of_counted_public_reviews(): void
     {
         $this->configureSection('product', ['min_reviews_for_average' => 2]);
@@ -189,5 +210,24 @@ class ReviewQuestionsTest extends TestCase
         $this->actingAs($admin)->deleteJson("/rr/admin/review-questions/{$moments->id}")->assertOk()->assertJsonPath('data.answered_reviews', 1);
         $this->assertSame(0, ReviewAnswer::query()->count());
         $this->assertSame([], $this->getJson("/rr/subjects/product/{$product->id}/rating-summary")->json('data.questions'));
+    }
+
+    public function test_a_lowered_scale_ignores_out_of_range_answers_in_the_average(): void
+    {
+        $this->configureSection('product', ['min_reviews_for_average' => 1]);
+        $sweet = $this->question();
+        $product = $this->product();
+        $first = Review::factory()->forSubject($product)->create();
+        ReviewAnswer::query()->create(['review_id' => $first->id, 'question_id' => $sweet->id, 'option_key' => '', 'value' => 2]);
+        $second = Review::factory()->forSubject($product)->create();
+        ReviewAnswer::query()->create(['review_id' => $second->id, 'question_id' => $sweet->id, 'option_key' => '', 'value' => 5]);
+
+        $this->app->make(RatingAggregator::class)->refresh($product);
+        config(['ratings-and-reviews.review_questions.scale_max' => 3]);
+
+        $question = $this->getJson("/rr/subjects/product/{$product->id}/rating-summary")->json('data.questions.0');
+        $this->assertSame(1, $question['count'], 'Only the in-range answer counts.');
+        $this->assertEquals(2, $question['average']);
+        $this->assertSame([['value' => 1, 'count' => 0], ['value' => 2, 'count' => 1], ['value' => 3, 'count' => 0]], $question['distribution']);
     }
 }
