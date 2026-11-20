@@ -46,10 +46,16 @@ class ReadMarkers
             return;
         }
 
+        // MySQL 8.4 refers to the new row through a row alias (VALUES() is deprecated there);
+        // MariaDB has no row alias and uses VALUES(column).
+        [$alias, $incomingReadAt, $incomingUpdatedAt] = SqlDialect::isMariaDb()
+            ? ['', 'VALUES(`last_read_at`)', 'VALUES(`updated_at`)']
+            : [' AS `incoming`', '`incoming`.`last_read_at`', '`incoming`.`updated_at`'];
+
         DB::statement(
             "INSERT INTO `{$table}` (`user_id`, `commentable_type`, `commentable_id`, `last_read_at`, `created_at`, `updated_at`) "
-            .'VALUES (?, ?, ?, ?, ?, ?) AS `incoming` '
-            ."ON DUPLICATE KEY UPDATE `last_read_at` = GREATEST(`{$table}`.`last_read_at`, `incoming`.`last_read_at`), `updated_at` = `incoming`.`updated_at`",
+            ."VALUES (?, ?, ?, ?, ?, ?){$alias} "
+            ."ON DUPLICATE KEY UPDATE `last_read_at` = GREATEST(`{$table}`.`last_read_at`, {$incomingReadAt}), `updated_at` = {$incomingUpdatedAt}",
             [$userId, $subject->getMorphClass(), $subject->getKey(), $at, $at, $at],
         );
     }
