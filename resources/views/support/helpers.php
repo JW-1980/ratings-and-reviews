@@ -10,7 +10,8 @@
 | (one source of truth). The sub-request carries the current user, session and cookies;
 | middleware is not run (the read routes have none besides the route group's). A 403/404
 | (subject not visible, optional feature switched off) yields null, so the component hides
-| that part; other exceptions propagate. Results are cached per request.
+| that part; other exceptions propagate. Results are cached per request, per route, parameters
+| and effective query (empty values left out).
 */
 
 use Illuminate\Http\JsonResponse;
@@ -29,6 +30,10 @@ $locale = fn (): string => str_replace('_', '-', (string) app()->getLocale());
 $api = static function (string $name, array $parameters = [], array $query = []): ?array {
     $routeName = (string) config('ratings-and-reviews.routes.name', 'rr.').$name;
     $current = request();
+    // Before the cache key: `['sort' => null]` and `[]` are the same request, and two
+    // components asking for it must share one run of the controller.
+    $query = array_filter($query, fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
+    ksort($query);
     $cacheKey = 'rr.view-api:'.$routeName.':'.md5(serialize([$parameters, $query]));
 
     if ($current->attributes->has($cacheKey)) {
@@ -40,7 +45,6 @@ $api = static function (string $name, array $parameters = [], array $query = [])
     }
 
     $route = Route::getRoutes()->getByName($routeName);
-    $query = array_filter($query, fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
     $sub = Request::create(route($routeName, $parameters, false), 'GET', $query, $current->cookies->all(), [], $current->server->all());
     $sub->headers->set('Accept', 'application/json');
     $sub->setUserResolver($current->getUserResolver());
