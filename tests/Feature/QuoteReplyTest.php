@@ -2,6 +2,7 @@
 
 namespace RatingsAndReviews\Tests\Feature;
 
+use Illuminate\Support\Facades\DB;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Tests\TestCase;
@@ -36,6 +37,54 @@ class QuoteReplyTest extends TestCase
         $tree = collect($this->getJson($this->url($product->id))->assertOk()->json('data'))->keyBy('id');
         $this->assertSame(['comment_id' => $quoted->id, 'root_id' => $quoted->id, 'text' => 'smaakt het bitter', 'author' => $tree[$quoted->id]['author'], 'available' => true], $tree[$reply->id]['quote']);
         $this->assertNull($tree[$quoted->id]['quote']);
+    }
+
+    /**
+     * The queries of the request that fetch comments by id (quoted comments, reply targets).
+     *
+     * @return list<string>
+     */
+    private function lookupsById(string $url): array
+    {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->getJson($url)->assertOk();
+        $queries = array_column(DB::getQueryLog(), 'query');
+        DB::disableQueryLog();
+
+        return array_values(array_filter($queries, fn (string $query): bool => str_contains($query, 'from `rr_comments` where `rr_comments`.`id` in')));
+    }
+
+    public function test_quoted_and_answered_comments_on_the_page_are_not_fetched_again(): void
+    {
+        config(['ratings-and-reviews.discussions.roots_per_page' => 1]);
+        $product = $this->product();
+        $older = $this->commentOn($product, ['body_text' => 'Een oudere reactie.', 'created_at' => now()->subDay(), 'author_removed_at' => now()]);
+        $root = $this->commentOn($product, ['body_text' => 'Na opwarmen smaakt het bitter.']);
+        $reply = Comment::factory()->replyTo($root)->create(['user_id' => $this->user(['name' => 'Doel'])->id, 'quoted_comment_id' => $root->id, 'quote_text' => 'smaakt het bitter']);
+        $second = Comment::factory()->replyTo($root)->create(['in_reply_to_id' => $reply->id, 'quoted_comment_id' => $reply->id, 'quote_text' => 'x', 'created_at' => now()->addMinute()]);
+
+        // Everything quoted or answered is on the page: no lookup by id.
+        $this->assertSame([], $this->lookupsById($this->url($product->id).'?sort=newest'));
+        // The replies endpoint reads its page of replies by id; nothing more.
+        $this->assertCount(1, $this->lookupsById("/rr/comments/{$root->id}/replies"));
+
+        $replies = collect($this->getJson("/rr/comments/{$root->id}/replies")->json('data'))->keyBy('id');
+        $this->assertSame($root->id, $replies[$reply->id]['quote']['comment_id']);
+        $this->assertTrue($replies[$reply->id]['quote']['available']);
+        $this->assertSame('Doel', $replies[$second->id]['in_reply_to_author']['name']);
+
+        // A quote of a comment on another page costs one query, without the comment's text.
+        $second->update(['quoted_comment_id' => $older->id]);
+        $lookups = $this->lookupsById($this->url($product->id).'?sort=newest');
+        $this->assertCount(1, $lookups);
+        $this->assertStringNotContainsString('*', $lookups[0]);
+        $this->assertStringNotContainsString('body_', $lookups[0]);
+
+        $tree = collect($this->getJson($this->url($product->id).'?sort=newest')->json('data'))->keyBy('id');
+        $quote = collect($tree[$root->id]['replies'])->keyBy('id')[$second->id]['quote'];
+        $this->assertSame($older->id, $quote['comment_id']);
+        $this->assertFalse($quote['available'], 'A placeholder is not available to quote from.');
     }
 
     public function test_quotes_that_do_not_match_or_point_elsewhere_are_refused(): void
