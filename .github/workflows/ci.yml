@@ -50,6 +50,51 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: ''
 
+  php-mariadb:
+    name: php (MariaDB ${{ matrix.mariadb }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mariadb: ['11.8', '10.11']
+    services:
+      mariadb:
+        image: mariadb:${{ matrix.mariadb }}
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+          MARIADB_DATABASE: rr_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: gd, pdo_mysql, pcntl
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Server version
+        run: php -r '$pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", ""); echo $pdo->query("SELECT VERSION()")->fetchColumn(), PHP_EOL;'
+
+      - name: PHPUnit
+        run: vendor/bin/phpunit
+        env:
+          DB_CONNECTION: mariadb
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_DATABASE: rr_test
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+
   vue:
     runs-on: ubuntu-latest
     defaults:

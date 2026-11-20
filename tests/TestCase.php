@@ -18,7 +18,8 @@ use RatingsAndReviews\Tests\Fixtures\Product;
 use RatingsAndReviews\Tests\Fixtures\User;
 
 /**
- * Runs against a real MySQL 8.4 server (phpunit.xml.dist, overridable with DB_* env vars).
+ * Runs against a real MySQL 8.4 server, or MariaDB with DB_CONNECTION=mariadb (phpunit.xml.dist,
+ * overridable with DB_* env vars).
  */
 abstract class TestCase extends Orchestra
 {

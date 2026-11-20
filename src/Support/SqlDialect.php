@@ -4,15 +4,17 @@ namespace RatingsAndReviews\Support;
 
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\MySqlConnection;
 use Illuminate\Support\Facades\DB;
 
 /**
  * The few SQL fragments that differ between database engines.
  *
- * MySQL 8.4 is the package's target and test engine. Hosts whose own test suites run on
- * SQLite (or PostgreSQL) still migrate and run the basic flows: every fragment here has a
- * portable equivalent for those engines, and the MySQL-only features (FULLTEXT search, the
- * generated Wilson column) are guarded or replaced. Only the MySQL behaviour is tested.
+ * MySQL 8.4 and MariaDB 11.8 are the package's target and test engines. Hosts whose own test
+ * suites run on SQLite (or PostgreSQL) still migrate and run the basic flows: every fragment
+ * here has a portable equivalent for those engines, and the MySQL-only features (FULLTEXT
+ * search, the generated Wilson column) are guarded or replaced. Only the MySQL and MariaDB
+ * behaviour is tested.
  */
 final class SqlDialect
 {
@@ -32,6 +34,18 @@ final class SqlDialect
     public static function isMysql(?ConnectionInterface $connection = null): bool
     {
         return in_array(self::driver($connection), ['mysql', 'mariadb'], true);
+    }
+
+    /**
+     * A MariaDB server: the `mariadb` driver, or the `mysql` driver connected to MariaDB (a host
+     * may still configure `mysql` for a MariaDB server). Needed where the two SQL dialects
+     * differ, e.g. MariaDB has no `INSERT … AS alias` row alias for ON DUPLICATE KEY UPDATE.
+     */
+    public static function isMariaDb(?ConnectionInterface $connection = null): bool
+    {
+        $connection ??= DB::connection();
+
+        return $connection instanceof MySqlConnection && $connection->isMaria();
     }
 
     public static function isSqlite(?ConnectionInterface $connection = null): bool

@@ -14,7 +14,7 @@ use RatingsAndReviews\Tests\Fixtures\User;
 
 /**
  * For tests that need committed data: InnoDB FULLTEXT indexes only see committed rows, and
- * forked processes only see what the parent committed. Runs on its own MySQL 8.4 schema
+ * forked processes only see what the parent committed. Runs on its own schema
  * (`<DB_DATABASE>_committed`, created when missing) with fresh migrations per test, so the
  * transactional tests on the main schema never see these rows.
  */
@@ -41,7 +41,7 @@ abstract class CommittedTestCase extends Orchestra
         (new PDO($dsn, (string) env('DB_USERNAME', 'root'), (string) env('DB_PASSWORD', '')))
             ->exec("CREATE DATABASE IF NOT EXISTS `{$schema}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 
-        $app['config']->set('database.connections.mysql.database', $schema);
+        $app['config']->set('database.connections.'.self::testConnection().'.database', $schema);
     }
 
     protected function setUp(): void

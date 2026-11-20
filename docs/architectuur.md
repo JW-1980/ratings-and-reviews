@@ -6,7 +6,7 @@ Dit document is het bouwcontract voor het pakket. Het volgt uit de [inventarisat
 
 - **Eén Laravel-pakket** `jw-1980/ratings-and-reviews`, namespace `RatingsAndReviews\`, met auto-discovery via `extra.laravel.providers`.
 - **Platform:** PHP `^8.3`, Laravel `^12.0 || ^13.0`, `symfony/html-sanitizer` `^7.2 || ^8.0`. Er komen geen andere runtime-dependencies bij.
-- **Database:** MySQL 8.4 is het doel en de testomgeving. Er worden geen SQLite-tests geschreven of gerapporteerd als bewijs (NC-standaard, hoofdstuk 7). Er wordt geen Docker gebruikt. Hosts waarvan de eigen tests op SQLite draaien moeten wel kunnen migreren: MySQL-specifieke schema-onderdelen zijn per driver afgeschermd en runtime-SQL loopt via `Support\SqlDialect` (zie de afwijkingen).
+- **Database:** MySQL 8.4 en MariaDB 11.8 zijn het doel en de testomgeving (zie [MariaDB](#mariadb-20-november-2026)). Er worden geen SQLite-tests geschreven of gerapporteerd als bewijs (NC-standaard, hoofdstuk 7). Er wordt geen Docker gebruikt. Hosts waarvan de eigen tests op SQLite draaien moeten wel kunnen migreren: MySQL-specifieke schema-onderdelen zijn per driver afgeschermd en runtime-SQL loopt via `Support\SqlDialect` (zie de afwijkingen).
 - **Geen AI.** Elke feature is deterministisch: regels, woordenlijsten, tellingen of statistiek.
 - **De host-app blijft eigenaar van** gebruikers, rechten (RBAC), punten en badges, notificatiekanalen, productdata, prijzen, lijsten en het admin-scherm in de eigen huisstijl. Het pakket vraagt dat op via **contracts** en meldt wat er gebeurt via **events**.
 - **Morph map.** Het pakket registreert zijn eigen modellen met korte aliassen (`rr_review`, `rr_comment`, …). De host-apps gebruiken `Relation::enforceMorphMap()` voor hun eigen modellen.
@@ -30,7 +30,7 @@ src/
   Http/{Controllers,Requests,Resources}
   Support/                      waarde-objecten, enums en helpers
   RatingsAndReviewsServiceProvider.php
-tests/                           Orchestra Testbench + PHPUnit op MySQL 8.4
+tests/                           Orchestra Testbench + PHPUnit op MySQL 8.4 of MariaDB (DB_CONNECTION)
 packages/vue/                    npm-pakket @jw-1980/ratings-and-reviews-vue (NutriCompare)
 ```
 
@@ -200,7 +200,7 @@ Er gebeurt eerst fase A per app (bugs en morph map). Daarna:
 
 Breaking changes waren toegestaan omdat v0.1 nog niet is uitgebracht. Het overzicht per wijziging staat in de migratienotitie van deze ronde; de beslissingen:
 
-- **SQLite in host-tests.** De FULLTEXT-indexen (000002, 000003) en de gegenereerde `helpful_score` worden alleen op MySQL/MariaDB gemaakt; elders is `helpful_score` een gewone kolom die `Comment` bij opslaan en `VoteService` bij elke hertelling vult. `Support\SqlDialect` levert `GREATEST`/`MAX`, de JSON-sleutel van facetten en jaar-maand per driver; zoeken valt zonder FULLTEXT terug op `LIKE` per term (zonder relevantie), leesmarkeringen op een `ON CONFLICT`-upsert. Het pakket test alleen op MySQL 8.4; dat de basisflows op SQLite draaien is buiten de pakketsuite nagegaan en is geen bewijs van correctheid.
+- **SQLite in host-tests.** De FULLTEXT-indexen (000002, 000003) en de gegenereerde `helpful_score` worden alleen op MySQL/MariaDB gemaakt; elders is `helpful_score` een gewone kolom die `Comment` bij opslaan en `VoteService` bij elke hertelling vult. `Support\SqlDialect` levert `GREATEST`/`MAX`, de JSON-sleutel van facetten en jaar-maand per driver; zoeken valt zonder FULLTEXT terug op `LIKE` per term (zonder relevantie), leesmarkeringen op een `ON CONFLICT`-upsert. Het pakket test alleen op MySQL 8.4 en MariaDB (zie [MariaDB](#mariadb-20-november-2026)); dat de basisflows op SQLite draaien is buiten de pakketsuite nagegaan en is geen bewijs van correctheid.
 - **Relaties met voorvoegsel.** `HasReviews`/`HasComments` heten nu `rr…()`; het pakket gebruikt ze nergens zelf (het vraagt rr_-tabellen op met morph-type en id). `commentSection()`/`reviewSection()` heten `commentSectionKey()`/`reviewSectionKey()`, omdat beide hosts al een `commentSection(): enum` hebben.
 - **Abilities altijd met subject.** Een lijst kan niet per rij gevraagd worden (paginering); daarvoor is `Support\ModerationScope` er (eerst `inbox`, dan per sectie en, bij meldingen, per itemtype). Om op sectie te kunnen filteren kregen `rr_reviews` en `rr_reports` een kolom `section` (000008, met backfill uit de subjects; een subject dat niet laadt houdt null en wordt bij de volgende bewerking gevuld). Een review in een sectie die niet meer bestaat valt onder `ModerationScope` met `section` null. Form requests lossen hun item vóór de validatie op (`PackageRequest::abilitySubject()`), zodat een onbekend item 404 blijft en een verboden item 403 vóór 422.
 - **Stemmen.** Geen hostkolommen voor hashes, maar één `meta` (json) op `rr_votes` en `rr_poll_votes` (000009), gevuld uit `RiskVerdict::$meta` in dezelfde transactie; het pakket leest het nooit. Bij wisselen van stem blijft de oorspronkelijke `meta`. `VoterIdentity::voterKey()` krijgt het item; bij lezen vraagt `Support\VoterKeys` de sleutel één keer per getoond item (een pagina met 25 reviews kost 25 aanroepen).
@@ -416,3 +416,22 @@ Een host die zelf SQL schrijft met `FORCE INDEX`/`USE INDEX` op een vervallen na
 - **Blade.** De view-helper `api` maakte zijn cachesleutel vóór het weglaten van lege queryparameters. `<x-rr::reviews>` (met `sort => null` enzovoort) en `<x-rr::review-form>` (zonder query) vroegen daardoor twee keer dezelfde `reviews.index` op: de hele reviewlijst (11 query's) dubbel per pagina. De sleutel volgt nu de effectieve query. De markup is gelijk.
 - **Citaten en "antwoord op".** `DiscussionTree` haalde elke geciteerde reactie en elk antwoorddoel opnieuw op met `select *`, ook als die al op de pagina stond (bij "meer antwoorden" de hoofdreactie twee keer). Wat al geladen is wordt hergebruikt; een citaat van een andere pagina kost nog één query, zonder `body_html`/`body_text`.
 - **Uitnodigingen.** `ReviewInvitations::sendDue()` deed per openstaande uitnodiging een query naar bestaande reviews, een naar het subject en na de claim een `refresh()`: bij 500 uitnodigingen ruim 1.500 selects per run. Nu drie leesquery's per run (de uitnodigingen, de reviews van die subjects en gebruikers, de subjects, per type en per 500), met dezelfde scopes als voorheen (verwijderde of achtergehouden reviews tellen niet mee). De claim blijft één voorwaardelijke `update` per uitnodiging, zodat twee overlappende runs niets dubbel versturen. Het `ReviewInvitationDue`-event krijgt dezelfde uitnodiging als voorheen (`sent_at` in hele seconden, subject geladen), alleen zonder terugleesquery; een kolom die een ander proces tussen selectie en claim wijzigt (bijvoorbeeld `completed_at`) staat daardoor niet meer in dat model.
+
+## MariaDB (20 november 2026)
+
+De hosts draaien in productie op MariaDB 11.8 (en daarnaast op MySQL 8.4 en MariaDB 10.6/10.11). Het pakket was alleen op MySQL 8.4 getest.
+
+### Beslissingen
+
+- **Ondersteund en getest:** MySQL 8.4 met Laravels driver `mysql` en MariaDB 11.8 met de driver `mariadb`. De testharnas kiest met `DB_CONNECTION` (`mysql`, standaard, of `mariadb`); de verbinding heet naar de driver, zodat `Support\SqlDialect` dezelfde driver ziet als een host op die database.
+- **CI:** de job `php` draait Pint en de volledige PHPUnit-suite op MySQL 8.4; de job `php-mariadb` draait de volledige suite op MariaDB 11.8 en MariaDB 10.11 (officiële `mariadb`-servicecontainers, driver `mariadb`). MariaDB 10.6 wordt niet getest.
+- **Verschillen tussen MySQL en MariaDB** lopen via `Support\SqlDialect`: `isMysql()` geldt voor beide, `isMariaDb()` (nieuw) herkent een MariaDB-server, ook achter de driver `mysql` (via `MySqlConnection::isMaria()`).
+
+### Gevonden en opgelost
+
+- **Leesmarkeringen.** `ReadMarkers::touch()` gebruikte de rij-alias van MySQL (`INSERT … AS incoming ON DUPLICATE KEY UPDATE`). MariaDB kent die niet (syntaxfout 1064), dus elke reactielijst voor een ingelogd lid gaf op MariaDB een fout. Op MariaDB gebruikt de upsert nu `VALUES(kolom)`; op MySQL blijft de rij-alias (daar is `VALUES()` verouderd). Het gedrag ("alleen vooruit", `GREATEST`) is gelijk.
+- **Slow mode bij gelijktijdig plaatsen.** MariaDB 11.8 zet `innodb_snapshot_isolation` standaard aan: een `SELECT … FOR UPDATE` op een rij die na de snapshot van de transactie door een ander is gewijzigd, geeft fout 1020 ("Record has changed since last read"). Twee gelijktijdige reacties in een discussie met slow mode gaven daardoor een fout in plaats van één plaatsing en één weigering. De plaatsingstransactie in `DiscussionService::post()` krijgt nu drie pogingen (`DB::transaction(..., attempts: 3)`; Laravel herkent fout 1020 als gelijktijdigheidsfout); de nieuwe poging leest opnieuw en weigert zoals op MySQL. Bewezen door `ConcurrentWritesTest` op MariaDB 11.8.
+
+### Migratienotitie voor de hosts
+
+Geen migratie en geen wijziging aan contracten, routes of antwoorden. Een host op MariaDB mag de driver `mariadb` of `mysql` gebruiken.

@@ -20,10 +20,15 @@ package asks for those through contracts and reports back through events.
 - **One package, few dependencies.** PHP `^8.3`, Laravel `^12.0 || ^13.0`,
   `symfony/html-sanitizer` `^7.2 || ^8.0`. New runtime dependencies need a documented reason in
   `docs/architectuur.md`; prefer contracts and host callbacks.
-- **MySQL 8.4 is the only tested and supported database.** The package test suite must run on
-  MySQL 8.4 (no SQLite, no Docker in the documented workflow). Hosts whose own tests use SQLite
-  must still be able to migrate: guard MySQL-only schema and runtime SQL per driver through
-  `Support\SqlDialect` (FULLTEXT, generated columns, JSON keys, upserts).
+- **MySQL 8.4 and MariaDB 11.8 are the tested and supported databases.** The package test suite
+  must pass on MySQL 8.4 (Laravel's `mysql` driver, the default) and on MariaDB 11.8 (Laravel's
+  `mariadb` driver, `DB_CONNECTION=mariadb`); CI runs it on MySQL 8.4, MariaDB 11.8 and MariaDB
+  10.11. No SQLite, and no Docker in the documented local workflow (CI uses service containers).
+  SQL that differs between MySQL and MariaDB goes through `Support\SqlDialect` (`isMysql()` covers
+  both engines, `isMariaDb()` detects a MariaDB server also behind the `mysql` driver); never gate
+  a path on `getDriverName() === 'mysql'` alone. Hosts whose own tests use SQLite must still be
+  able to migrate: guard MySQL-only schema and runtime SQL per driver through `Support\SqlDialect`
+  (FULLTEXT, generated columns, JSON keys, upserts).
 - **Morph aliases only.** Host models are resolved through the host's morph map. Never accept a
   client-supplied class name; an unknown `{type}` is a 404.
 - **Ability checks always have a subject.** Use `rr.moderate`, `rr.manage-settings` and
@@ -67,6 +72,7 @@ package asks for those through contracts and reports back through events.
 ```bash
 composer install
 vendor/bin/phpunit                 # MySQL 8.4 on 127.0.0.1:3306, schema rr_test
+DB_CONNECTION=mariadb DB_PORT=3307 vendor/bin/phpunit   # MariaDB 11.8 (mariadb driver)
 vendor/bin/pint
 cd packages/vue
 npm install
@@ -86,7 +92,7 @@ npm run build
 ## Pull requests and branches
 
 - Branch from `main`, keep the branch focused, and open a pull request against `main`.
-- Before merging: `vendor/bin/pint --test`, the MySQL PHPUnit suite, `npm test`,
+- Before merging: `vendor/bin/pint --test`, the PHPUnit suite on MySQL 8.4 and MariaDB 11.8, `npm test`,
   `npm run typecheck` and `npm run build` must pass; the PR description states what was tested.
 - Resolve conflicts by rebasing or merging `main` into the branch, never by discarding one side
   blindly. Re-run the full checks after resolving.

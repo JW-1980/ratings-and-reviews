@@ -20,7 +20,7 @@ php artisan vendor:publish --tag=ratings-and-reviews-config   # optioneel
 php artisan migrate                                            # maakt de rr_-tabellen
 ```
 
-Vereisten: PHP 8.3+, Laravel 12 of 13, MySQL 8.4; `ext-gd` (aanbevolen) om EXIF uit geüploade foto's te halen, zonder GD worden ze ongewijzigd opgeslagen. Een host waarvan de eigen testsuite op SQLite draait kan migreren en de basisflows gebruiken: FULLTEXT-indexen en de gegenereerde Wilson-kolom bestaan alleen op MySQL/MariaDB, zoeken valt daar terug op `LIKE` en de overige MySQL-specifieke SQL loopt via `Support\SqlDialect`. Alleen MySQL 8.4 is getest en ondersteund. Publiceerbare tags: `ratings-and-reviews-config`, `-migrations`, `-translations`, `-views`.
+Vereisten: PHP 8.3+, Laravel 12 of 13, MySQL 8.4 of MariaDB 11.8; `ext-gd` (aanbevolen) om EXIF uit geüploade foto's te halen, zonder GD worden ze ongewijzigd opgeslagen. Een host waarvan de eigen testsuite op SQLite draait kan migreren en de basisflows gebruiken: FULLTEXT-indexen en de gegenereerde Wilson-kolom bestaan alleen op MySQL/MariaDB, zoeken valt daar terug op `LIKE` en de overige MySQL-specifieke SQL loopt via `Support\SqlDialect`. Getest en ondersteund zijn MySQL 8.4 (driver `mysql`) en MariaDB 11.8 (driver `mariadb`; ook de driver `mysql` op een MariaDB-server werkt). De CI draait de volledige suite op MySQL 8.4, MariaDB 11.8 en MariaDB 10.11; andere versies (zoals MariaDB 10.6) worden niet getest. Publiceerbare tags: `ratings-and-reviews-config`, `-migrations`, `-translations`, `-views`.
 
 ## Gebruik
 
@@ -105,11 +105,12 @@ Vereisten: PHP 8.3+, Laravel 12 of 13, MySQL 8.4; `ext-gd` (aanbevolen) om EXIF 
 
 ## Tests
 
-De tests draaien op MySQL 8.4 (geen SQLite, geen Docker). Zoeken en de gelijktijdigheidstests hebben gecommitte data nodig en draaien op een eigen schema `<DB_DATABASE>_committed`, dat de tests zelf aanmaken (de gebruiker moet `CREATE DATABASE` mogen); de gelijktijdigheidstests gebruiken `pcntl`. Standaard: `127.0.0.1:3306`, gebruiker `root` zonder wachtwoord, schema `rr_test`; overschrijfbaar met `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`.
+De tests draaien op MySQL 8.4 of, met `DB_CONNECTION=mariadb`, op MariaDB met Laravels driver `mariadb` (geen SQLite, geen Docker; de CI gebruikt servicecontainers voor MySQL 8.4, MariaDB 11.8 en MariaDB 10.11). Zoeken en de gelijktijdigheidstests hebben gecommitte data nodig en draaien op een eigen schema `<DB_DATABASE>_committed`, dat de tests zelf aanmaken (de gebruiker moet `CREATE DATABASE` mogen); de gelijktijdigheidstests gebruiken `pcntl`. Standaard: `127.0.0.1:3306`, gebruiker `root` zonder wachtwoord, schema `rr_test`; overschrijfbaar met `DB_CONNECTION` (`mysql` of `mariadb`), `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`.
 
 ```bash
 composer install
-vendor/bin/phpunit
+vendor/bin/phpunit                                      # MySQL 8.4
+DB_CONNECTION=mariadb DB_PORT=3307 vendor/bin/phpunit   # MariaDB 11.8
 vendor/bin/pint
 ```
 

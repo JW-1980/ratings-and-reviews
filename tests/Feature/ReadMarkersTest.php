@@ -2,9 +2,11 @@
 
 namespace RatingsAndReviews\Tests\Feature;
 
+use Illuminate\Support\Facades\DB;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\ReadMarker;
 use RatingsAndReviews\Services\ReadMarkers;
+use RatingsAndReviews\Support\SqlDialect;
 use RatingsAndReviews\Tests\TestCase;
 
 class ReadMarkersTest extends TestCase
@@ -86,5 +88,38 @@ class ReadMarkersTest extends TestCase
 
         $markers->touch(5, $product, now()->addMinute());
         $this->assertTrue($markers->lastReadAt(5, $product)->equalTo(now()->addMinute()->startOfSecond()));
+    }
+
+    /**
+     * A host may configure Laravel's `mysql` driver for a MariaDB server. The upsert must then
+     * still use MariaDB's syntax: on a MariaDB run this goes through the server detection, on a
+     * MySQL run it is the row-alias path again.
+     */
+    public function test_the_marker_upsert_works_with_the_mysql_driver_on_either_server(): void
+    {
+        $default = config('database.default');
+        $serverIsMaria = str_contains((string) DB::connection()->getPdo()->getAttribute(\PDO::ATTR_SERVER_VERSION), 'MariaDB');
+        config(['database.connections.rr_mysql_driver' => ['driver' => 'mysql'] + config("database.connections.{$default}")]);
+        $mysqlDriver = DB::connection('rr_mysql_driver');
+        // Same PDO, so the test's transaction (and its rollback) covers these writes too.
+        $mysqlDriver->setPdo(DB::connection()->getPdo())->setReadPdo(DB::connection()->getReadPdo());
+        $this->assertSame('mysql', $mysqlDriver->getDriverName());
+        $this->assertSame($serverIsMaria, SqlDialect::isMariaDb($mysqlDriver));
+
+        $markers = $this->app->make(ReadMarkers::class);
+        $product = $this->product();
+        config(['database.default' => 'rr_mysql_driver']);
+
+        try {
+            $markers->touch(7, $product, now());
+            $markers->touch(7, $product, now()->subHour());
+            $this->assertTrue($markers->lastReadAt(7, $product)->equalTo(now()->startOfSecond()));
+            $markers->touch(7, $product, now()->addMinute());
+            $this->assertTrue($markers->lastReadAt(7, $product)->equalTo(now()->addMinute()->startOfSecond()));
+        } finally {
+            config(['database.default' => $default]);
+        }
+
+        $this->assertSame(1, ReadMarker::query()->where('user_id', 7)->count());
     }
 }
