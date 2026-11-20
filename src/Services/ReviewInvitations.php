@@ -4,6 +4,7 @@ namespace RatingsAndReviews\Services;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use InvalidArgumentException;
@@ -102,16 +103,19 @@ class ReviewInvitations
             ->limit($limit)
             ->get();
 
+        // Per run, not per invitation: who already reviewed, and the subjects.
+        $reviewed = $this->reviewedKeys($due);
+        $subjects = $this->subjectsOf($due);
+
         foreach ($due as $invitation) {
-            if ($this->hasReview($invitation->user_id, $invitation->reviewable_type, $invitation->reviewable_id)) {
+            if (isset($reviewed[$this->key($invitation->reviewable_type, $invitation->reviewable_id, $invitation->user_id)])) {
                 $this->complete($invitation->user_id, $invitation->reviewable_type, $invitation->reviewable_id);
                 $result['completed']++;
 
                 continue;
             }
 
-            $class = Relation::getMorphedModel($invitation->reviewable_type);
-            $subject = $class !== null && is_subclass_of($class, Model::class) ? $class::query()->find($invitation->reviewable_id) : null;
+            $subject = $subjects[$invitation->reviewable_type][(string) $invitation->reviewable_id] ?? null;
 
             if (! $subject instanceof Reviewable) {
                 $invitation->delete();
@@ -129,11 +133,13 @@ class ReviewInvitations
                 continue;
             }
 
+            // Whole seconds, as the column stores them, so the model equals the row.
+            $sentAt = now()->startOfSecond();
             $claimed = ReviewInvitation::query()->whereKey($invitation->id)->whereNull('sent_at')
-                ->update(['sent_at' => now(), 'updated_at' => now()]);
+                ->update(['sent_at' => $sentAt, 'updated_at' => $sentAt]);
 
             if ($claimed === 1) {
-                $invitation->refresh();
+                $invitation->forceFill(['sent_at' => $sentAt, 'updated_at' => $sentAt])->syncOriginal();
                 $invitation->setRelation('reviewable', $subject);
                 $this->events->dispatch(new ReviewInvitationDue($invitation));
                 $result['sent']++;
@@ -141,6 +147,69 @@ class ReviewInvitations
         }
 
         return $result;
+    }
+
+    /**
+     * The due invitations whose user already reviewed the subject, as a set of key(): one
+     * query per subject type and 500 invitations instead of one per invitation.
+     *
+     * @param  Collection<int, ReviewInvitation>  $invitations
+     * @return array<string, true>
+     */
+    private function reviewedKeys(Collection $invitations): array
+    {
+        $reviewed = [];
+
+        foreach ($invitations->groupBy('reviewable_type') as $type => $group) {
+            foreach ($group->chunk(500) as $chunk) {
+                // Every pair of these subjects and users: more than asked, never less.
+                $rows = Review::query()
+                    ->where('reviewable_type', $type)
+                    ->whereIn('reviewable_id', $chunk->pluck('reviewable_id')->unique()->values()->all())
+                    ->whereIn('user_id', $chunk->pluck('user_id')->unique()->values()->all())
+                    ->toBase()
+                    ->get(['reviewable_id', 'user_id']);
+
+                foreach ($rows as $row) {
+                    $reviewed[$this->key((string) $type, $row->reviewable_id, $row->user_id)] = true;
+                }
+            }
+        }
+
+        return $reviewed;
+    }
+
+    /**
+     * The subjects of the due invitations: [morph type => [id => model]], one query per type.
+     * A type that is no longer in the morph map, or a deleted subject, is simply absent.
+     *
+     * @param  Collection<int, ReviewInvitation>  $invitations
+     * @return array<string, array<string, Model>>
+     */
+    private function subjectsOf(Collection $invitations): array
+    {
+        $subjects = [];
+
+        foreach ($invitations->groupBy('reviewable_type') as $type => $group) {
+            $class = Relation::getMorphedModel((string) $type);
+
+            if ($class === null || ! is_subclass_of($class, Model::class)) {
+                continue;
+            }
+
+            foreach ($group->pluck('reviewable_id')->unique()->chunk(500) as $ids) {
+                foreach ($class::query()->whereKey($ids->values()->all())->get() as $subject) {
+                    $subjects[(string) $type][(string) $subject->getKey()] = $subject;
+                }
+            }
+        }
+
+        return $subjects;
+    }
+
+    private function key(string $type, int|string $subjectId, int|string $userId): string
+    {
+        return $type.'|'.$subjectId.'|'.$userId;
     }
 
     private function hasReview(int $userId, string $type, int|string $id): bool
