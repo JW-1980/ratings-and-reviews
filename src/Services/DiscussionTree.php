@@ -168,15 +168,20 @@ class DiscussionTree
         $replies = new Collection($replies->all());
         $replies->each(fn (Comment $comment) => $comment->setRelation('commentable', $subject));
 
-        $targetIds = $replies->pluck('in_reply_to_id')->filter()->map(fn (mixed $id): int => (int) $id)->unique()->values()->all();
-        $targets = $targetIds === [] ? collect() : Comment::query()->whereKey($targetIds)->get()->keyBy('id');
+        // The comments answered ("↳ reply to"): mostly the root or a reply of this page, which
+        // are in memory already; only the others are fetched.
+        $loaded = $replies->toBase()->push($root)->keyBy('id');
+        $targetIds = $replies->pluck('in_reply_to_id')->filter()->map(fn (mixed $id): int => (int) $id)->unique()->values();
+        $missing = $targetIds->reject(fn (int $id): bool => $loaded->has($id))->values()->all();
+        $targets = $loaded->only($targetIds->all())
+            ->union($missing === [] ? [] : Comment::query()->whereKey($missing)->get()->keyBy('id'));
         $replies->each(function (Comment $comment) use ($targets): void {
             if ($comment->in_reply_to_id !== null && $targets->has($comment->in_reply_to_id)) {
                 $comment->setRelation('inReplyTo', $targets->get($comment->in_reply_to_id));
             }
         });
 
-        $quotes = $this->quotedComments($replies->toBase());
+        $quotes = $this->quotedComments($replies->toBase(), [$root]);
         $userIds = $replies->pluck('user_id')->merge($targets->pluck('user_id'))->merge(array_column($quotes, 'user_id'))
             ->map(fn (mixed $id): int => (int) $id)->unique()->values()->all();
         $polls = $this->attachPolls($replies->toBase(), $ids);
@@ -296,12 +301,15 @@ class DiscussionTree
     }
 
     /**
-     * The comments quoted on this page, in one query (none when nothing is quoted).
+     * The comments quoted on this page. A quoted comment that is on the page itself (the usual
+     * case) is taken from memory; the others come from one query that reads only the columns
+     * needed here, not their text.
      *
      * @param  \Illuminate\Support\Collection<int, Comment>  $comments
+     * @param  list<Comment>  $alsoLoaded  comments in memory besides `$comments` (the thread's root)
      * @return array<int, array{user_id: int|null, root_id: int, available: bool, withheld: bool}>
      */
-    private function quotedComments(\Illuminate\Support\Collection $comments): array
+    private function quotedComments(\Illuminate\Support\Collection $comments, array $alsoLoaded = []): array
     {
         $ids = $comments->pluck('quoted_comment_id')->filter()->map(fn (mixed $id): int => (int) $id)->unique()->values()->all();
 
@@ -309,9 +317,15 @@ class DiscussionTree
             return [];
         }
 
+        $loaded = $comments->concat($alsoLoaded)->keyBy('id');
+        $missing = array_values(array_filter($ids, fn (int $id): bool => ! $loaded->has($id)));
+        $fetched = $missing === [] ? [] : Comment::query()->withTrashed()->whereKey($missing)
+            ->get(['id', 'user_id', 'root_id', 'status', 'published_at', 'author_removed_at', 'erasure_withheld_at', 'deleted_at'])
+            ->all();
+
         $quotes = [];
 
-        foreach (Comment::query()->withTrashed()->whereKey($ids)->get() as $quoted) {
+        foreach ([...$loaded->only($ids)->all(), ...$fetched] as $quoted) {
             $quotes[$quoted->id] = [
                 'user_id' => $quoted->user_id,
                 'root_id' => $quoted->root_id ?? $quoted->id,

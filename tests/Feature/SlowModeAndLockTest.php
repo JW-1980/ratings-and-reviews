@@ -2,6 +2,7 @@
 
 namespace RatingsAndReviews\Tests\Feature;
 
+use Illuminate\Support\Facades\DB;
 use RatingsAndReviews\Models\Comment;
 use RatingsAndReviews\Models\DiscussionState;
 use RatingsAndReviews\Tests\TestCase;
@@ -11,6 +12,41 @@ class SlowModeAndLockTest extends TestCase
     private function url(int $productId): string
     {
         return "/rr/subjects/product/{$productId}/comments";
+    }
+
+    /** How many times the request reads rr_discussion_states. */
+    private function stateReads(callable $request): int
+    {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $request();
+        $reads = count(array_filter(DB::getQueryLog(), fn (array $query): bool => str_starts_with($query['query'], 'select') && str_contains($query['query'], '`rr_discussion_states`')));
+        DB::disableQueryLog();
+
+        return $reads;
+    }
+
+    public function test_a_discussion_without_a_state_row_is_looked_up_once_per_request(): void
+    {
+        $product = $this->product();
+        $member = $this->user();
+        $moderator = $this->moderator();
+        $this->assertSame(0, DiscussionState::query()->count());
+
+        $this->assertSame(1, $this->stateReads(fn () => $this->actingAs($member)->getJson($this->url($product->id))->assertOk()
+            ->assertJsonPath('meta.discussion.locked', false)
+            ->assertJsonPath('meta.discussion.slow_mode_seconds', 0)
+            ->assertJsonPath('meta.discussion.seconds_until_next_post', 0)));
+
+        $this->assertSame(1, $this->stateReads(fn () => $this->actingAs($moderator)->getJson("/rr/admin/discussions/product/{$product->id}")->assertOk()
+            ->assertJsonPath('data.slow_mode_seconds', null)
+            ->assertJsonPath('data.effective_slow_mode_seconds', 0)
+            ->assertJsonPath('data.locked', false)
+            ->assertJsonPath('data.locked_by', null)));
+
+        // Posting: the check before the transaction and one inside it.
+        $this->assertSame(2, $this->stateReads(fn () => $this->actingAs($member)->postJson($this->url($product->id), ['body' => 'Hallo daar'])->assertCreated()));
+        $this->assertSame(0, DiscussionState::query()->count(), 'Reading the state creates no row.');
     }
 
     public function test_the_section_slow_mode_spaces_a_members_comments_in_one_discussion(): void

@@ -81,7 +81,7 @@ Elk optioneel contract heeft een standaardbinding die de feature uitschakelt. De
   - Tellers: `agree_count`, `disagree_count`, `helpful_count`, `unhelpful_count`, `needs_source_count`, `helpful_score` (stored generated), `controversy_score` (decimal, bij elke hertelling bijgewerkt), `flags_count`.
   - Status en tijden: `is_edited`, `edited_at`, `author_removed_at`, `held_as_evidence`, `publish_at` (venster om ongedaan te maken), `published_at`.
   - Herkomst: `ip_hash`, `network_hash`, `device_hash`, soft deletes.
-  - Indexen op (commentable, status, parent_id, helpful_score) en een FULLTEXT op `body_text`.
+  - Indexen op (commentable, status, parent_id, helpful_score, helpful_count, created_at, id) voor de draad en de standaardsortering (sinds 000019) en een FULLTEXT op `body_text`.
 - `rr_comment_revisions`: `comment_id`, `revision`, `body_html`, `body_text`, `edited_by`, `edited_at`.
 - `rr_votes`: `votable_type`/`_id`, `dimension` (agreement, helpfulness, needs_source), `value` (−1, +1), `user_id` (nullable), `voter_key`, `network_hash`, `device_hash`, `counted`, `uncounted_reason`, `meta` (json, van de host), timestamps. Unique (votable, dimension, voter_key). Een stem wordt nooit geweigerd, alleen niet meegeteld.
 - `rr_topic_ratings`: `reviewable_type`/`_id`, `user_id`, `topic_id`, `value`, `scale_max`, `counted`, `uncounted_reason`, hashes, `erasure_withheld_at`, unique (subject, user, topic). Onderwerpscores zonder review.
@@ -392,3 +392,27 @@ Deze ronde reviewt de nieuwe hosthaken, vragen/vervolgen, blokkades, kaartuitbre
 - **Frontend.** Attributie-links zitten niet meer in een `aria-hidden`-wrapper; het reviewformulier stuurt geen attributie meer mee die de host niet meer aanbiedt; het verwijderen van een vervolg heeft een busy-state en de "opent vanaf"-tekst ververst periodiek.
 - **Publicatie/CI.** `prepack` bouwt `dist/` weer bij `npm pack` en `npm publish`; de GitHub Packages-registry is expliciet `restricted`; de workflow start alleen nog op een `v*`-tag (de dode `workflow_dispatch` is weg). CI draait nu ook `vendor/bin/pint --test` en installeert `pcntl`, zodat de gelijktijdigheidstests niet stil worden overgeslagen.
 
+## Databaseprestaties (20 november 2026)
+
+Een audit van alle query's van het pakket tegen het schema uit de migraties, gemeten met `EXPLAIN ANALYZE` op MySQL 8.4.6 met 300.000 reviews, 339.000 reacties, 620.000 stemmen en 200.000 uitnodigingen. Geen wijziging aan contracten, routes of antwoorden.
+
+### Migratienotitie voor de hosts
+
+Eén migratie, `2026_11_20_000019_optimize_query_indexes` (alleen indexen, geen kolommen of gegevens; idempotent, met `down()`). `php artisan migrate` is genoeg; een host die de migraties heeft gepubliceerd, publiceert opnieuw met `php artisan vendor:publish --tag=ratings-and-reviews-migrations`. Op een grote tabel bouwt de database de nieuwe index online op (InnoDB); plan de migratie buiten de drukke uren.
+
+| Tabel | Vervallen index | Nieuwe index | Waarom |
+|---|---|---|---|
+| `rr_reviews` | `rr_reviews_subject_status_index` (subject, status, helpful_count) | `rr_reviews_subject_helpful_index` (subject, status, helpful_count, created_at, id) | De standaardlijst sorteert op helpful_count, created_at, id. De oude index hield op bij helpful_count, dus elke pagina sorteerde alle reviews van het subject. Gemeten bij 20.000 reviews op één subject: 62–107 ms → 0,1 ms; bij 100 reviews: 1–2 ms → 0,2 ms. |
+| `rr_comments` | `rr_comments_thread_index` (commentable, status, parent_id, helpful_score) | `rr_comments_thread_helpful_index` (dezelfde kolommen + helpful_count, created_at, id) | Hetzelfde voor de standaardsortering van een discussie. Gemeten bij 30.000 hoofdreacties: 207–283 ms → 0,1 ms. |
+| `rr_review_invitations` | `rr_review_invitations_due_index` (due_at, sent_at) | `rr_review_invitations_open_index` (sent_at, completed_at, dismissed_at, due_at) | `rr:send-review-invitations` las elk uur alle uitnodigingen die ooit verschenen waren. Gemeten bij 200.000 uitnodigingen waarvan 500 open: 195.000 rijen en 524 ms → 500 rijen en 3 ms. |
+| `rr_votes`, `rr_poll_votes`, `rr_topic_ratings` | de losse index op `user_id` | geen | Overbodig: `rr_votes_user_item_index`, `rr_poll_votes_user_poll_index` en `rr_topic_ratings_erasure_index` beginnen met `user_id` en bedienen dezelfde query's. Elke stem onderhoudt nu één index minder. Een database zonder de samengestelde index houdt de losse. |
+
+Een host die zelf SQL schrijft met `FORCE INDEX`/`USE INDEX` op een vervallen naam moet die naam aanpassen; het pakket doet dat nergens.
+
+### Query's
+
+- **Vervolgen.** Met een globale `section_defaults.review_follow_up_after_days` zoekt `rr:send-review-invitations` de secties op de reviews zelf. Die query las elke goedgekeurde review-rij (soft deletes en wisverzoeken staan niet in de index); zonder die twee filters komt het antwoord uit `rr_reviews_section_follow_up_index` alleen. Gemeten bij 292.000 goedgekeurde reviews: 1,3–2,2 s → 0,05 ms. Een sectie die alleen nog verwijderde of achtergehouden reviews heeft levert daarna gewoon niets op.
+- **Discussiestatus.** Een discussie zonder rij in `rr_discussion_states` (de meeste) werd per lijstverzoek drie keer opgezocht, in het beheerscherm twee keer en bij plaatsen drie keer: de services zagen `null` als "nog niet opgezocht". `DiscussionStates::resolve()` (nieuw, toevoegend) geeft dan een lege, niet-opgeslagen status terug; nu één query per lijstverzoek en twee bij plaatsen (vóór en in de transactie).
+- **Blade.** De view-helper `api` maakte zijn cachesleutel vóór het weglaten van lege queryparameters. `<x-rr::reviews>` (met `sort => null` enzovoort) en `<x-rr::review-form>` (zonder query) vroegen daardoor twee keer dezelfde `reviews.index` op: de hele reviewlijst (11 query's) dubbel per pagina. De sleutel volgt nu de effectieve query. De markup is gelijk.
+- **Citaten en "antwoord op".** `DiscussionTree` haalde elke geciteerde reactie en elk antwoorddoel opnieuw op met `select *`, ook als die al op de pagina stond (bij "meer antwoorden" de hoofdreactie twee keer). Wat al geladen is wordt hergebruikt; een citaat van een andere pagina kost nog één query, zonder `body_html`/`body_text`.
+- **Uitnodigingen.** `ReviewInvitations::sendDue()` deed per openstaande uitnodiging een query naar bestaande reviews, een naar het subject en na de claim een `refresh()`: bij 500 uitnodigingen ruim 1.500 selects per run. Nu drie leesquery's per run (de uitnodigingen, de reviews van die subjects en gebruikers, de subjects, per type en per 500), met dezelfde scopes als voorheen (verwijderde of achtergehouden reviews tellen niet mee). De claim blijft één voorwaardelijke `update` per uitnodiging, zodat twee overlappende runs niets dubbel versturen. Het `ReviewInvitationDue`-event krijgt dezelfde uitnodiging als voorheen (`sent_at` in hele seconden, subject geladen), alleen zonder terugleesquery; een kolom die een ander proces tussen selectie en claim wijzigt (bijvoorbeeld `completed_at`) staat daardoor niet meer in dat model.

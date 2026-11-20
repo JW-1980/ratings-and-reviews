@@ -4,6 +4,7 @@ namespace RatingsAndReviews\Tests\Feature;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use RatingsAndReviews\Models\Comment;
@@ -54,6 +55,23 @@ class BladeFormsTest extends TestCase
         }
 
         $this->fail("No form with {$marker}.");
+    }
+
+    public function test_the_review_list_is_loaded_once_for_the_list_and_the_form_together(): void
+    {
+        $product = $this->product();
+        Review::factory()->count(3)->forSubject($product)->create();
+        $this->page($product);
+        $viewer = $this->user();
+        $this->actingAs($viewer)->get('/page')->assertOk();
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->actingAs($viewer)->get('/page')->assertOk();
+        $lists = array_filter(DB::getQueryLog(), fn (array $query): bool => str_contains($query['query'], 'from `rr_reviews`') && str_contains($query['query'], 'order by `helpful_count` desc'));
+        DB::disableQueryLog();
+
+        $this->assertCount(1, $lists, 'The reviews component and the review form share one reviews.index request.');
     }
 
     public function test_the_composer_posts_to_the_form_route_and_errors_stay_with_their_form(): void

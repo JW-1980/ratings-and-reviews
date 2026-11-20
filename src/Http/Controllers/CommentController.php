@@ -70,8 +70,8 @@ class CommentController extends Controller
             $this->markers->touch($viewerId, $subject);
         }
 
-        $state = $this->states->find($subject);
-        $locked = $state?->locked_at !== null;
+        $state = $this->states->resolve($subject);
+        $locked = $state->locked_at !== null;
         $trust = $this->trust->for($viewer, $discussion->settings, $subject);
         $blocked = $this->participation->blockedWith($viewerId);
         $ownerId = $this->participation->ownerId($subject);

@@ -3,6 +3,7 @@
 namespace RatingsAndReviews\Tests\Feature;
 
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use InvalidArgumentException;
 use RatingsAndReviews\Events\ReviewInvitationDue;
@@ -81,6 +82,61 @@ class ReviewInvitationsTest extends TestCase
         $this->travel(6)->days();
         $this->artisan('rr:send-review-invitations')->assertSuccessful();
         Event::assertDispatchedTimes(ReviewInvitationDue::class, 2);
+    }
+
+    public function test_a_run_looks_reviews_and_subjects_up_once_however_many_invitations_are_due(): void
+    {
+        Event::fake([ReviewInvitationDue::class]);
+
+        $run = function (int $count): array {
+            $sent = [];
+
+            foreach (range(1, $count) as $n) {
+                $sent[] = $this->invitations->schedule($this->user(), $this->product(), 'receipt_scan', 0);
+            }
+
+            // Crossed pairs: A is invited for X and reviewed Y, B is invited for Y and reviewed X.
+            // Neither reviewed the subject of their own invitation, so both are sent.
+            [$a, $b, $x, $y] = [$this->user(), $this->user(), $this->product(), $this->product()];
+            $sent[] = $this->invitations->schedule($a, $x, 'receipt_scan', 0);
+            $sent[] = $this->invitations->schedule($b, $y, 'receipt_scan', 0);
+            Review::factory()->forSubject($y)->create(['user_id' => $a->id]);
+            Review::factory()->forSubject($x)->create(['user_id' => $b->id]);
+
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            // Resolved after Event::fake(): the service keeps the dispatcher it was built with.
+            $result = $this->app->make(ReviewInvitations::class)->sendDue();
+            $queries = array_column(DB::getQueryLog(), 'query');
+            DB::disableQueryLog();
+
+            $this->assertSame(['sent' => $count + 2, 'completed' => 0, 'removed' => 0, 'waiting' => 0], $result);
+
+            foreach ($sent as $invitation) {
+                $this->assertNotNull($invitation->fresh()->sent_at);
+            }
+
+            return [
+                // Not the section's settings: those are read once and cached.
+                count(array_filter($queries, fn (string $query): bool => str_starts_with($query, 'select') && ! str_contains($query, '`rr_section_settings`'))),
+                count(array_filter($queries, fn (string $query): bool => str_starts_with($query, 'update'))),
+            ];
+        };
+
+        [$selectsFew, $updatesFew] = $run(2);
+        [$selectsMany, $updatesMany] = $run(9);
+
+        // The due invitations, their reviews and their subjects: three reads per run.
+        $this->assertSame(3, $selectsFew);
+        $this->assertSame(3, $selectsMany);
+        // One claim per invitation: that is what keeps two runs from sending it twice.
+        $this->assertSame(4, $updatesFew);
+        $this->assertSame(11, $updatesMany);
+
+        Event::assertDispatched(ReviewInvitationDue::class, fn (ReviewInvitationDue $event): bool => $event->invitation->sent_at !== null
+            && $event->invitation->sent_at->equalTo($event->invitation->fresh()->sent_at)
+            && $event->invitation->relationLoaded('reviewable')
+            && ! $event->invitation->isDirty());
     }
 
     public function test_an_invitation_for_a_deleted_subject_is_removed(): void
