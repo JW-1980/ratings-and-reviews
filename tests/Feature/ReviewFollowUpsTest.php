@@ -2,6 +2,8 @@
 
 namespace RatingsAndReviews\Tests\Feature;
 
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use RatingsAndReviews\Events\ReviewFollowUpDue;
 use RatingsAndReviews\Events\ReviewFollowUpPosted;
@@ -9,6 +11,7 @@ use RatingsAndReviews\Models\Review;
 use RatingsAndReviews\Models\ReviewFollowUp;
 use RatingsAndReviews\Services\Erasure;
 use RatingsAndReviews\Services\RatingAggregator;
+use RatingsAndReviews\Services\ReviewFollowUps;
 use RatingsAndReviews\Support\ContentStatus;
 use RatingsAndReviews\Tests\TestCase;
 
@@ -108,6 +111,39 @@ class ReviewFollowUpsTest extends TestCase
         Event::assertDispatchedTimes(ReviewFollowUpDue::class, 1);
         Event::assertDispatched(ReviewFollowUpDue::class, fn (ReviewFollowUpDue $event): bool => $event->review->is($due));
         $this->assertNotNull($due->fresh()->follow_up_invited_at);
+    }
+
+    public function test_follow_ups_switched_on_for_every_section_find_their_sections_from_the_index_alone(): void
+    {
+        Event::fake([ReviewFollowUpDue::class]);
+        config(['ratings-and-reviews.section_defaults.review_follow_up_after_days' => 30, 'ratings-and-reviews.section_defaults.review_follow_up_window_days' => 60]);
+
+        // "kitchen" is in no config and has no saved settings: only the reviews name it.
+        $due = Review::factory()->forSubject($this->product(['section' => 'kitchen']))->create(['approved_at' => now()->subDays(31)]);
+        $deleted = Review::factory()->forSubject($this->product(['section' => 'garden']))->create(['approved_at' => now()->subDays(31)]);
+        $deleted->delete();
+        $withheld = Review::factory()->forSubject($this->product(['section' => 'attic']))->create(['approved_at' => now()->subDays(31), 'erasure_withheld_at' => now()]);
+
+        $queries = [];
+        DB::listen(function (QueryExecuted $query) use (&$queries): void {
+            $queries[] = $query;
+        });
+
+        $this->assertSame(1, app(ReviewFollowUps::class)->sendDue());
+
+        Event::assertDispatchedTimes(ReviewFollowUpDue::class, 1);
+        Event::assertDispatched(ReviewFollowUpDue::class, fn (ReviewFollowUpDue $event): bool => $event->review->is($due));
+        $this->assertNull(Review::query()->withoutGlobalScopes()->find($deleted->id)->follow_up_invited_at);
+        $this->assertNull(Review::query()->withoutGlobalScopes()->find($withheld->id)->follow_up_invited_at);
+
+        $discovery = array_values(array_filter($queries, fn (QueryExecuted $query): bool => str_starts_with($query->sql, 'select distinct `section`')));
+        $this->assertCount(1, $discovery);
+
+        // "Using index" (not "Using index condition"): no review row is read to list the sections.
+        $plan = DB::select('EXPLAIN '.$discovery[0]->sql, $discovery[0]->bindings);
+        $this->assertCount(1, $plan);
+        $this->assertSame('rr_reviews_section_follow_up_index', $plan[0]->key);
+        $this->assertMatchesRegularExpression('/Using index(?! condition)/', (string) $plan[0]->Extra);
     }
 
     public function test_the_summary_reports_the_average_change_from_three_follow_ups(): void

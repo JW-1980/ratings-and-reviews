@@ -408,3 +408,7 @@ Eén migratie, `2026_11_20_000019_optimize_query_indexes` (alleen indexen, geen 
 | `rr_votes`, `rr_poll_votes`, `rr_topic_ratings` | de losse index op `user_id` | geen | Overbodig: `rr_votes_user_item_index`, `rr_poll_votes_user_poll_index` en `rr_topic_ratings_erasure_index` beginnen met `user_id` en bedienen dezelfde query's. Elke stem onderhoudt nu één index minder. Een database zonder de samengestelde index houdt de losse. |
 
 Een host die zelf SQL schrijft met `FORCE INDEX`/`USE INDEX` op een vervallen naam moet die naam aanpassen; het pakket doet dat nergens.
+
+### Query's
+
+- **Vervolgen.** Met een globale `section_defaults.review_follow_up_after_days` zoekt `rr:send-review-invitations` de secties op de reviews zelf. Die query las elke goedgekeurde review-rij (soft deletes en wisverzoeken staan niet in de index); zonder die twee filters komt het antwoord uit `rr_reviews_section_follow_up_index` alleen. Gemeten bij 292.000 goedgekeurde reviews: 1,3–2,2 s → 0,05 ms. Een sectie die alleen nog verwijderde of achtergehouden reviews heeft levert daarna gewoon niets op.

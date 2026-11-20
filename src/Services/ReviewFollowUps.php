@@ -243,9 +243,14 @@ class ReviewFollowUps
         $sections = $this->settings->knownSections();
 
         // A host may switch follow-ups on in section_defaults for every section; then the
-        // section keys only exist on the reviews themselves.
+        // section keys only exist on the reviews themselves. Without the model's scopes
+        // (soft deletes, erasure) the answer comes from rr_reviews_section_follow_up_index
+        // alone instead of from every approved review row; a section found through a
+        // deleted or withheld review only costs the per-section query below, which has
+        // the scopes and then finds nothing.
         if ((int) config('ratings-and-reviews.section_defaults.review_follow_up_after_days', 0) > 0) {
             $sections = array_values(array_unique([...$sections, ...Review::query()
+                ->withoutGlobalScopes()
                 ->where('status', ContentStatus::Approved->value)
                 ->whereNull('follow_up_invited_at')
                 ->whereNotNull('section')
