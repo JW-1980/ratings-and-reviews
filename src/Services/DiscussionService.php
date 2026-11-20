@@ -135,6 +135,10 @@ class DiscussionService
         $status = $hold ? ContentStatus::Pending : ContentStatus::Approved;
         $publishAt = $settings->undoWindowSeconds > 0 ? now()->addSeconds($settings->undoWindowSeconds) : null;
 
+        // Up to three attempts: MariaDB 11.8 (innodb_snapshot_isolation) refuses the slow-mode
+        // lock with "Record has changed since last read" when a concurrent post changed the
+        // state row after this transaction's snapshot; the retry reads afresh and refuses or
+        // posts like MySQL does. Everything inside is database work, rolled back per attempt.
         $comment = DB::transaction(function () use ($request, $subject, $settings, $authorId, $moderator, $placement, $clean, $status, $risk, $quote, $poll, $publishAt, $attribution): Comment {
             if (! $moderator) {
                 $state = $this->states->resolve($subject);
@@ -174,7 +178,7 @@ class DiscussionService
             }
 
             return $comment;
-        });
+        }, attempts: 3);
 
         // Load the database defaults and the generated helpful_score.
         $comment->refresh();
