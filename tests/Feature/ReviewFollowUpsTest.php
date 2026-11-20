@@ -139,8 +139,13 @@ class ReviewFollowUpsTest extends TestCase
         $discovery = array_values(array_filter($queries, fn (QueryExecuted $query): bool => str_starts_with($query->sql, 'select distinct `section`')));
         $this->assertCount(1, $discovery);
 
-        // "Using index" (not "Using index condition"): no review row is read to list the sections.
-        $plan = DB::select('EXPLAIN '.$discovery[0]->sql, $discovery[0]->bindings);
+        // The optimizer's own pick depends on table statistics (on a table of three rows it can
+        // choose another index, depending on what ran before), so the index is forced: the claim
+        // is that this index alone can answer the query. "Using index" (not "Using index
+        // condition"): no review row is read to list the sections.
+        $forced = str_replace('from `rr_reviews`', 'from `rr_reviews` force index (rr_reviews_section_follow_up_index)', $discovery[0]->sql, $count);
+        $this->assertSame(1, $count);
+        $plan = DB::select('EXPLAIN '.$forced, $discovery[0]->bindings);
         $this->assertCount(1, $plan);
         $this->assertSame('rr_reviews_section_follow_up_index', $plan[0]->key);
         $this->assertMatchesRegularExpression('/Using index(?! condition)/', (string) $plan[0]->Extra);
