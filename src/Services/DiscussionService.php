@@ -136,8 +136,12 @@ class DiscussionService
         $publishAt = $settings->undoWindowSeconds > 0 ? now()->addSeconds($settings->undoWindowSeconds) : null;
 
         $comment = DB::transaction(function () use ($request, $subject, $settings, $authorId, $moderator, $placement, $clean, $status, $risk, $quote, $poll, $publishAt, $attribution): Comment {
-            if (! $moderator && ($this->states->isLocked($subject) || $this->states->effectiveSlowMode($subject, $settings) > 0)) {
-                $this->states->assertMayPost($subject, $settings, $authorId);
+            if (! $moderator) {
+                $state = $this->states->resolve($subject);
+
+                if ($this->states->isLocked($subject, $state) || $this->states->effectiveSlowMode($subject, $settings, $state) > 0) {
+                    $this->states->assertMayPost($subject, $settings, $authorId);
+                }
             }
 
             $comment = Comment::query()->create([

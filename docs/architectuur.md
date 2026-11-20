@@ -412,3 +412,5 @@ Een host die zelf SQL schrijft met `FORCE INDEX`/`USE INDEX` op een vervallen na
 ### Query's
 
 - **Vervolgen.** Met een globale `section_defaults.review_follow_up_after_days` zoekt `rr:send-review-invitations` de secties op de reviews zelf. Die query las elke goedgekeurde review-rij (soft deletes en wisverzoeken staan niet in de index); zonder die twee filters komt het antwoord uit `rr_reviews_section_follow_up_index` alleen. Gemeten bij 292.000 goedgekeurde reviews: 1,3–2,2 s → 0,05 ms. Een sectie die alleen nog verwijderde of achtergehouden reviews heeft levert daarna gewoon niets op.
+- **Discussiestatus.** Een discussie zonder rij in `rr_discussion_states` (de meeste) werd per lijstverzoek drie keer opgezocht, in het beheerscherm twee keer en bij plaatsen drie keer: de services zagen `null` als "nog niet opgezocht". `DiscussionStates::resolve()` (nieuw, toevoegend) geeft dan een lege, niet-opgeslagen status terug; nu één query per lijstverzoek en twee bij plaatsen (vóór en in de transactie).
+

@@ -30,6 +30,20 @@ class DiscussionStates
             ->first();
     }
 
+    /**
+     * The stored state, or an unsaved empty one for a discussion that has none (most have
+     * none). Pass it on to effectiveSlowMode(), isLocked() and secondsUntilNextPost(): to
+     * them null means "not looked up yet", so with the result of find() they would ask the
+     * database again for every discussion without a row.
+     */
+    public function resolve(Model $subject): DiscussionState
+    {
+        return $this->find($subject) ?? new DiscussionState([
+            'commentable_type' => $subject->getMorphClass(),
+            'commentable_id' => $subject->getKey(),
+        ]);
+    }
+
     public function effectiveSlowMode(Model $subject, SectionSettings $settings, ?DiscussionState $state = null): int
     {
         $state ??= $this->find($subject);

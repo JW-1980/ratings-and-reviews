@@ -31,7 +31,7 @@ class DiscussionController extends Controller
         $subject = $this->subjects->resolve($type, $id, Commentable::class);
         $this->requireAbility($request, Ability::MODERATE, $subject);
 
-        return new JsonResponse(['data' => $this->present($subject, $this->states->find($subject))]);
+        return new JsonResponse(['data' => $this->present($subject, $this->states->resolve($subject))]);
     }
 
     public function update(UpdateDiscussionRequest $request, string $type, string $id): JsonResponse
